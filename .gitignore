@@ -21,3 +21,10 @@ artifacts/traces/*
 !artifacts/evaluations/.gitkeep
 !artifacts/figures/.gitkeep
 !artifacts/traces/.gitkeep
+
+# Published papers are not ours to redistribute. The dossier notes in
+# research/literature/*.md are our own analysis and are tracked.
+research/literature/pdfs/
+
+# Claude Code tool settings (permission grants, not project configuration).
+.claude/
