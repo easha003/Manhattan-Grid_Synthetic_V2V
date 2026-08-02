@@ -26,7 +26,42 @@ def test_headline_contract_rejects_changed_deadline(tmp_path: Path) -> None:
     ):
         _load_with_override(
             tmp_path,
-            "service:\n  deadline_s: 0.003\n",
+            "service:\n  deadline_s: 0.001\n",
+        )
+
+
+def test_rf_rate_beyond_resource_grid_is_rejected(tmp_path: Path) -> None:
+    """A gross rate the RE grid cannot deliver must fail at load time."""
+
+    with pytest.raises(ConfigurationError, match="RF gross rate is unachievable"):
+        _load_with_override(
+            tmp_path,
+            "rf:\n  timing:\n    gross_bit_rate_bps: 40000000.0\n",
+        )
+
+
+def test_rf_single_slot_qpsk_is_rejected_at_headline_block_size(tmp_path: Path) -> None:
+    """A rate the timing arithmetic accepts but the RE grid cannot deliver.
+
+    One QPSK slot carries ~4,838 coded bits.  Declaring 20 Mbit/s over that
+    slot satisfies ``coded_block <= gross_rate * airtime`` and would have
+    passed before the resource-grid check existed.
+    """
+
+    with pytest.raises(ConfigurationError, match="RF gross rate is unachievable"):
+        _load_with_override(
+            tmp_path,
+            "rf:\n  timing:\n    gross_bit_rate_bps: 20000000.0\n    airtime_s: 0.0005\n",
+        )
+
+
+def test_vlc_rate_exceeding_optical_bandwidth_is_rejected(tmp_path: Path) -> None:
+    """10 Mbit/s OOK does not fit a 5 MHz front end at any realizable roll-off."""
+
+    with pytest.raises(ConfigurationError, match="VLC gross rate is unrealizable"):
+        _load_with_override(
+            tmp_path,
+            "vlc:\n  timing:\n    gross_bit_rate_bps: 10000000.0\n",
         )
 
 

@@ -20,6 +20,15 @@ PositiveInt = Annotated[int, Field(gt=0)]
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
 OpenProbability = Annotated[float, Field(gt=0.0, lt=1.0)]
 
+#: Subcarriers per NR resource block (TS 38.211).
+SUBCARRIERS_PER_RESOURCE_BLOCK = 12
+
+#: OFDM symbols per slot with normal cyclic prefix (TS 38.211).
+OFDM_SYMBOLS_PER_SLOT = 14
+
+#: Coded bits carried by one resource element, by modulation order.
+BITS_PER_RESOURCE_ELEMENT: dict[str, int] = {"qpsk": 2, "16qam": 4, "64qam": 6}
+
 
 class ConfigModel(BaseModel):
     """Base class shared by all strict, immutable configuration sections."""
@@ -212,6 +221,9 @@ class RFConfig(ConfigModel):
     bandwidth_hz: PositiveFloat
     subcarrier_spacing_hz: PositiveFloat
     slot_s: PositiveFloat
+    resource_blocks: PositiveInt
+    modulation: Literal["qpsk", "16qam", "64qam"]
+    resource_element_overhead: OpenProbability
     tx_power_dbm: float
     antenna_height_m: PositiveFloat
     resource_mode: Literal["nr_sidelink_mode2"]
@@ -222,6 +234,27 @@ class RFConfig(ConfigModel):
     calibration_artifact: Path
     timing: PhyTimingConfig
 
+    @property
+    def slots_per_transmission(self) -> float:
+        """Committed airtime expressed in slots."""
+
+        return self.timing.airtime_s / self.slot_s
+
+    def available_coded_bits(self) -> float:
+        """Coded bits the resource grid can carry in the committed airtime.
+
+        This is the physical ceiling that ``timing.gross_bit_rate_bps`` must not
+        exceed.  Overhead covers the AGC symbol, the transmit/receive guard
+        symbol, PSSCH DMRS, and PSCCH.
+        """
+
+        elements_per_slot = (
+            self.resource_blocks * SUBCARRIERS_PER_RESOURCE_BLOCK * OFDM_SYMBOLS_PER_SLOT
+        )
+        usable_per_slot = elements_per_slot * (1.0 - self.resource_element_overhead)
+        bits_per_element = BITS_PER_RESOURCE_ELEMENT[self.modulation]
+        return usable_per_slot * self.slots_per_transmission * bits_per_element
+
 
 class VLCConfig(ConfigModel):
     """Automotive IM/DD optical-link configuration."""
@@ -229,6 +262,8 @@ class VLCConfig(ConfigModel):
     enabled: bool = True
     electrical_bandwidth_hz: PositiveFloat
     modulation: Literal["ook", "pam"]
+    modulation_order: Annotated[int, Field(ge=2)] = 2
+    pulse_roll_off: Annotated[float, Field(ge=0.0, le=1.0)] = 0.3
     headlamp_pattern: Literal["measured_non_lambertian"]
     pattern_artifact: Path
     receiver_fov_deg: Annotated[float, Field(gt=0.0, le=180.0)]
@@ -236,6 +271,30 @@ class VLCConfig(ConfigModel):
     complete_blockage_main: bool = True
     residual_optical_floor_enabled: bool = False
     timing: PhyTimingConfig
+
+    @model_validator(mode="after")
+    def ook_is_binary(self) -> VLCConfig:
+        if self.modulation == "ook" and self.modulation_order != 2:
+            raise ValueError("ook requires modulation_order 2")
+        if self.modulation_order & (self.modulation_order - 1):
+            raise ValueError("modulation_order must be a power of two")
+        return self
+
+    @property
+    def bits_per_symbol(self) -> float:
+        return math.log2(self.modulation_order)
+
+    def occupied_bandwidth_hz(self) -> float:
+        """Baseband bandwidth the configured gross rate actually occupies.
+
+        Raised-cosine shaping with roll-off ``beta`` occupies
+        ``(1 + beta) * symbol_rate / 2``.  A configuration whose occupied
+        bandwidth exceeds ``electrical_bandwidth_hz`` is not realizable: it
+        would require zero excess bandwidth (ideal sinc pulses).
+        """
+
+        symbol_rate = self.timing.gross_bit_rate_bps / self.bits_per_symbol
+        return (1.0 + self.pulse_roll_off) * symbol_rate / 2.0
 
 
 class ObservationConfig(ConfigModel):

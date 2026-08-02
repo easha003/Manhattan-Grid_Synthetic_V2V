@@ -47,9 +47,9 @@ The implementation must make it difficult to:
 |---|---:|
 | Main information block | 300 bytes |
 | Packet generation | Every 100 ms |
-| Main radio-interface deadline | 1 ms |
+| Main radio-interface deadline | 3 ms |
 | Main miss budget | \(10^{-4}\) per density |
-| Secondary miss budget | \(10^{-5}\) in selected 3-ms and 1-ms experiments |
+| Secondary miss budget | \(10^{-5}\) at the same payload and deadline |
 | Action set | RF, VLC, simultaneous DUP |
 | Link attempts | At most one committed attempt per selected link |
 | Feedback HARQ in deadline | Disabled |
@@ -72,7 +72,8 @@ cross-module validation treats them as the headline contract.
 The initial code will not implement:
 
 - multi-agent or network-wide resource control;
-- feedback HARQ inside the 1-ms deadline;
+- feedback HARQ inside the radio-interface deadline (a 5.9 GHz FR1 round trip
+  does not fit even at 60 kHz SCS);
 - queuing across packet deadlines;
 - perpendicular/intersection V-VLC with side-facing receivers;
 - rain, fog, or snow;
@@ -171,9 +172,8 @@ CMDP_PPO/
 │   │   ├── synthetic_manhattan.yaml
 │   │   └── nyc_osm.yaml
 │   ├── service/
-│   │   ├── headline_300B_1ms_1e-4.yaml
-│   │   ├── ev2x_300B_3ms_1e-5.yaml
-│   │   └── extreme_300B_1ms_1e-5.yaml
+│   │   ├── ev2x_300B_3ms_1e-4.yaml
+│   │   └── ev2x_300B_3ms_1e-5.yaml
 │   ├── channel/
 │   │   ├── rf_nr_v2x.yaml
 │   │   └── vlc_vehicle.yaml
@@ -2356,7 +2356,8 @@ Deliver:
 
 Exit:
 
-- complete 300-byte block fits 1 ms;
+- complete 300-byte block fits the headline deadline within the declared
+  optical bandwidth;
 - optical trends pass validation.
 
 ### M5 — Packet environment and feasibility

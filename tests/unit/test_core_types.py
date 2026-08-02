@@ -62,7 +62,7 @@ def test_pair_and_service_profiles_are_value_objects() -> None:
         name="headline",
         payload_bytes=300,
         generation_period_s=0.1,
-        deadline_s=0.001,
+        deadline_s=0.003,
         miss_budget=1e-4,
     )
     assert pair.tx is tx

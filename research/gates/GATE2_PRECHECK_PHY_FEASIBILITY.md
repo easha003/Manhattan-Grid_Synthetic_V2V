@@ -1,7 +1,20 @@
 # Gate-2 pre-check — PHY feasibility of the headline profile
 
-**Status:** conditional pass on both legs. Two configuration corrections are
-required before any channel module is written.
+> **Historical for §1–§6; current result in §7.** This document first evaluated
+> the former 300 B / **1 ms** / 10⁻⁴ profile. The headline is now
+> 300 B / **3 ms** / 10⁻⁴ (`configs/service/ev2x_300B_3ms_1e-4.yaml`).
+>
+> The 1-ms profiles have since been deleted, so §1–§6 no longer describe any
+> loadable configuration. They are retained as **the recorded justification for
+> choosing 3 ms**: they are where the RF leg's forced 16QAM and the ~1 Mbit/s
+> VLC window were found. That reasoning belongs in the paper's profile
+> rationale and should not be re-derived.
+>
+> Both configuration corrections identified in §5 have been applied, and both
+> checks are now enforced by the configuration loader.
+
+**Status:** unconditional pass on both legs at the 3-ms headline (§7).
+Conditional pass only, at 1 ms (§2–§3) — which is why the headline moved.
 
 **Scope:** `CODE_IMPLEMENTATION_SPEC.md` §13.6.1 and
 `GRAIL_V_WORK_PLAN_V2.md` §8.2 require that every selected PHY be shown to
@@ -11,7 +24,10 @@ frozen headline profile and the currently declared channel configurations.
 
 **Inputs:**
 
-- [`configs/service/headline_300B_1ms_1e-4.yaml`](../../configs/service/headline_300B_1ms_1e-4.yaml)
+- `configs/service/headline_300B_1ms_1e-4.yaml` *(deleted; §1–§6 evaluated it
+  as it stood at the time)*
+- [`configs/service/ev2x_300B_3ms_1e-4.yaml`](../../configs/service/ev2x_300B_3ms_1e-4.yaml)
+  *(current headline, §7)*
 - [`configs/channel/vlc_vehicle.yaml`](../../configs/channel/vlc_vehicle.yaml)
 - [`configs/channel/rf_nr_v2x.yaml`](../../configs/channel/rf_nr_v2x.yaml)
 - W17 (Memedi & Dressler, *IEEE COMST* 2021), local full text
@@ -254,3 +270,71 @@ found at week 9 instead of week 1 under the v1 plan.
 The two "Reference" rows should be pinned to exact 3GPP clause numbers before
 Table I is finalized.
 
+---
+
+## 7. Re-run at the 3-ms headline
+
+The headline moved to 300 B / 3 ms / 10⁻⁴. The gate was re-run against the new
+profile; both legs now pass **unconditionally**, and the surplus is spent on
+coding gain rather than throughput.
+
+### 7.1 V-VLC — rate 1/4, OOK, 2.4 ms airtime
+
+| Quantity | 1 ms (former) | 3 ms (headline) |
+|---|---:|---:|
+| Code rate | 1/2 | **1/4** |
+| Coded block | 5,312 bits | 10,624 bits |
+| Airtime budget | 800 µs | 2,400 µs |
+| Minimum gross rate | 6.64 Mbit/s | 4.43 Mbit/s |
+| Configured gross rate | 7.0 Mbit/s | **4.5 Mbit/s** |
+| Occupied bandwidth (β = 0.3) | 4.55 MHz | **2.93 MHz** |
+| Share of the 5 MHz front end | 91% | **59%** |
+
+The 1-ms feasible window was 6.64–7.69 Mbit/s — about 1 Mbit/s wide, and
+closed entirely at roll-off 0.5 or code rate below 1/2. At 3 ms the symbol
+rate sits at 59% of the declared front end, comfortably inside the LED's flat
+region, while the code strengthens from rate 1/2 to rate 1/4.
+
+### 7.2 NR sidelink — QPSK, rate 1/3, two-slot allocation
+
+| Quantity | 1 ms (former) | 3 ms (headline) |
+|---|---:|---:|
+| Modulation | **16QAM (mandatory)** | **QPSK** |
+| Code rate | 1/2 | **1/3** |
+| Coded block | 5,568 bits | 8,352 bits |
+| Airtime | 500 µs (1 slot) | 1,000 µs (2 slots) |
+| Grid capacity (24 RB, 40% overhead) | 9,677 bits at 16QAM | 9,677 bits at QPSK |
+| Margin | — | **14%** |
+
+At 1 ms the block did not fit one slot at QPSK (4,896 available against 5,568
+required), forcing 16QAM and roughly 6 dB of SNR. **The 3-ms deadline permits a
+two-slot allocation, which removes the 16QAM requirement entirely** and buys a
+rate-1/3 code on top. This is a multi-slot PSSCH allocation, not a
+retransmission: `service.rf_attempts_per_packet` remains 1.
+
+### 7.3 Verdict
+
+| Leg | Timing | Front end | Verdict |
+|---|:--:|:--:|---|
+| V-VLC | Pass | Pass, 41% bandwidth margin | **Unconditional pass** |
+| NR sidelink | Pass | Pass at QPSK, 14% grid margin | **Unconditional pass** |
+
+Neither leg is operating against a ceiling, and the reliability margin needed
+for the 10⁻⁵ frontier now comes from coding gain rather than from pushing the
+hardware.
+
+### 7.4 The gate is now enforced in code
+
+Both corrections identified in §5 have been applied, and — more importantly —
+both checks are now invariants the configuration loader enforces at load time:
+
+- `RFConfig.available_coded_bits()` computes the resource-element ceiling from
+  bandwidth, numerology, modulation, and overhead;
+  `_validate_rf_resource_grid` rejects any declared rate above it.
+- `VLCConfig.occupied_bandwidth_hz()` computes occupied baseband bandwidth
+  from the gross rate, modulation order, and roll-off;
+  `_validate_vlc_bandwidth` rejects any rate exceeding the optical front end.
+
+The 10 Mbit/s-in-5 MHz contradiction that this document originally found by
+hand now fails in milliseconds with an explicit error. Gate 2 can no longer
+silently regress when calibration changes a parameter.

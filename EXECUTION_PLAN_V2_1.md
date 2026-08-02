@@ -27,7 +27,7 @@ control under a reliability budget, and trajectory-level rare-event evaluation.
 |---|---|---|---:|
 | 5G-LENA Mode-2 calibration campaign | §7.2 fallback | Scoped analytical collision model + sensitivity bands | ~2 wk + tail risk |
 | Real Manhattan OSM + NYC DOT calibration | Risk 6 | Synthetic grid only | ~1.5 wk |
-| 10⁻⁵ ultra-reliability campaigns | §1.2, §13.4, Risk 5 | Discussion paragraph, no campaign | ~1 wk + 10⁷ runs |
+| 10⁻⁵ as the *headline* claim | §1.2, §13.4, Risk 5 | Declared frontier on the reduced 4-policy set; upgrades the claim if the bound supports it | ~1 wk + 10⁷ runs |
 | Veins-VLC cross-check | §8.1 ("closest reproducible") | W17/W18 tabulated curves | ~1 wk |
 
 **Consequences accepted now, not retroactively:**
@@ -37,7 +37,21 @@ control under a reliability budget, and trajectory-level rare-event evaluation.
   Spec §10.5 `mode2_surrogate.py` and all of `tools/fiveg_lena/` leave the
   critical path.
 - No real-map robustness claim unless it is reinstated at week 14.
-- 10⁻⁵ appears only as discussion with raw miss counts, per Risk 5.
+- 10⁻⁵ is evaluated but not assumed. §13.2's rule is that the one-sided upper
+  bound must clear the budget, and burst correlation inflates it — so a true
+  miss rate roughly 1.5–2× below the nominal target is needed before either
+  level can be claimed. Report raw miss counts and the bound at both levels
+  per Risk 5; claim whichever the statistics support.
+
+**Compute note (single M2 MacBook Pro):** the reliability target is not the
+binding constraint — environment vectorization is. The 64×64 policy trains in
+minutes; environment stepping dominates by ~100×. A vectorized NumPy env
+(~10⁵ steps/s) runs even the full 10⁷-packet frontier campaign in well under
+an hour, while a naive per-packet Python loop (~10³ steps/s) turns the 10⁶
+headline evaluation into a working day. Treat spec §16.5 `vector_env.py` as
+mandatory and build it alongside the environment at M5, not as a retrofit.
+CPU will likely beat MPS at this network size — do not spend time on GPU
+plumbing.
 
 **Reinstatement points:** if the week-1 gate passed cleanly (it did — see
 [`research/gates/GATE2_PRECHECK_PHY_FEASIBILITY.md`](research/gates/GATE2_PRECHECK_PHY_FEASIBILITY.md))
@@ -104,14 +118,31 @@ days, not weeks, and are reinstated here.
 5. **Declared slack** (§4 above).
 6. **Scheduled literature re-check** at week 16: W12 full text, Xplore/Scopus
    strings, new citations to W1 and W2. v2 assumes this happens without
-   calendaring it. Note that `W12_full.pdf` is currently a failed download —
-   see the file audit.
+   calendaring it. **W12's full text has never been obtained** — the two files
+   under that name were Incapsula block pages, not PDFs, and were deleted.
+   W18 also has no local copy despite being a Gate-2 VLC input.
 
 ## 6. Frozen decisions
 
-- Headline profile stays **300 B / 1 ms / 10⁻⁴**. The week-1 gate cleared both
-  legs; Risk 1 does not fire.
-- VLC gross rate must sit inside the feasible window; RF requires 16QAM. Both
-  configuration corrections are pending — see the gate document §5.
-- `configs/service/ev2x_300B_3ms_1e-5.yaml` is retained as the Risk-1 fallback
-  profile and must not be deleted.
+- Headline profile is **300 B / 3 ms / 10⁻⁴**, in
+  `configs/service/ev2x_300B_3ms_1e-4.yaml`. Payload and deadline follow the
+  TR 38.913 eV2X row; the miss budget follows the TS 22.186 advanced-driving
+  99.99% class.
+- **10⁻⁵ is a declared frontier, not the headline.** The two differ only in
+  miss budget, so a supported 10⁻⁵ upper bound upgrades the claim without
+  re-freezing the contract. The reverse — freezing 10⁻⁵ and failing to
+  demonstrate it — would mean rewriting the contract, configs, tests,
+  curriculum, and the paper's framing. That asymmetry is the whole reason for
+  the conservative choice.
+- Channel timing banks the 3-ms surplus as **coding gain, not throughput**:
+  RF runs QPSK at rate 1/3 over a two-slot allocation, VLC runs OOK at rate
+  1/4 occupying 59% of the declared front end. `rf_attempts_per_packet` stays
+  1 — a multi-slot allocation is not a retransmission.
+- **The 1-ms profiles were removed.** Only the two 3-ms profiles remain, so
+  the channel layers have exactly one operating point and cannot silently
+  validate against a deadline they were not designed for. The 1-ms analysis
+  survives as the recorded justification for choosing 3 ms — see §1–§6 of the
+  gate document — not as loadable configuration.
+- Gate 2 is enforced in code, not prose: the loader rejects an RF rate the
+  resource grid cannot deliver and a VLC rate exceeding the optical front end.
+  Both fail in milliseconds at load, not after weeks of training.

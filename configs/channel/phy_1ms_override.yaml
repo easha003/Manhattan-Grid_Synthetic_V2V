@@ -1,0 +1,21 @@
+# PHY timing for the secondary 1-ms profiles.
+#
+# The base channel layers target the 3-ms headline, where RF runs QPSK over a
+# two-slot allocation and VLC runs a rate-1/4 code.  Neither fits a 1-ms
+# deadline.  This layer restores the corrected 1-ms operating point derived in
+# research/gates/GATE2_PRECHECK_PHY_FEASIBILITY.md.
+
+rf:
+  modulation: "16qam"
+  timing:
+    gross_bit_rate_bps: 12000000.0
+    airtime_s: 0.0005
+    framing_overhead_bytes: 48
+    code_rate: 0.5
+
+vlc:
+  timing:
+    gross_bit_rate_bps: 7000000.0
+    airtime_s: 0.0008
+    framing_overhead_bytes: 32
+    code_rate: 0.5

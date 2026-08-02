@@ -24,7 +24,7 @@ lower activation cost than Always-DUP.
 
 **If falsified — no policy, including the oracle, is feasible at high density:**
 this is **finding #1, not failure**. The paper becomes the density beyond which
-hybrid redundancy cannot rescue a 1 ms deadline, with the mechanism attributed
+hybrid redundancy cannot rescue the eV2X deadline, with the mechanism attributed
 (joint blockage vs RF congestion vs PHY timing) from saved traces. Work-plan v2
 §13.6 forbids training PPO against an impossible constraint, and Risk 3 sets
 the response.
@@ -83,7 +83,7 @@ sufficed — exceeds 60%, mirroring W2's 66% but with physically decorrelated
 legs rather than two RF RATs.
 
 **If falsified — waste stays high:** the feasible single-link opportunity is
-rarer than assumed, which is itself a result about the 1 ms regime. Report the
+rarer than assumed, which is itself a result about the 3 ms regime. Report the
 frontier and say so.
 
 ---
@@ -114,7 +114,7 @@ veh/lane-km degrades miss probability by less than 3× while staying within
 constraint.
 
 **If falsified — inference misses the gate:** v2 §11.5 already restricts the
-claim to "compatible with 1 ms only if the complete observation-to-action path
+claim to "compatible with the deadline only if the complete observation-to-action path
 leaves enough time". Narrow the claim; do not narrow the network until the
 architecture has been profiled rather than guessed.
 

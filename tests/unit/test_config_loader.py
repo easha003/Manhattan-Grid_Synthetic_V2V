@@ -44,7 +44,7 @@ def test_headline_loader_returns_frozen_resolved_configuration() -> None:
 
     assert config.schema_version == "1.0"
     assert config.service.payload_bytes == 300
-    assert config.service.deadline_s == pytest.approx(0.001)
+    assert config.service.deadline_s == pytest.approx(0.003)
     assert config.service.miss_budget == pytest.approx(1e-4)
     assert config.mobility.target_densities_veh_per_lane_km == (
         20.0,
@@ -140,10 +140,8 @@ def test_extreme_ultra_reliability_layers_form_valid_configuration() -> None:
     config_root = PROJECT_ROOT / "configs"
     layers = list(headline_config_layers(PROJECT_ROOT))
     layers[2] = config_root / "service" / "extreme_300B_1ms_1e-5.yaml"
-    layers.insert(
-        -1,
-        config_root / "training" / "primal_dual_ppo_ultra.yaml",
-    )
+    layers.insert(5, config_root / "channel" / "phy_1ms_override.yaml")
+    layers.insert(-1, config_root / "training" / "primal_dual_ppo_ultra.yaml")
     layers[-1] = config_root / "evaluation" / "ultra_reliability.yaml"
 
     config = load_config(layers, project_root=PROJECT_ROOT)
@@ -152,6 +150,21 @@ def test_extreme_ultra_reliability_layers_form_valid_configuration() -> None:
     assert config.service.deadline_s == pytest.approx(0.001)
     assert config.service.miss_budget == pytest.approx(1e-5)
     assert config.evaluation.min_packets_per_policy_density == 10_000_000
+    # 16QAM is not a preference at 1 ms; QPSK cannot carry the block in one slot.
+    assert config.rf.modulation == "16qam"
+
+
+def test_one_millisecond_profile_is_infeasible_without_its_phy_layer() -> None:
+    """The 3-ms channel timing must not silently validate at a 1-ms deadline."""
+
+    config_root = PROJECT_ROOT / "configs"
+    layers = list(headline_config_layers(PROJECT_ROOT))
+    layers[2] = config_root / "service" / "extreme_300B_1ms_1e-5.yaml"
+    layers.insert(-1, config_root / "training" / "primal_dual_ppo_ultra.yaml")
+    layers[-1] = config_root / "evaluation" / "ultra_reliability.yaml"
+
+    with pytest.raises(ConfigurationError, match="VLC airtime"):
+        load_config(layers, project_root=PROJECT_ROOT)
 
 
 def test_nyc_mobility_layer_resolves_network_artifact() -> None:

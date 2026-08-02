@@ -4,6 +4,14 @@ rf:
   bandwidth_hz: 10000000.0
   subcarrier_spacing_hz: 30000.0
   slot_s: 0.0005
+  # 10 MHz at 30 kHz SCS is 24 RB (TS 38.101-1 Table 5.3.2-1).
+  resource_blocks: 24
+  # QPSK is viable only because the 3-ms deadline permits a two-slot
+  # allocation.  At a 1-ms deadline the block did not fit one slot at QPSK and
+  # 16QAM was mandatory; see research/gates/GATE2_PRECHECK_PHY_FEASIBILITY.md.
+  modulation: "qpsk"
+  # AGC symbol, transmit/receive guard symbol, PSSCH DMRS, and PSCCH.
+  resource_element_overhead: 0.40
   tx_power_dbm: 23.0
   antenna_height_m: 1.5
   resource_mode: "nr_sidelink_mode2"
@@ -13,9 +21,10 @@ rf:
   temporally_correlated_fading: true
   calibration_artifact: "artifacts/calibration/rf/mode2-v1"
   timing:
-    # Provisional feasibility-gate values. Calibration may replace the rate/MCS,
-    # but no experiment may run with a coded block that fails this gate.
-    gross_bit_rate_bps: 12000000.0
-    airtime_s: 0.0005
+    # Two 0.5-ms slots for one attempt.  This is a multi-slot PSSCH
+    # allocation, not a retransmission: service.rf_attempts_per_packet stays 1.
+    # Rate 1/3 spends the 3-ms surplus on coding gain rather than throughput.
+    gross_bit_rate_bps: 9000000.0
+    airtime_s: 0.001
     framing_overhead_bytes: 48
-    code_rate: 0.5
+    code_rate: 0.333333

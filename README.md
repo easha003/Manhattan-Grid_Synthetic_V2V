@@ -36,12 +36,19 @@ SUMO can be supplied through `SUMO_HOME`, normal executable lookup, or the
 
 - 300-byte information block
 - one packet every 100 ms
-- 1-ms radio-interface deadline
+- 3-ms radio-interface deadline
 - deadline-miss budget \(10^{-4}\) per traffic-density group
 - actions: RF, VLC, or simultaneous DUP
 - pre-reserved NR sidelink opportunity with one attempt per selected leg
 - no feedback HARQ inside the deadline
 - normalized activation costs RF = 1, VLC = 1, and DUP = 2
+
+Payload and deadline follow the 3GPP TR 38.913 eV2X reference row; the
+\(10^{-4}\) budget follows the 99.99% reliability class of the TS 22.186
+advanced-driving services. The complete tuple is a controlled research profile,
+not a conformance claim. A \(10^{-5}\) frontier at the same payload and
+deadline is declared in `configs/service/ev2x_300B_3ms_1e-5.yaml`; it upgrades
+the claim if its one-sided upper bound supports it.
 
 Generated traces, checkpoints, and evaluations belong under `artifacts/` with
 versioned manifests. They are not source files.

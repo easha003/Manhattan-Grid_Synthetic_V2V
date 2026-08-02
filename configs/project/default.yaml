@@ -3,7 +3,7 @@ schema_version: "1.0"
 project:
   name: "grail-v"
   experiment: "headline"
-  description: "Frozen 300-byte, 1-ms, 1e-4 conference experiment"
+  description: "Frozen 300-byte, 3-ms, 1e-4 eV2X conference experiment"
 
 geometry:
   tagged_pair_mode: "longitudinal_following"

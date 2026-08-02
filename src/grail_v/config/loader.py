@@ -203,7 +203,7 @@ def headline_config_layers(project_root: PathLike) -> tuple[Path, ...]:
     return (
         config_root / "project" / "default.yaml",
         config_root / "mobility" / "synthetic_manhattan.yaml",
-        config_root / "service" / "headline_300B_1ms_1e-4.yaml",
+        config_root / "service" / "ev2x_300B_3ms_1e-4.yaml",
         config_root / "channel" / "rf_nr_v2x.yaml",
         config_root / "channel" / "vlc_vehicle.yaml",
         config_root / "observation" / "causal_200ms_forecast.yaml",

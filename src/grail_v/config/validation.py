@@ -54,7 +54,7 @@ def _validate_headline_contract(config: ProjectConfig) -> None:
         config.service.generation_period_s,
         0.1,
     )
-    _require_headline("service.deadline_s", config.service.deadline_s, 0.001)
+    _require_headline("service.deadline_s", config.service.deadline_s, 0.003)
     _require_headline("service.miss_budget", config.service.miss_budget, 1e-4)
     _require_headline("service.harq_enabled", config.service.harq_enabled, False)
     _require_headline(
@@ -129,6 +129,47 @@ def _validate_phy_timing(
         )
 
 
+def _validate_rf_resource_grid(config: ProjectConfig) -> None:
+    """Reject an RF rate the resource grid cannot physically deliver.
+
+    ``_validate_phy_timing`` only compares the coded block against
+    ``gross_bit_rate_bps * airtime_s``.  That check passes for any declared
+    rate, however large.  This check bounds the declared rate by the resource
+    elements the configured bandwidth, numerology, and modulation actually
+    provide, so an unachievable MCS choice fails at load time.
+
+    Bounding the rate is sufficient.  ``_validate_phy_timing`` has already
+    established ``coded_block <= capacity``, so ``capacity <= available``
+    transitively guarantees the block fits the grid.
+    """
+
+    rf = config.rf
+    available = rf.available_coded_bits()
+    if rf.timing.capacity_bits > available + 1e-9:
+        raise ConfigurationError(
+            f"RF gross rate is unachievable: configured airtime claims "
+            f"{rf.timing.capacity_bits:g} coded bits but the resource grid "
+            f"({rf.resource_blocks} RB, {rf.modulation}, "
+            f"{rf.resource_element_overhead:.0%} overhead, "
+            f"{rf.slots_per_transmission:g} slot(s)) provides only "
+            f"{available:g} bits"
+        )
+
+
+def _validate_vlc_bandwidth(config: ProjectConfig) -> None:
+    """Reject a VLC rate that does not fit the declared optical front end."""
+
+    vlc = config.vlc
+    occupied = vlc.occupied_bandwidth_hz()
+    if occupied > vlc.electrical_bandwidth_hz + 1e-6:
+        raise ConfigurationError(
+            f"VLC gross rate is unrealizable: {vlc.timing.gross_bit_rate_bps:g} bit/s "
+            f"at {vlc.modulation} with roll-off {vlc.pulse_roll_off:g} occupies "
+            f"{occupied:g} Hz, exceeding the {vlc.electrical_bandwidth_hz:g} Hz "
+            f"electrical bandwidth"
+        )
+
+
 def _overlap(left: Iterable[str], right: Iterable[str]) -> set[str]:
     return set(left).intersection(right)
 
@@ -196,6 +237,7 @@ def validate_project_config(config: ProjectConfig) -> ProjectConfig:
             payload_bytes=config.service.payload_bytes,
             deadline_s=config.service.deadline_s,
         )
+        _validate_rf_resource_grid(config)
         if config.rf.opportunity != config.service.rf_resource_assumption:
             raise ConfigurationError("rf.opportunity must match service.rf_resource_assumption")
     if config.vlc.enabled:
@@ -205,6 +247,7 @@ def validate_project_config(config: ProjectConfig) -> ProjectConfig:
             payload_bytes=config.service.payload_bytes,
             deadline_s=config.service.deadline_s,
         )
+        _validate_vlc_bandwidth(config)
 
     expected_packets = round(
         config.environment.episode_duration_s / config.service.generation_period_s
