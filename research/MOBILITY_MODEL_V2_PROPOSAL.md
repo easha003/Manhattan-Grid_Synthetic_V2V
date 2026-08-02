@@ -190,18 +190,45 @@ This eliminates the entire closed-loop calibration subsystem — the demand
 scaling search, its evaluation budget, and its failure modes.
 
 **Reporting requirement:** every trace manifest must continue to report realised
-density, mean speed, stopped fraction, and queue statistics, even though density
-is now exact. Work plan §4.2's prohibition on inferring density from requested
-flow is satisfied trivially, but the other statistics remain evidence of
-plausible traffic.
+density, mean speed, stopped fraction, and queue statistics. Work plan §4.2's
+prohibition on inferring density from requested flow still binds: the realised
+value is what is recorded, never the requested one.
+
+**Measured behaviour (implemented).** The initial population is placed exactly,
+and realised density then settles as follows over a 60 s window after a 300 s
+warm-up:
+
+| Target ρ_L | Realised | Error | Mean speed | Stopped | Overlaps |
+|---:|---:|---:|---:|---:|---:|
+| 20 | 20.01 | 0.05% | 5.36 m/s | 35.3% | 0 |
+| 40 | 39.99 | 0.02% | 2.50 m/s | 56.3% | 0 |
+| 60 | 58.68 | 2.20% | 1.79 m/s | 71.4% | 0 |
+
+All three are inside the 5% Gate-1 tolerance. The shortfall at ρ_L = 60 is not
+a defect: at that density every boundary entry edge is occupied essentially all
+the time, so an injection that would place overlapping footprints is deferred
+until room appears. The network is then close to its signal-limited inflow
+capacity, and realised density settles a few percent below the nominal target.
+Reporting the realised value rather than the target is what keeps this honest.
 
 ### 4.7 Warm-up
 
-Vehicles are initially placed with uniform random spacing, which is not a
-steady state — queues have not yet formed. A warm-up interval is still
+Vehicles are initially placed evenly along each edge, which is not a steady
+state — queues have not yet formed. A warm-up interval is therefore still
 discarded before recording. Its length is a validation output (§7), not an
-assumed constant: it is chosen as the time after which mean speed and stopped
-fraction are stationary.
+assumed constant: it is the time after which mean speed and stopped fraction
+become stationary.
+
+**Measured (implemented).** At ρ_L = 60, the most demanding case, mean speed
+falls from 5.5 m/s at placement to roughly 2.2 m/s while the stopped fraction
+rises from 14% to about 60% within the first 120 s, after which both oscillate
+around a stable level at the 90 s signal period. Stationarity is reached by
+roughly 120–160 s, so the work plan's 300 s warm-up is comfortably sufficient
+and is retained unchanged.
+
+Warm-up length proved load-bearing during implementation. The ρ_L = 60 case
+reported a 5.7% density error at a 60 s warm-up — a Gate-1 failure — 3.2% at
+120 s, and a settled 2.2% only at the full 300 s.
 
 ### 4.8 Determinism
 
