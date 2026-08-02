@@ -10,13 +10,23 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from grail_v import __version__
+from grail_v.config import headline_config_layers, load_config
+from grail_v.core.errors import GrailVError
 from grail_v.doctor import doctor_succeeded, run_doctor
+from grail_v.mobility.pipeline import GridTracePipeline, TraceCampaignPlan, TraceCampaignResult
 
 app = typer.Typer(
     name="grailv",
     help="GRAIL-V research implementation commands.",
     no_args_is_help=True,
 )
+mobility_app = typer.Typer(
+    name="mobility",
+    help="Analytic Manhattan-grid mobility commands.",
+    no_args_is_help=True,
+)
+app.add_typer(mobility_app)
 console = Console()
 
 
@@ -84,6 +94,94 @@ def doctor(
         console.print(table)
 
     if not doctor_succeeded(checks):
+        raise typer.Exit(code=1)
+
+
+def _render_campaign(result: TraceCampaignResult) -> None:
+    table = Table(title="Gate 1 — mobility credibility")
+    table.add_column("Target ρ", justify="right")
+    table.add_column("Realized", justify="right")
+    table.add_column("Trace")
+    table.add_column("Pairs", justify="right")
+    table.add_column("Gate 1")
+    for density in result.densities:
+        style = "green" if density.passed else "red"
+        table.add_row(
+            f"{density.target_density_veh_per_lane_km:g}",
+            f"{density.realized_density_veh_per_lane_km:.2f}",
+            density.trace_id,
+            str(len(density.pair_segments)),
+            f"[{style}]{'pass' if density.passed else 'FAIL'}[/{style}]",
+        )
+    console.print(table)
+    for density in result.densities:
+        failed = [check for check in density.validation.gate1_checks if not check.passed]
+        if failed:
+            console.print(f"[red]{density.trace_id} failed Gate-1 checks:[/red]")
+            for check in failed:
+                console.print(f"  - {check.name}: {check.detail}")
+
+
+@mobility_app.command("generate-traces")
+def mobility_generate_traces(
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Artifact root for generated traces.", file_okay=False),
+    ],
+    config: Annotated[
+        list[Path] | None,
+        typer.Option("--config", help="Layered YAML path; repeat in merge order.", exists=True),
+    ] = None,
+    project_root: Annotated[
+        Path | None,
+        typer.Option("--project-root", help="Project root containing configs/.", exists=True),
+    ] = None,
+    density: Annotated[
+        list[float] | None,
+        typer.Option("--density", help="Override target densities in veh/lane-km."),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON.")
+    ] = False,
+) -> None:
+    """Generate traces, extract tagged pairs, and report Gate 1.
+
+    Returns nonzero when any target density fails a Gate-1 condition.
+    """
+
+    root = project_root if project_root is not None else Path.cwd()
+    layers = tuple(config) if config else headline_config_layers(root)
+    try:
+        resolved = load_config(layers, project_root=root)
+        pipeline = GridTracePipeline(
+            resolved,
+            TraceCampaignPlan(output_root=output, code_version=__version__),
+        )
+        console.print(f"resolved configuration hash: [bold]{pipeline.config_hash}[/bold]")
+        result = pipeline.run(target_densities=density or None)
+    except GrailVError as error:
+        console.print(f"[red]{type(error).__name__}: {error}[/red]")
+        raise typer.Exit(code=1) from error
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "gate1_passed": result.gate1_passed,
+                    "config_hash": result.config_hash,
+                    "manifest_path": str(result.manifest_path),
+                    "densities": [item.to_record() for item in result.densities],
+                },
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+        )
+    else:
+        _render_campaign(result)
+        console.print(f"campaign manifest: {result.manifest_path}")
+
+    if not result.gate1_passed:
         raise typer.Exit(code=1)
 
 

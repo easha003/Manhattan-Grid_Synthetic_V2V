@@ -18,6 +18,7 @@ Three properties are load-bearing and are asserted by the tests:
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -102,6 +103,19 @@ class _Vehicle:
     @property
     def edge(self) -> GridEdge:
         return self.route[self.route_index]
+
+    @property
+    def route_id(self) -> str:
+        """Stable identifier derived from the planned edge sequence.
+
+        Deriving it from the route rather than from the vehicle means two
+        vehicles with the same itinerary genuinely share an identifier.  Under
+        the SUMO backend every vehicle received a unique auto-generated route
+        id, so the tagged-pair route comparison could never match.
+        """
+
+        digest = hashlib.sha256("\x1f".join(self.planned_route_ids).encode()).hexdigest()
+        return f"route-{digest[:16]}"
 
     @property
     def planned_route_ids(self) -> tuple[str, ...]:
@@ -472,9 +486,20 @@ class GridMobilitySimulator:
                 height_m=vehicle.vehicle_type.height_m,
                 lane_id=edge.lane_id(),
                 edge_id=edge.edge_id,
-                route_id=vehicle.vehicle_id,
+                route_id=vehicle.route_id,
                 vehicle_type=vehicle.vehicle_type.type_id,
             )
+
+    @staticmethod
+    def route_table(vehicles: list[_Vehicle]) -> dict[str, list[str]]:
+        """Return ``{vehicle_id: [edge ids]}`` for archiving with the trace.
+
+        Persisting this is what lets tagged-pair extraction test a *shared
+        upcoming path* after a trace is reloaded, rather than falling back to
+        comparing opaque route identifiers.
+        """
+
+        return {vehicle.vehicle_id: list(vehicle.planned_route_ids) for vehicle in vehicles}
 
     def signal_records(self, spec: GridMobilitySpec, time_s: float) -> Iterator[SignalStateRecord]:
         for junction_id, phase in self.signals.phase_records(time_s):

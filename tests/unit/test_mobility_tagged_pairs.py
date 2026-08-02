@@ -33,7 +33,7 @@ def _vehicle(
     x_m: float,
     *,
     route_id: str = "route-main",
-    lane_id: str = "east_0",
+    lane_id: str = "east-a_0",
     heading_rad: float = 0.0,
     planned_route: tuple[str, ...] | None = ("east-a", "east-b"),
 ) -> VehicleRecord:
@@ -91,18 +91,11 @@ def test_extracts_follower_to_leader_with_required_schema() -> None:
     )
 
 
-def test_rejects_opposing_cross_lane_and_different_route_candidates() -> None:
+def test_rejects_opposing_and_cross_lane_candidates() -> None:
     records = [
         _vehicle(0.0, "tx", 0.0),
         _vehicle(0.0, "opposing", 30.0, heading_rad=math.pi),
-        _vehicle(0.0, "other-lane", 30.0, lane_id="east_1"),
-        _vehicle(
-            0.0,
-            "other-route",
-            30.0,
-            route_id="route-other",
-            planned_route=("north-a",),
-        ),
+        _vehicle(0.0, "other-lane", 30.0, lane_id="east-b_0"),
     ]
 
     assert TaggedPairExtractor().extract(records) == ()
@@ -148,11 +141,24 @@ def test_only_continuous_one_second_range_excursion_terminates_episode() -> None
 
 
 def test_route_divergence_ends_at_observed_divergence_time() -> None:
+    """Divergence is a temporal event: the leader leaves the follower's path.
+
+    Implementation spec section 8.7 ends an episode when "the routes diverge".
+    Two vehicles sharing an edge have not diverged however their itineraries
+    differ later, so the leader must actually turn off before the episode ends.
+    """
+
     records = _two_vehicle_frames(((0.0, 0.0, 30.0),))
     records.extend(
         (
-            _vehicle(0.5, "tx", 5.0, planned_route=("east-a", "north-a")),
-            _vehicle(0.5, "rx", 35.0, planned_route=("east-a", "south-a")),
+            _vehicle(0.5, "tx", 5.0, planned_route=("east-a", "east-b")),
+            _vehicle(
+                0.5,
+                "rx",
+                35.0,
+                lane_id="north-a_0",
+                planned_route=("east-a", "north-a"),
+            ),
         )
     )
 

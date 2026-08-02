@@ -58,9 +58,9 @@ SIGNAL_STATE_SCHEMA = pa.schema(
 )
 
 _REQUIRED_TRACE_FILES = (
-    "network.net.xml",
+    "network.json",
     "resolved_config.yaml",
-    "routes.rou.xml",
+    "routes.json",
     "signals.parquet",
 )
 _FLOAT_VEHICLE_FIELDS = (
@@ -277,8 +277,8 @@ class MobilityTraceWriter:
         trace_id: str,
         vehicles: Iterable[VehicleTraceRecord],
         signals: Iterable[SignalStateRecord],
-        network_xml: TracePayload,
-        routes_xml: TracePayload,
+        network_definition: TracePayload,
+        route_definition: TracePayload,
         resolved_config_yaml: TracePayload,
         config_hash: str,
         code_version: str,
@@ -295,8 +295,8 @@ class MobilityTraceWriter:
 
         def produce(root: Path) -> None:
             nonlocal vehicle_count, signal_count, vehicle_part_count
-            _write_payload(root / "network.net.xml", network_xml)
-            _write_payload(root / "routes.rou.xml", routes_xml)
+            _write_payload(root / "network.json", network_definition)
+            _write_payload(root / "routes.json", route_definition)
             _write_payload(root / "resolved_config.yaml", resolved_config_yaml)
 
             vehicle_dir = root / "vehicles"

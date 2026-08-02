@@ -77,8 +77,8 @@ def _write_trace(
         trace_id=trace_id,
         vehicles=vehicles if vehicles is not None else _vehicles(trace_id),
         signals=_signals(trace_id),
-        network_xml=b"<net version='1.27'/>",
-        routes_xml="<routes/>",
+        network_definition=b'{"avenues": 6}',
+        route_definition="{}",
         resolved_config_yaml="service:\n  payload_bytes: 300\n",
         config_hash="a" * 64,
         code_version="test",
@@ -171,8 +171,8 @@ def test_wrong_trace_identity_aborts_without_partial_artifact(tmp_path: Path) ->
             trace_id="trace-001",
             vehicles=records,
             signals=(),
-            network_xml="<net/>",
-            routes_xml="<routes/>",
+            network_definition="{}",
+            route_definition="{}",
             resolved_config_yaml="config: true",
             config_hash="hash",
             code_version="test",
@@ -201,8 +201,8 @@ def test_reader_rejects_manifest_valid_but_wrong_parquet_schema(tmp_path: Path) 
             pa.Table.from_pylist([], schema=SIGNAL_STATE_SCHEMA),
             root / "signals.parquet",
         )
-        (root / "network.net.xml").write_text("<net/>", encoding="utf-8")
-        (root / "routes.rou.xml").write_text("<routes/>", encoding="utf-8")
+        (root / "network.json").write_text("<net/>", encoding="utf-8")
+        (root / "routes.json").write_text("<routes/>", encoding="utf-8")
         (root / "resolved_config.yaml").write_text("config: true", encoding="utf-8")
 
     artifact = store.create(
@@ -223,8 +223,8 @@ def test_empty_signal_stream_is_a_valid_exact_schema_file(tmp_path: Path) -> Non
         trace_id="trace-no-signals",
         vehicles=_vehicles("trace-no-signals"),
         signals=(),
-        network_xml="<net/>",
-        routes_xml="<routes/>",
+        network_definition="{}",
+        route_definition="{}",
         resolved_config_yaml="config: true",
         config_hash="hash",
         code_version="test",

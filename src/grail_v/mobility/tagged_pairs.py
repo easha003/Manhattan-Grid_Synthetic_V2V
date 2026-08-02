@@ -356,10 +356,43 @@ def _forward_projection(follower: VehicleRecord, other: VehicleRecord) -> float:
     return dx * math.cos(follower.heading_rad) + dy * math.sin(follower.heading_rad)
 
 
-def _same_planned_route(first: VehicleRecord, second: VehicleRecord) -> bool:
-    if first.planned_route is not None and second.planned_route is not None:
-        return first.planned_route == second.planned_route
-    return first.route_id == second.route_id
+def _edge_of(lane_id: str) -> str:
+    """Strip the lane index from a lane identifier (``B5B6_0`` -> ``B5B6``)."""
+
+    return lane_id.rsplit("_", 1)[0]
+
+
+def _same_planned_route(follower: VehicleRecord, leader: VehicleRecord) -> bool:
+    """Whether the pair still shares an upcoming path.
+
+    Implementation spec section 8.7 ends an episode when "the routes diverge",
+    which for a following pair means the leader has left the path the follower
+    is still going to take.  Requiring *identical itineraries* is far stricter
+    than that: two vehicles following one another normally share a segment and
+    part later.
+
+    When both planned routes are known this tests the intended condition -- the
+    leader is on the follower's own edge, or on an edge the follower has yet to
+    reach.  A pair therefore survives the moment the leader crosses a junction
+    first, which an equality test would incorrectly treat as divergence.
+
+    Without planned routes it falls back to comparing route identifiers.  That
+    fallback is a trap worth naming: under the SUMO backend every vehicle
+    received a unique auto-generated route id, so the comparison never held and
+    pair extraction silently returned zero episodes.
+    """
+
+    if follower.planned_route is None or leader.planned_route is None:
+        return follower.route_id == leader.route_id
+
+    follower_edge = _edge_of(follower.lane_id)
+    leader_edge = _edge_of(leader.lane_id)
+    if follower_edge == leader_edge:
+        return True
+    if follower_edge not in follower.planned_route:
+        return False
+    remaining = follower.planned_route[follower.planned_route.index(follower_edge) :]
+    return leader_edge in remaining
 
 
 def _vehicle_between(
