@@ -3,7 +3,7 @@
 **Artifact purpose:** Gate-0 publication-governance record  
 **Artifact status:** Provisional; author verification is required  
 **Prepared:** 2026-07-28  
-**GRAIL-V implementation baseline:** `GRAIL_V_WORK_PLAN_V2.md` and
+**GRAIL-V implementation baseline:** `GRAIL_V_WORK_PLAN_V3.md` and
 `CODE_IMPLEMENTATION_SPEC.md`
 
 ## 1. Gate status
@@ -35,7 +35,7 @@ Section 7.
 
 This matrix is based only on:
 
-1. [GRAIL_V_WORK_PLAN_V2.md](../GRAIL_V_WORK_PLAN_V2.md);
+1. [GRAIL_V_WORK_PLAN_V3.md](../GRAIL_V_WORK_PLAN_V3.md);
 2. [CODE_IMPLEMENTATION_SPEC.md](../CODE_IMPLEMENTATION_SPEC.md); and
 3. [research/literature/MASTER_SYNTHESIS.md](../research/literature/MASTER_SYNTHESIS.md).
 

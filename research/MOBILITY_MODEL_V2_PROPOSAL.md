@@ -22,7 +22,7 @@ Three observations motivate replacing it:
    Manhattan traffic." The microscopic realism SUMO provides is therefore not
    being converted into a claim.
 2. **The one test that needed SUMO is deferred.** The OSM real-map robustness
-   test is deferred in `EXECUTION_PLAN_V2_1.md` §2 under work plan Risk 6.
+   test is removed from scope in `GRAIL_V_WORK_PLAN_V3.md` §4.7.
 3. **Measured cost.** A single-density trial on the target hardware
    (MacBook Pro, M2) required a closed-loop density search of up to 16 SUMO
    runs before one trace could be recorded, and surfaced two defects in one

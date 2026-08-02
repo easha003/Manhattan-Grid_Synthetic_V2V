@@ -12,7 +12,7 @@
 
 **Status:** implementation contract
 
-**Companion research plan:** [`GRAIL_V_WORK_PLAN_V2.md`](GRAIL_V_WORK_PLAN_V2.md)
+**Companion research plan:** [`GRAIL_V_WORK_PLAN_V3.md`](GRAIL_V_WORK_PLAN_V3.md)
 
 **Initial implementation language:** Python
 
@@ -173,7 +173,7 @@ CMDP_PPO/
 ├── pyproject.toml
 ├── README.md
 ├── CODE_IMPLEMENTATION_SPEC.md
-├── GRAIL_V_WORK_PLAN_V2.md
+├── GRAIL_V_WORK_PLAN_V3.md
 ├── CHANGELOG.md
 ├── configs/
 │   ├── project/

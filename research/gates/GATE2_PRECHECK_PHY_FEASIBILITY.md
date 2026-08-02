@@ -17,7 +17,7 @@
 Conditional pass only, at 1 ms (§2–§3) — which is why the headline moved.
 
 **Scope:** `CODE_IMPLEMENTATION_SPEC.md` §13.6.1 and
-`GRAIL_V_WORK_PLAN_V2.md` §8.2 require that every selected PHY be shown to
+`GRAIL_V_WORK_PLAN_V3.md` §8.2 require that every selected PHY be shown to
 carry the complete coded information block within its allocated airtime before
 any learned result is produced. This document runs that check against the
 frozen headline profile and the currently declared channel configurations.

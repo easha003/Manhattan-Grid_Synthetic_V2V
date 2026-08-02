@@ -1,5 +1,11 @@
 # GRAIL-V — Settled Conference Work Plan (Version 2)
 
+> **SUPERSEDED by [`GRAIL_V_WORK_PLAN_V3.md`](GRAIL_V_WORK_PLAN_V3.md).**
+> Retained for provenance: it records the reasoning behind decisions v3 now
+> carries, including the 1-ms profile and the SUMO/TraCI mobility backend that
+> v3 replaces. Do not follow this document.
+
+
 **Working title:**
 **GRAIL-V: Geometry-Aware Reliability-Constrained Link Selection for Hybrid NR Sidelink/V-VLC in Urban V2V Networks**
 

@@ -4,10 +4,12 @@ GRAIL-V is a research implementation for geometry-aware,
 reliability-constrained selection among NR sidelink, vehicle visible-light
 communication (V-VLC), and simultaneous duplication in urban V2V traffic.
 
-The current implementation is at Milestone M0. The research contract is in
-[`GRAIL_V_WORK_PLAN_V2.md`](GRAIL_V_WORK_PLAN_V2.md), and the module-level
-engineering contract is in
-[`CODE_IMPLEMENTATION_SPEC.md`](CODE_IMPLEMENTATION_SPEC.md).
+Gate 1 (mobility credibility) has passed. The research contract is in
+[`GRAIL_V_WORK_PLAN_V3.md`](GRAIL_V_WORK_PLAN_V3.md); v2 and the v2.1
+execution addendum are superseded and retained only for provenance. The
+module-level engineering contract is in
+[`CODE_IMPLEMENTATION_SPEC.md`](CODE_IMPLEMENTATION_SPEC.md), whose mobility
+sections are pending revision.
 
 ## Supported runtime
 

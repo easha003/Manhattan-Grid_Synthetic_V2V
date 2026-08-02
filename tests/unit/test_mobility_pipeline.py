@@ -117,3 +117,44 @@ def test_plan_rejects_invalid_inputs(tmp_path: Path) -> None:
         TraceCampaignPlan(output_root=tmp_path, code_version="  ")
     with pytest.raises(ValueError, match="validation_sample_period_s"):
         TraceCampaignPlan(output_root=tmp_path, code_version="t", validation_sample_period_s=0.0)
+
+
+def test_tagged_pairs_are_persisted_with_the_trace(config: ProjectConfig, tmp_path: Path) -> None:
+    """Episodes must survive the run that produced them.
+
+    Re-deriving them means re-reading every vehicle row in the trace, which at
+    full length is tens of millions of Parquet rows per density.
+    """
+
+    import pyarrow.parquet as pq
+
+    result = _pipeline(config, tmp_path).run_density(40.0, index=1)
+    table = pq.read_table(result.artifact_path / "pairs.parquet")
+
+    assert table.num_rows == len(result.pair_segments)
+    assert set(table.column_names) >= {
+        "trace_id",
+        "pair_id",
+        "tx_id",
+        "rx_id",
+        "start_s",
+        "end_s",
+        "duration_s",
+        "initial_distance_m",
+        "route_id",
+        "eligibility_reason",
+    }
+    durations = table.column("duration_s").to_pylist()
+    assert all(value >= 0.0 for value in durations)
+
+
+def test_degenerate_episodes_are_counted_not_hidden(config: ProjectConfig, tmp_path: Path) -> None:
+    """A zero-length episode carries no packet and must stay visible."""
+
+    result = _pipeline(config, tmp_path).run_density(40.0, index=1)
+    record = result.to_record()
+
+    assert record["degenerate_pair_count"] == sum(
+        1 for segment in result.pair_segments if segment.duration_s <= 0.0
+    )
+    assert record["usable_pair_count"] + record["degenerate_pair_count"] == record["pair_count"]

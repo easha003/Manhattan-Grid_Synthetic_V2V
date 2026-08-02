@@ -16,7 +16,7 @@ produced by :class:`MobilityValidator` rather than by checks invented here.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -79,6 +79,18 @@ class DensityCampaignResult:
     validation: MobilityValidationReport
 
     @property
+    def degenerate_pair_count(self) -> int:
+        """Episodes too short to carry a packet.
+
+        A pair whose endpoints are observed once and then lose a vehicle to the
+        boundary yields a zero-length episode.  It is a legitimate detection but
+        useless for training, so it is counted rather than silently averaged
+        into the duration statistics.
+        """
+
+        return sum(1 for segment in self.pair_segments if segment.duration_s <= 0.0)
+
+    @property
     def passed(self) -> bool:
         return self.validation.gate1_passed
 
@@ -90,6 +102,8 @@ class DensityCampaignResult:
             "artifact_path": str(self.artifact_path),
             "passed": self.passed,
             "pair_count": len(self.pair_segments),
+            "degenerate_pair_count": self.degenerate_pair_count,
+            "usable_pair_count": len(self.pair_segments) - self.degenerate_pair_count,
             "validation": self.validation.to_record(),
         }
 
@@ -189,7 +203,16 @@ class GridTracePipeline:
         lane_km = self.network.total_lane_length_m / 1000.0
         sample_stride = max(1, round(self.plan.validation_sample_period_s / mobility.step_s))
 
-        vehicle_records: list[VehicleTraceRecord] = []
+        # Two passes, because a full-length campaign cannot be held in memory.
+        # At 60 veh/lane-km a 900 s trace is 2,240 vehicles x 18,000 steps =
+        # 40.3 million records, roughly 29 GB as Python objects.
+        #
+        # Pass one is cheap and builds only the small things the writer needs
+        # up front (the route table) plus what validation and pair extraction
+        # consume.  Pass two re-runs the simulation and streams records into
+        # the writer, which chunks them to Parquet, so peak memory stays flat.
+        # Re-running is safe precisely because the model is deterministic: the
+        # same seed reproduces the same trajectories exactly.
         signal_records: list[SignalStateRecord] = []
         frames: list[MobilityFrame] = []
         routes: dict[str, list[str]] = {}
@@ -200,7 +223,6 @@ class GridTracePipeline:
         # clock would archive phases the vehicles never experienced.
         for step, (time_s, vehicles) in enumerate(simulator.run(spec)):
             absolute_s = time_s + spec.warmup_s
-            vehicle_records.extend(simulator.vehicle_records(spec, time_s, vehicles))
             routes.update(simulator.route_table(vehicles))
             if step % sample_stride:
                 continue
@@ -235,10 +257,30 @@ class GridTracePipeline:
                     )
                 )
 
+        def _stream_vehicle_records() -> Iterator[VehicleTraceRecord]:
+            """Second pass: yield records lazily so none are retained."""
+
+            replay = GridMobilitySimulator(
+                self.network,
+                signals=self.signals,
+                idm=IDMParameters(desired_speed_mps=mobility.speed_limit_mps),
+                vehicle_distribution=headline_vehicle_distribution(),
+            )
+            for replay_time_s, replay_vehicles in replay.run(spec):
+                yield from replay.vehicle_records(spec, replay_time_s, replay_vehicles)
+
+        pairs = TaggedPairExtractor(
+            TaggedPairConfig(
+                min_separation_m=self.config.geometry.min_separation_m,
+                max_separation_m=self.config.geometry.max_separation_m,
+            )
+        ).extract(pair_inputs)
+
         artifact = MobilityTraceWriter(ArtifactStore(self.plan.output_root)).write(
             trace_id=trace_id,
-            vehicles=vehicle_records,
+            vehicles=_stream_vehicle_records(),
             signals=signal_records,
+            pairs=[{**segment.to_record(), "duration_s": segment.duration_s} for segment in pairs],
             network_definition=json.dumps(asdict(self.network.spec), indent=2, sort_keys=True),
             route_definition=json.dumps(routes, indent=2, sort_keys=True),
             resolved_config_yaml=self.config.model_dump_json(indent=2),
@@ -253,13 +295,6 @@ class GridTracePipeline:
                 "density is set directly; no closed-loop flow calibration is performed",
             ),
         )
-
-        pairs = TaggedPairExtractor(
-            TaggedPairConfig(
-                min_separation_m=self.config.geometry.min_separation_m,
-                max_separation_m=self.config.geometry.max_separation_m,
-            )
-        ).extract(pair_inputs)
 
         report = MobilityValidator(self._criteria(target_density)).validate(
             frames, pair_segments=pairs, manifest_archived=True

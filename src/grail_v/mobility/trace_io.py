@@ -45,6 +45,24 @@ VEHICLE_TRACE_SCHEMA = pa.schema(
     metadata=_SCHEMA_METADATA,
 )
 
+#: Tagged-pair episode schema, per implementation spec §8.7.
+PAIR_SEGMENT_SCHEMA = pa.schema(
+    [
+        pa.field("trace_id", pa.string(), nullable=False),
+        pa.field("pair_id", pa.string(), nullable=False),
+        pa.field("tx_id", pa.string(), nullable=False),
+        pa.field("rx_id", pa.string(), nullable=False),
+        pa.field("start_s", pa.float64(), nullable=False),
+        pa.field("end_s", pa.float64(), nullable=False),
+        pa.field("duration_s", pa.float64(), nullable=False),
+        pa.field("initial_distance_m", pa.float64(), nullable=False),
+        pa.field("route_id", pa.string(), nullable=False),
+        pa.field("eligibility_reason", pa.string(), nullable=False),
+        pa.field("has_intervening_vehicle", pa.bool_(), nullable=False),
+    ],
+    metadata=_SCHEMA_METADATA,
+)
+
 SIGNAL_STATE_SCHEMA = pa.schema(
     [
         pa.field("trace_id", pa.string(), nullable=False),
@@ -59,6 +77,7 @@ SIGNAL_STATE_SCHEMA = pa.schema(
 
 _REQUIRED_TRACE_FILES = (
     "network.json",
+    "pairs.parquet",
     "resolved_config.yaml",
     "routes.json",
     "signals.parquet",
@@ -277,6 +296,7 @@ class MobilityTraceWriter:
         trace_id: str,
         vehicles: Iterable[VehicleTraceRecord],
         signals: Iterable[SignalStateRecord],
+        pairs: Iterable[Mapping[str, object]],
         network_definition: TracePayload,
         route_definition: TracePayload,
         resolved_config_yaml: TracePayload,
@@ -329,6 +349,13 @@ class MobilityTraceWriter:
             signal_count = _write_signal_stream(
                 root / "signals.parquet",
                 signals,
+                trace_id=trace_id,
+                rows_per_group=self.rows_per_part,
+                compression=self.compression,
+            )
+            _write_pair_stream(
+                root / "pairs.parquet",
+                pairs,
                 trace_id=trace_id,
                 rows_per_group=self.rows_per_part,
                 compression=self.compression,
@@ -467,6 +494,41 @@ def _write_payload(target: Path, payload: TracePayload) -> None:
     if not data:
         raise ValueError(f"trace source payload cannot be empty: {target.name}")
     target.write_bytes(data)
+
+
+def _write_pair_stream(
+    path: Path,
+    records: Iterable[Mapping[str, object]],
+    *,
+    trace_id: str,
+    rows_per_group: int,
+    compression: str,
+) -> int:
+    """Persist tagged-pair episodes so they need not be re-derived.
+
+    Extraction reads every vehicle row in the trace, so without this the
+    episodes would have to be recomputed from tens of millions of Parquet rows
+    each time an experiment needs them.
+    """
+
+    count = 0
+    iterator = iter(records)
+    writer = pq.ParquetWriter(
+        path,
+        PAIR_SEGMENT_SCHEMA,
+        compression=compression,
+        version="2.6",
+        write_statistics=True,
+    )
+    try:
+        while chunk := tuple(islice(iterator, rows_per_group)):
+            for record in chunk:
+                _validate_record_trace_id(str(record["trace_id"]), trace_id)
+            writer.write_table(pa.Table.from_pylist(list(chunk), schema=PAIR_SEGMENT_SCHEMA))
+            count += len(chunk)
+    finally:
+        writer.close()
+    return count
 
 
 def _write_signal_stream(

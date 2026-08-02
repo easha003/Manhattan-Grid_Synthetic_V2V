@@ -10,6 +10,7 @@ from grail_v.artifacts.store import ArtifactStore
 from grail_v.core.errors import TraceIntegrityError
 from grail_v.core.types import VehicleState
 from grail_v.mobility.trace_io import (
+    PAIR_SEGMENT_SCHEMA,
     SIGNAL_STATE_SCHEMA,
     TRACE_ARTIFACT_TYPE,
     VEHICLE_TRACE_SCHEMA,
@@ -79,6 +80,7 @@ def _write_trace(
         signals=_signals(trace_id),
         network_definition=b'{"avenues": 6}',
         route_definition="{}",
+        pairs=[],
         resolved_config_yaml="service:\n  payload_bytes: 300\n",
         config_hash="a" * 64,
         code_version="test",
@@ -173,6 +175,7 @@ def test_wrong_trace_identity_aborts_without_partial_artifact(tmp_path: Path) ->
             signals=(),
             network_definition="{}",
             route_definition="{}",
+            pairs=[],
             resolved_config_yaml="config: true",
             config_hash="hash",
             code_version="test",
@@ -201,6 +204,10 @@ def test_reader_rejects_manifest_valid_but_wrong_parquet_schema(tmp_path: Path) 
             pa.Table.from_pylist([], schema=SIGNAL_STATE_SCHEMA),
             root / "signals.parquet",
         )
+        pq.write_table(
+            pa.Table.from_pylist([], schema=PAIR_SEGMENT_SCHEMA),
+            root / "pairs.parquet",
+        )
         (root / "network.json").write_text("<net/>", encoding="utf-8")
         (root / "routes.json").write_text("<routes/>", encoding="utf-8")
         (root / "resolved_config.yaml").write_text("config: true", encoding="utf-8")
@@ -225,6 +232,7 @@ def test_empty_signal_stream_is_a_valid_exact_schema_file(tmp_path: Path) -> Non
         signals=(),
         network_definition="{}",
         route_definition="{}",
+        pairs=[],
         resolved_config_yaml="config: true",
         config_hash="hash",
         code_version="test",

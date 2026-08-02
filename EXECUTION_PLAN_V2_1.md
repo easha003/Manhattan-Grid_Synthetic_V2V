@@ -1,5 +1,11 @@
 # GRAIL-V — Execution plan v2.1 (scope freeze)
 
+> **SUPERSEDED by [`GRAIL_V_WORK_PLAN_V3.md`](GRAIL_V_WORK_PLAN_V3.md).**
+> Retained for provenance: it records the reasoning behind decisions v3 now
+> carries, including the 1-ms profile and the SUMO/TraCI mobility backend that
+> v3 replaces. Do not follow this document.
+
+
 **Status:** execution addendum. This document does **not** supersede
 [`GRAIL_V_WORK_PLAN_V2.md`](GRAIL_V_WORK_PLAN_V2.md), which remains the
 scientific contract, or
