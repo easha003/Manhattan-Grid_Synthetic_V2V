@@ -10,6 +10,10 @@ __pycache__/
 build/
 dist/
 
+# Published papers are not ours to redistribute. The dossier notes in
+# research/literature/*.md are our own analysis and are tracked.
+research/literature/pdfs/
+
 artifacts/calibration/*
 artifacts/checkpoints/*
 artifacts/evaluations/*
