@@ -15,7 +15,7 @@ from typing import Any
 from grail_v.artifacts.store import StoredArtifact
 from grail_v.core.errors import TraceIntegrityError
 from grail_v.mobility.sumo_measurement import load_traci
-from grail_v.mobility.sumo_runtime import SumoRuntime
+from grail_v.mobility.sumo_runtime import MAX_SUMO_SEED, SumoRuntime
 from grail_v.mobility.trace_io import (
     MobilityTraceWriter,
     SignalStateRecord,
@@ -70,6 +70,11 @@ class TraceGenerationSpec:
             raise ValueError("stopped speed threshold must be non-negative")
         if self.seed < 0:
             raise ValueError("seed must be non-negative")
+        if self.seed > MAX_SUMO_SEED:
+            raise ValueError(
+                f"seed {self.seed} exceeds SUMO's 32-bit --seed limit "
+                f"({MAX_SUMO_SEED}); reduce it with to_sumo_seed()"
+            )
         if not self.config_hash.strip() or not self.code_version.strip():
             raise ValueError("config_hash and code_version must be non-empty")
 

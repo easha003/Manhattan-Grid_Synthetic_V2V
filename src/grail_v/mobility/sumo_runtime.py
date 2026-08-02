@@ -25,6 +25,28 @@ CommandArgument: TypeAlias = str | os.PathLike[str] | int | float
 _VERSION_PATTERN = re.compile(r"\b(\d+)\.(\d+)\.(\d+)\b")
 _MINIMUM_VERSION = (1, 20, 0)
 
+#: Largest value SUMO's ``--seed`` option accepts.
+#:
+#: SUMO parses the option into a signed 32-bit C++ ``int``.  GRAIL-V's own
+#: named streams are 64-bit (``MAX_ROOT_SEED``), so a derived seed handed
+#: straight to SUMO fails at process start with a bare "not a valid integer"
+#: message.  Use :func:`to_sumo_seed` at the boundary.
+MAX_SUMO_SEED = (1 << 31) - 1
+
+
+def to_sumo_seed(value: int) -> int:
+    """Reduce a 64-bit derived seed into SUMO's accepted range.
+
+    The mapping is deterministic, so a given named stream always yields the
+    same SUMO seed and traces stay reproducible.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("seed must be an integer")
+    if value < 0:
+        raise ValueError("seed must be non-negative")
+    return value % (MAX_SUMO_SEED + 1)
+
 
 class SumoRuntimeError(GrailVError):
     """Raised when the SUMO installation or an external command is invalid."""
@@ -264,9 +286,11 @@ def discover_sumo(explicit_home: Path | None = None) -> SumoRuntime:
 
 
 __all__ = [
+    "MAX_SUMO_SEED",
     "CommandArgument",
     "SumoRuntime",
     "SumoRuntimeError",
     "SumoTool",
     "discover_sumo",
+    "to_sumo_seed",
 ]
