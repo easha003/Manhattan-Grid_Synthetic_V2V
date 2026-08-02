@@ -25,3 +25,6 @@ artifacts/traces/*
 !artifacts/evaluations/.gitkeep
 !artifacts/figures/.gitkeep
 !artifacts/traces/.gitkeep
+
+# Claude Code tool settings (permission grants, not project configuration).
+.claude/
