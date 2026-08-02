@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import importlib
-import os
 import platform
-import shutil
-import subprocess
 import sys
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -31,80 +28,6 @@ class DoctorCheck:
         """Return a JSON-serializable representation."""
 
         return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class SumoExecutables:
-    """Resolved SUMO command paths."""
-
-    sumo: Path
-    netgenerate: Path
-
-
-def _is_executable(path: Path) -> bool:
-    return path.is_file() and os.access(path, os.X_OK)
-
-
-def _candidate_sumo_roots(explicit_home: Path | None) -> Iterable[Path]:
-    if explicit_home is not None:
-        yield explicit_home.expanduser().resolve()
-
-    environment_home = os.environ.get("SUMO_HOME")
-    if environment_home:
-        yield Path(environment_home).expanduser().resolve()
-
-    try:
-        sumolib = importlib.import_module("sumolib")
-    except ImportError:
-        return
-
-    module_file = Path(str(sumolib.__file__)).resolve()
-    for parent in module_file.parents:
-        if parent.name == "sumo":
-            yield parent
-            return
-
-
-def discover_sumo(explicit_home: Path | None = None) -> SumoExecutables | None:
-    """Find SUMO and netgenerate without mutating the process environment."""
-
-    seen: set[Path] = set()
-    for root in _candidate_sumo_roots(explicit_home):
-        if root in seen:
-            continue
-        seen.add(root)
-        binary_dir = root if root.name == "bin" else root / "bin"
-        sumo = binary_dir / "sumo"
-        netgenerate = binary_dir / "netgenerate"
-        if _is_executable(sumo) and _is_executable(netgenerate):
-            return SumoExecutables(sumo=sumo, netgenerate=netgenerate)
-
-    sumo_command = shutil.which("sumo")
-    netgenerate_command = shutil.which("netgenerate")
-    if sumo_command and netgenerate_command:
-        return SumoExecutables(
-            sumo=Path(sumo_command).resolve(),
-            netgenerate=Path(netgenerate_command).resolve(),
-        )
-    return None
-
-
-def _version_line(executable: Path) -> tuple[bool, str]:
-    try:
-        completed = subprocess.run(
-            [str(executable), "--version"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"version check failed: {type(exc).__name__}: {exc}"
-    output = completed.stdout.strip() or completed.stderr.strip()
-    first_line = output.splitlines()[0] if output else "no version output"
-    if completed.returncode != 0:
-        return False, f"{first_line} (exit {completed.returncode})"
-    return True, first_line
 
 
 def _python_check() -> DoctorCheck:
@@ -133,26 +56,6 @@ def _dependency_check(module_name: str) -> DoctorCheck:
     )
 
 
-def _sumo_check(explicit_home: Path | None) -> DoctorCheck:
-    executables = discover_sumo(explicit_home)
-    if executables is None:
-        return DoctorCheck(
-            name="sumo",
-            status="fail",
-            detail="sumo and netgenerate were not found",
-        )
-    sumo_ok, sumo_version = _version_line(executables.sumo)
-    netgenerate_ok, netgenerate_version = _version_line(executables.netgenerate)
-    return DoctorCheck(
-        name="sumo",
-        status="pass" if sumo_ok and netgenerate_ok else "fail",
-        detail=(
-            f"sumo={sumo_version} ({executables.sumo}); "
-            f"netgenerate={netgenerate_version} ({executables.netgenerate})"
-        ),
-    )
-
-
 def _config_check(config_paths: tuple[Path, ...], project_root: Path) -> DoctorCheck:
     try:
         if config_paths:
@@ -175,7 +78,6 @@ def _config_check(config_paths: tuple[Path, ...], project_root: Path) -> DoctorC
 def run_doctor(
     *,
     project_root: Path,
-    sumo_home: Path | None = None,
     config_paths: tuple[Path, ...] = (),
 ) -> tuple[DoctorCheck, ...]:
     """Run all required M0 diagnostics."""
@@ -183,7 +85,6 @@ def run_doctor(
     checks = [
         _python_check(),
         *(_dependency_check(name) for name in ("numpy", "pydantic", "yaml", "typer")),
-        _sumo_check(sumo_home),
         _config_check(config_paths, project_root.resolve()),
     ]
     return tuple(checks)

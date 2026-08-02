@@ -1,6 +1,6 @@
 """Mobility credibility metrics and explicit Gate-1 checks.
 
-This module operates on immutable, already sampled SUMO summaries.  Counts in a
+This module operates on immutable, already sampled mobility summaries.  Counts in a
 ``MobilityFrame`` are interval increments (departures, insertion failures, and
 teleports), so aggregation does not depend on mutable simulator counters.
 """

@@ -156,16 +156,3 @@ def test_shortened_deadline_is_rejected_by_the_channel_layers(tmp_path: Path) ->
             (*headline_config_layers(PROJECT_ROOT), override),
             project_root=PROJECT_ROOT,
         )
-
-
-def test_nyc_mobility_layer_resolves_network_artifact() -> None:
-    config_root = PROJECT_ROOT / "configs"
-    layers = list(headline_config_layers(PROJECT_ROOT))
-    layers[1] = config_root / "mobility" / "nyc_osm.yaml"
-
-    config = load_config(layers, project_root=PROJECT_ROOT)
-
-    assert config.mobility.kind == "nyc_osm"
-    assert config.mobility.grid is None
-    assert config.mobility.network_artifact is not None
-    assert config.mobility.network_artifact.is_absolute()

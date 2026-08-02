@@ -193,7 +193,7 @@ class VehicleTraceRecord:
 
 @dataclass(frozen=True, slots=True)
 class SignalStateRecord:
-    """One SUMO traffic-signal program state at a simulation instant."""
+    """One traffic-signal program state at a simulation instant."""
 
     trace_id: str
     time_s: float

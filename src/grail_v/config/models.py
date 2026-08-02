@@ -133,9 +133,9 @@ class VehicleClassConfig(ConfigModel):
 
 
 class MobilityConfig(ConfigModel):
-    """SUMO topology, timing, demand, and vehicle-mixture settings."""
+    """Grid topology, timing, demand, and vehicle-mixture settings."""
 
-    kind: Literal["synthetic_manhattan", "nyc_osm"]
+    kind: Literal["synthetic_manhattan"]
     grid: GridConfig | None = None
     network_artifact: Path | None = None
     step_s: PositiveFloat
@@ -155,8 +155,6 @@ class MobilityConfig(ConfigModel):
     def validate_mobility_variant(self) -> MobilityConfig:
         if self.kind == "synthetic_manhattan" and self.grid is None:
             raise ValueError("synthetic_manhattan mobility requires grid")
-        if self.kind == "nyc_osm" and self.network_artifact is None:
-            raise ValueError("nyc_osm mobility requires network_artifact")
 
         densities = self.target_densities_veh_per_lane_km
         if len(set(densities)) != len(densities):

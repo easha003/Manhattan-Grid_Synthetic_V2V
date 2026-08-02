@@ -1,14 +1,12 @@
-"""Explicit SUMO vehicle dimensions and the frozen 90/7/3 mixture."""
+"""Explicit vehicle dimensions and the frozen 90/7/3 mixture."""
 
 from __future__ import annotations
 
 import math
 import re
-import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
-_SUMO_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]*$")
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]*$")
 
 
 def _format_number(value: float) -> str:
@@ -17,7 +15,7 @@ def _format_number(value: float) -> str:
 
 @dataclass(frozen=True, slots=True)
 class VehicleType:
-    """One microscopic SUMO vehicle type used by the mobility model."""
+    """One microscopic vehicle type used by the mobility model."""
 
     type_id: str
     share: float
@@ -32,8 +30,8 @@ class VehicleType:
     driver_imperfection: float = 0.5
 
     def __post_init__(self) -> None:
-        if not _SUMO_ID.fullmatch(self.type_id):
-            raise ValueError(f"invalid SUMO vehicle type id: {self.type_id!r}")
+        if not _IDENTIFIER.fullmatch(self.type_id):
+            raise ValueError(f"invalid vehicle type id: {self.type_id!r}")
         for field_name in (
             "length_m",
             "width_m",
@@ -49,35 +47,17 @@ class VehicleType:
         if not 0.0 <= self.driver_imperfection <= 1.0:
             raise ValueError("driver_imperfection must be in [0, 1]")
 
-    def xml_attributes(self) -> dict[str, str]:
-        """Return deterministic SUMO ``vType`` attributes."""
-
-        return {
-            "id": self.type_id,
-            "probability": _format_number(self.share),
-            "vClass": self.vehicle_class,
-            "guiShape": self.gui_shape,
-            "length": _format_number(self.length_m),
-            "width": _format_number(self.width_m),
-            "height": _format_number(self.height_m),
-            "minGap": _format_number(self.min_gap_m),
-            "accel": _format_number(self.accel_mps2),
-            "decel": _format_number(self.decel_mps2),
-            "sigma": _format_number(self.driver_imperfection),
-            "carFollowModel": "Krauss",
-        }
-
 
 @dataclass(frozen=True, slots=True)
 class VehicleTypeDistribution:
-    """A validated SUMO ``vTypeDistribution``."""
+    """A validated vehicle-type mixture."""
 
     distribution_id: str
     vehicle_types: tuple[VehicleType, ...]
 
     def __post_init__(self) -> None:
-        if not _SUMO_ID.fullmatch(self.distribution_id):
-            raise ValueError(f"invalid SUMO distribution id: {self.distribution_id!r}")
+        if not _IDENTIFIER.fullmatch(self.distribution_id):
+            raise ValueError(f"invalid distribution id: {self.distribution_id!r}")
         if not self.vehicle_types:
             raise ValueError("vehicle type distribution cannot be empty")
         identifiers = [vehicle.type_id for vehicle in self.vehicle_types]
@@ -86,30 +66,6 @@ class VehicleTypeDistribution:
         total = sum(vehicle.share for vehicle in self.vehicle_types)
         if not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError(f"vehicle type shares must sum to 1, got {total}")
-
-    def append_xml(self, parent: ET.Element) -> ET.Element:
-        """Append this distribution beneath an XML parent."""
-
-        distribution = ET.SubElement(
-            parent,
-            "vTypeDistribution",
-            {"id": self.distribution_id},
-        )
-        for vehicle_type in self.vehicle_types:
-            ET.SubElement(distribution, "vType", vehicle_type.xml_attributes())
-        return distribution
-
-    def write_xml(self, path: Path) -> Path:
-        """Write a standalone SUMO additional-file representation."""
-
-        resolved = path.expanduser().resolve()
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        root = ET.Element("additional")
-        self.append_xml(root)
-        tree = ET.ElementTree(root)
-        ET.indent(tree, space="    ")
-        tree.write(resolved, encoding="utf-8", xml_declaration=True)
-        return resolved
 
     def manifest_record(self) -> dict[str, object]:
         """Return all physical dimensions and exact configured shares."""

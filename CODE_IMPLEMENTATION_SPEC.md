@@ -1,5 +1,15 @@
 # GRAIL-V Code Implementation Specification
 
+> **Mobility backend superseded.** Sections describing SUMO, TraCI,
+> `netgenerate`, boundary demand generation, and closed-loop density
+> calibration (§8.1-8.6, §8.8-8.9, and the SUMO parts of §23-24) no longer
+> match the implementation. Mobility is now produced by the analytic
+> Manhattan-grid model specified in
+> `research/MOBILITY_MODEL_V2_PROPOSAL.md` and implemented in
+> `src/grail_v/mobility/grid_*.py` and `car_following.py`. The trace schema
+> (§8.6 vehicle columns) is unchanged, so every downstream section still
+> applies. These sections need rewriting once the model is approved.
+
 **Status:** implementation contract
 
 **Companion research plan:** [`GRAIL_V_WORK_PLAN_V2.md`](GRAIL_V_WORK_PLAN_V2.md)
