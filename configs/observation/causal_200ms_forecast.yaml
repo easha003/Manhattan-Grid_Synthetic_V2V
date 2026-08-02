@@ -1,0 +1,30 @@
+observation:
+  history_packets: 8
+  track_update_s: 0.05
+  track_latency_s: 0.05
+  position_noise_std_m: 0.5
+  speed_noise_std_mps: 0.2
+  forecast_horizon_s: 0.2
+  interpolate_tracks: false
+  action_dependent_link_feedback: true
+  features:
+    - "rf_quality"
+    - "rf_quality_age"
+    - "rf_quality_history"
+    - "vlc_quality"
+    - "vlc_quality_age"
+    - "vlc_quality_history"
+    - "rf_channel_busy_ratio"
+    - "neighbor_count"
+    - "pair_distance"
+    - "pair_bearing"
+    - "relative_speed"
+    - "heading_difference"
+    - "optical_fov_margin"
+    - "predicted_blockage_probability"
+    - "predictor_confidence"
+    - "track_age"
+    - "previous_action"
+    - "last_delivery_outcome"
+    - "consecutive_miss_count"
+

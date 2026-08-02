@@ -1,0 +1,11 @@
+service:
+  payload_bytes: 300
+  generation_period_s: 0.1
+  deadline_s: 0.001
+  miss_budget: 0.0001
+  predecision_lead_s: 0.0001
+  harq_enabled: false
+  rf_attempts_per_packet: 1
+  vlc_attempts_per_packet: 1
+  dup_simultaneous: true
+  rf_resource_assumption: "pre_reserved"

@@ -1,0 +1,15 @@
+project:
+  experiment: "ev2x_300B_3ms_1e-5"
+  description: "Standards-oriented eV2X ultra-reliability frontier"
+
+service:
+  payload_bytes: 300
+  generation_period_s: 0.1
+  deadline_s: 0.003
+  miss_budget: 0.00001
+  predecision_lead_s: 0.0001
+  harq_enabled: false
+  rf_attempts_per_packet: 1
+  vlc_attempts_per_packet: 1
+  dup_simultaneous: true
+  rf_resource_assumption: "pre_reserved"

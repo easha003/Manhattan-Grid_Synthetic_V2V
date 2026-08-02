@@ -1,0 +1,18 @@
+vlc:
+  enabled: true
+  electrical_bandwidth_hz: 5000000.0
+  modulation: "ook"
+  headlamp_pattern: "measured_non_lambertian"
+  pattern_artifact: "artifacts/calibration/vlc/headlamp-v1"
+  receiver_fov_deg: 60.0
+  ambient_condition: "clear_night"
+  complete_blockage_main: true
+  residual_optical_floor_enabled: false
+  timing:
+    # A provisional 10-Mbit/s gross rate leaves enough room for the complete
+    # coded 300-byte block within the allocated 0.8 ms. It remains a Gate-3
+    # calibration requirement rather than a hardware-performance claim.
+    gross_bit_rate_bps: 10000000.0
+    airtime_s: 0.0008
+    framing_overhead_bytes: 32
+    code_rate: 0.5

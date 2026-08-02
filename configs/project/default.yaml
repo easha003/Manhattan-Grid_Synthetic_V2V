@@ -1,0 +1,53 @@
+schema_version: "1.0"
+
+project:
+  name: "grail-v"
+  experiment: "headline"
+  description: "Frozen 300-byte, 1-ms, 1e-4 conference experiment"
+
+geometry:
+  tagged_pair_mode: "longitudinal_following"
+  min_separation_m: 10.0
+  max_separation_m: 60.0
+  rf_antenna_height_m: 1.5
+  headlamp_height_m: 0.7
+  photodiode_height_m: 0.7
+  exact_geometry_hidden_from_policy: true
+  include_building_nlos: true
+
+cost:
+  units: "normalized_activation"
+  rf_activation: 1.0
+  vlc_activation: 1.0
+  dup_activation: 2.0
+  vlc_to_rf_sensitivity: [0.3, 0.5, 1.0]
+
+environment:
+  actions: ["RF", "VLC", "DUP"]
+  episode_duration_s: 60.0
+  packets_per_episode: 600
+  matched_random_tapes: true
+  sample_binary_outcomes: true
+  splits:
+    train:
+      - "synthetic-train-000"
+      - "synthetic-train-001"
+      - "synthetic-train-002"
+      - "synthetic-train-003"
+      - "synthetic-train-004"
+    validation:
+      - "synthetic-validation-000"
+      - "synthetic-validation-001"
+    test:
+      - "synthetic-test-000"
+      - "synthetic-test-001"
+
+paths:
+  project_root: "."
+  artifact_root: "artifacts"
+  calibration_root: "artifacts/calibration"
+  trace_root: "artifacts/traces"
+  checkpoint_root: "artifacts/checkpoints"
+  evaluation_root: "artifacts/evaluations"
+  figure_root: "artifacts/figures"
+

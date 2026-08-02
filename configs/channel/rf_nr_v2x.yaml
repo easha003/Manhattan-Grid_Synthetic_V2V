@@ -1,0 +1,21 @@
+rf:
+  enabled: true
+  carrier_hz: 5900000000.0
+  bandwidth_hz: 10000000.0
+  subcarrier_spacing_hz: 30000.0
+  slot_s: 0.0005
+  tx_power_dbm: 23.0
+  antenna_height_m: 1.5
+  resource_mode: "nr_sidelink_mode2"
+  opportunity: "pre_reserved"
+  propagation_family: "3gpp_tr_37_885_urban_grid"
+  spatially_correlated_shadowing: true
+  temporally_correlated_fading: true
+  calibration_artifact: "artifacts/calibration/rf/mode2-v1"
+  timing:
+    # Provisional feasibility-gate values. Calibration may replace the rate/MCS,
+    # but no experiment may run with a coded block that fails this gate.
+    gross_bit_rate_bps: 12000000.0
+    airtime_s: 0.0005
+    framing_overhead_bytes: 48
+    code_rate: 0.5
