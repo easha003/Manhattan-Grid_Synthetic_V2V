@@ -136,35 +136,26 @@ def test_secondary_ultra_reliability_layers_form_valid_configuration() -> None:
     assert config.evaluation.min_packets_per_policy_density == 10_000_000
 
 
-def test_extreme_ultra_reliability_layers_form_valid_configuration() -> None:
-    config_root = PROJECT_ROOT / "configs"
-    layers = list(headline_config_layers(PROJECT_ROOT))
-    layers[2] = config_root / "service" / "extreme_300B_1ms_1e-5.yaml"
-    layers.insert(5, config_root / "channel" / "phy_1ms_override.yaml")
-    layers.insert(-1, config_root / "training" / "primal_dual_ppo_ultra.yaml")
-    layers[-1] = config_root / "evaluation" / "ultra_reliability.yaml"
+def test_shortened_deadline_is_rejected_by_the_channel_layers(tmp_path: Path) -> None:
+    """Channel timing targets 3 ms; a tighter deadline must fail, not silently pass.
 
-    config = load_config(layers, project_root=PROJECT_ROOT)
+    The 1-ms profiles were removed, so nothing should be able to shorten the
+    deadline without also replacing the channel layers.  A non-headline
+    experiment name is used so the PHY invariant is reached instead of the
+    frozen headline contract.
+    """
 
-    assert config.project.experiment == "extreme_300B_1ms_1e-5"
-    assert config.service.deadline_s == pytest.approx(0.001)
-    assert config.service.miss_budget == pytest.approx(1e-5)
-    assert config.evaluation.min_packets_per_policy_density == 10_000_000
-    # 16QAM is not a preference at 1 ms; QPSK cannot carry the block in one slot.
-    assert config.rf.modulation == "16qam"
-
-
-def test_one_millisecond_profile_is_infeasible_without_its_phy_layer() -> None:
-    """The 3-ms channel timing must not silently validate at a 1-ms deadline."""
-
-    config_root = PROJECT_ROOT / "configs"
-    layers = list(headline_config_layers(PROJECT_ROOT))
-    layers[2] = config_root / "service" / "extreme_300B_1ms_1e-5.yaml"
-    layers.insert(-1, config_root / "training" / "primal_dual_ppo_ultra.yaml")
-    layers[-1] = config_root / "evaluation" / "ultra_reliability.yaml"
+    override = tmp_path / "tightened.yaml"
+    override.write_text(
+        "project:\n  experiment: tightened-deadline\nservice:\n  deadline_s: 0.001\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(ConfigurationError, match="VLC airtime"):
-        load_config(layers, project_root=PROJECT_ROOT)
+        load_config(
+            (*headline_config_layers(PROJECT_ROOT), override),
+            project_root=PROJECT_ROOT,
+        )
 
 
 def test_nyc_mobility_layer_resolves_network_artifact() -> None:
