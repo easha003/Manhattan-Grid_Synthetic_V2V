@@ -11,7 +11,7 @@ mobility:
   network_artifact: null
   step_s: 0.05
   speed_limit_mps: 11.18
-  target_densities_veh_per_lane_km: [20.0, 40.0, 60.0]
+  target_densities_veh_per_lane_km: [10.0, 20.0, 30.0]
   density_tolerance_fraction: 0.05
   signal_cycle_s: 90.0
   stagger_signal_offsets: true

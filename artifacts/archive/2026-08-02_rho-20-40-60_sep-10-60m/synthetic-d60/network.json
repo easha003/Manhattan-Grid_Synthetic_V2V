@@ -1,0 +1,8 @@
+{
+  "avenue_spacing_m": 244.0,
+  "avenues": 6,
+  "cross_street_spacing_m": 61.0,
+  "cross_streets": 12,
+  "lanes_per_direction": 1,
+  "speed_limit_mps": 11.18
+}

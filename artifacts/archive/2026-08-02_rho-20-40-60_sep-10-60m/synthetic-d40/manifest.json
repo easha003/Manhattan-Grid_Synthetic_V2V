@@ -1,0 +1,591 @@
+{
+  "artifact_id": "synthetic-d40",
+  "artifact_type": "mobility_trace",
+  "code_version": "0.1.0",
+  "config_hash": "a516780ba2f9474ccdbe9d55dac1b3afcaded788b642753dbda1f5962b276f35",
+  "created_at_utc": "2026-08-02T17:58:13.597536Z",
+  "files": [
+    {
+      "path": "network.json",
+      "sha256": "debe6bb7b9200c8cef7ecafd50c96aea06cdb7b0201eb3fad207381f7cb42694",
+      "size_bytes": 160
+    },
+    {
+      "path": "pairs.parquet",
+      "sha256": "9295a8c83e28ea9c3935e33fd99262d0e432b61c6816b751a09345c9defee88e",
+      "size_bytes": 3206899
+    },
+    {
+      "path": "resolved_config.yaml",
+      "sha256": "5dd948e3164d45fb7978b832dfe5693b0340be95eb15f5ef5a481a01251efc18",
+      "size_bytes": 7972
+    },
+    {
+      "path": "routes.json",
+      "sha256": "d49d38cc09a6e79e1ebf603ec30860eb72615dd33a03e5e19cc3d10cd6889fb0",
+      "size_bytes": 598245
+    },
+    {
+      "path": "signals.parquet",
+      "sha256": "d1d308c31aabd4dc83dadc435266514c725dc7d52ba610915ef371083941c47f",
+      "size_bytes": 5004
+    },
+    {
+      "path": "vehicles/part-00000.parquet",
+      "sha256": "c1722e8771ca47894d63c1518f31e8c7676b91d7e6350a94e37096ca2bd4e5b5",
+      "size_bytes": 3481239
+    },
+    {
+      "path": "vehicles/part-00001.parquet",
+      "sha256": "c4322ab8a7bb25d5dbf2ba039e68c2bb532f0581ea796e44ed7951e8580a5473",
+      "size_bytes": 3105413
+    },
+    {
+      "path": "vehicles/part-00002.parquet",
+      "sha256": "68e1e2bf0fcdf1fdb042525e2c48049668a67d538192191bbae3639abe21691c",
+      "size_bytes": 4291627
+    },
+    {
+      "path": "vehicles/part-00003.parquet",
+      "sha256": "58d182ab290c03e8700cec5a247c758c5075d6ee8732bba77199d9534f059896",
+      "size_bytes": 4696917
+    },
+    {
+      "path": "vehicles/part-00004.parquet",
+      "sha256": "d0fb56b1a72f8628be859ffdc19f9deadcb504fba3ef86061dd8c112e546e9dc",
+      "size_bytes": 4704962
+    },
+    {
+      "path": "vehicles/part-00005.parquet",
+      "sha256": "aba7f97807d501703a1c13371fab02e2d137445ea804d4897101cf8f64324361",
+      "size_bytes": 4390637
+    },
+    {
+      "path": "vehicles/part-00006.parquet",
+      "sha256": "14a87637c7e5914944f44ee36c1924d356d9e176325b527743cfa1558105af30",
+      "size_bytes": 4008029
+    },
+    {
+      "path": "vehicles/part-00007.parquet",
+      "sha256": "ad8f7176065050b6fb9757b4ac7542e61148be1e451bffee02717ff035058c5d",
+      "size_bytes": 4616148
+    },
+    {
+      "path": "vehicles/part-00008.parquet",
+      "sha256": "2ceb9b2ad3b02f882b9106af29d873e31115411aedb0e6b8c5c848c3400e7ead",
+      "size_bytes": 4915859
+    },
+    {
+      "path": "vehicles/part-00009.parquet",
+      "sha256": "21feaabfd140322769026083fa262abc429b19e2cd62da93a93c84a96980620b",
+      "size_bytes": 4737174
+    },
+    {
+      "path": "vehicles/part-00010.parquet",
+      "sha256": "d07a7328108c2b76344bb583554d15388e08f2ae5c3bab4bef130c7973d9460c",
+      "size_bytes": 4269673
+    },
+    {
+      "path": "vehicles/part-00011.parquet",
+      "sha256": "36b17dc01f23cc54587eedd7c0999e1c2444564109f5bf443c565829f1b3d7ed",
+      "size_bytes": 3676988
+    },
+    {
+      "path": "vehicles/part-00012.parquet",
+      "sha256": "7912f7d3601a453f9746d800df80fea06a43dc4e985afa98314b388ec8e9db0c",
+      "size_bytes": 3649856
+    },
+    {
+      "path": "vehicles/part-00013.parquet",
+      "sha256": "2d93b6f7bd5a7ad97cb3b6a3b1a5e64f311409c9ba90aaf9fd1adbf33d5020c9",
+      "size_bytes": 4836874
+    },
+    {
+      "path": "vehicles/part-00014.parquet",
+      "sha256": "cb9a5258b4e8cda5cddc40f57687c97991320c9b699efcf108e76e9dc7064380",
+      "size_bytes": 4851661
+    },
+    {
+      "path": "vehicles/part-00015.parquet",
+      "sha256": "44f253b432209e0a073aad885174c87ef5f034a0bcfdd5ae4923829d364de908",
+      "size_bytes": 4431884
+    },
+    {
+      "path": "vehicles/part-00016.parquet",
+      "sha256": "509d3138500067e7306e4a0ee73bd2f33cb6175457b48a0707bbd2527aafe817",
+      "size_bytes": 3813708
+    },
+    {
+      "path": "vehicles/part-00017.parquet",
+      "sha256": "73bde2a485b7a2d1099361810ea1bdb31b536240548d3373cef35a301f33a011",
+      "size_bytes": 3253482
+    },
+    {
+      "path": "vehicles/part-00018.parquet",
+      "sha256": "1735e84f3393c46c3496aa5c7d4835e164f3973d0a25a819720b3067f767a448",
+      "size_bytes": 4476492
+    },
+    {
+      "path": "vehicles/part-00019.parquet",
+      "sha256": "01f802cd1454688bfc61e58a0895c40ecf9248cc2839519f3c43aba682ef91f7",
+      "size_bytes": 4462884
+    },
+    {
+      "path": "vehicles/part-00020.parquet",
+      "sha256": "cfe169605fdd8cb50177a11dc559e9c4fc6f212ec8daf009bcfea5b442559a0d",
+      "size_bytes": 4153543
+    },
+    {
+      "path": "vehicles/part-00021.parquet",
+      "sha256": "3db721c917f1658b386bf7292bc7da481e2c79e9248325c695fa9cbf414eda94",
+      "size_bytes": 3726732
+    },
+    {
+      "path": "vehicles/part-00022.parquet",
+      "sha256": "1c3ef45d5ba529554173990f32c13b8ffb6fa2ffe28439241f64faf018290a95",
+      "size_bytes": 3195851
+    },
+    {
+      "path": "vehicles/part-00023.parquet",
+      "sha256": "479c619dcda1e437311c2107786dfb3099ebd4a560444628c7d5b6929f1f819f",
+      "size_bytes": 3620109
+    },
+    {
+      "path": "vehicles/part-00024.parquet",
+      "sha256": "f2fa09f987ff99725b52058eac928698bbc4c17af415bbe5b4e88e8d3c89f280",
+      "size_bytes": 4295977
+    },
+    {
+      "path": "vehicles/part-00025.parquet",
+      "sha256": "b2b81686739e94252b0ed4c280222506c1c71b908e8de93c2fd955be0212d7b6",
+      "size_bytes": 4194004
+    },
+    {
+      "path": "vehicles/part-00026.parquet",
+      "sha256": "c767b5e1a50c944e4bfce9e5caa54388b695331fe71f900448186195c4c0eddc",
+      "size_bytes": 3834299
+    },
+    {
+      "path": "vehicles/part-00027.parquet",
+      "sha256": "4dc37ee5671738521a997d244a7c5447cc9e8166cb7cb59662a51d015351ec5f",
+      "size_bytes": 3456139
+    },
+    {
+      "path": "vehicles/part-00028.parquet",
+      "sha256": "40d17c02c409a0dac89164bd1e40e2f9993fa006de383c6c3d54aa375e3b2319",
+      "size_bytes": 3293420
+    },
+    {
+      "path": "vehicles/part-00029.parquet",
+      "sha256": "d30d982968c8b9d7ff91eb0af326afe85b43c7a167c69e5cab01dba025f013ce",
+      "size_bytes": 4193344
+    },
+    {
+      "path": "vehicles/part-00030.parquet",
+      "sha256": "d572d6dc57ffd7628794820651fdb763a8c88fb615c3ca5c97cac6cca03d18e5",
+      "size_bytes": 4371550
+    },
+    {
+      "path": "vehicles/part-00031.parquet",
+      "sha256": "c318ec7e0573e624b10402e6717a4bc00abb4d0815a62cb480622a9527f23fc5",
+      "size_bytes": 4367507
+    },
+    {
+      "path": "vehicles/part-00032.parquet",
+      "sha256": "fe282a8645cf726afc03d8750c6a39f0e807f7ea2bcd530aacd1ce0fdaf538ec",
+      "size_bytes": 4173034
+    },
+    {
+      "path": "vehicles/part-00033.parquet",
+      "sha256": "c49840049fcd45f657a13a2215990bd92e7d47081a2180334175849d95ead73b",
+      "size_bytes": 3775109
+    },
+    {
+      "path": "vehicles/part-00034.parquet",
+      "sha256": "3ff6bfc0e3e797aba128b96e92d17c8ca783090fff80da62d12657cda3c24161",
+      "size_bytes": 4574187
+    },
+    {
+      "path": "vehicles/part-00035.parquet",
+      "sha256": "5d9a1b9fb00e20d8e6ae9cae1f839865e5addb36a4bb24e88a00cf2806698dd4",
+      "size_bytes": 4768994
+    },
+    {
+      "path": "vehicles/part-00036.parquet",
+      "sha256": "58379873ee3613c9a799cf728e7d5a413281715f0bf97382e7525647689ed3ee",
+      "size_bytes": 4470252
+    },
+    {
+      "path": "vehicles/part-00037.parquet",
+      "sha256": "ac4b8c2a9b3462c29446e1ca7666d2324cba5b53138964b6916179406c4b20b4",
+      "size_bytes": 3963697
+    },
+    {
+      "path": "vehicles/part-00038.parquet",
+      "sha256": "b6fa5a837895f5a4d89f9f3e62acd97c2afbe08f96e68e81c6de73b9366513f1",
+      "size_bytes": 3444184
+    },
+    {
+      "path": "vehicles/part-00039.parquet",
+      "sha256": "20e7d9d3aa83c7759be973d3ff7f6bdc7b6f24af61e5e5572b530db7bae96eb3",
+      "size_bytes": 3676233
+    },
+    {
+      "path": "vehicles/part-00040.parquet",
+      "sha256": "8939eb0531c68abcb0ffd9153338845614c3095fd13940823da555c3d135a485",
+      "size_bytes": 4343228
+    },
+    {
+      "path": "vehicles/part-00041.parquet",
+      "sha256": "605bf5bef1d2a24ba5b9c8734e934faf97f96914496f380431a271be9defe48d",
+      "size_bytes": 4331161
+    },
+    {
+      "path": "vehicles/part-00042.parquet",
+      "sha256": "a38f434c06308886315fef1219f360755f594255a2354651f434969409216f25",
+      "size_bytes": 4007908
+    },
+    {
+      "path": "vehicles/part-00043.parquet",
+      "sha256": "ffe9f9e22454009d353f28762e253c4c56493e8ba1c94f3cf3a4495701894cf2",
+      "size_bytes": 3602460
+    },
+    {
+      "path": "vehicles/part-00044.parquet",
+      "sha256": "354c6114281279eeb50563b49e6c13548800f102ea7050cfb8084ac35bb76505",
+      "size_bytes": 3335134
+    },
+    {
+      "path": "vehicles/part-00045.parquet",
+      "sha256": "a4f8da33dfd5b8fb6a65762858082a4a230726e9ff4ce2f2c04307e6a5d4292d",
+      "size_bytes": 4359869
+    },
+    {
+      "path": "vehicles/part-00046.parquet",
+      "sha256": "cefa1763dd87061c6a31e4088e9c55b2ec75a882431dcde92e5f295f700171b4",
+      "size_bytes": 4577349
+    },
+    {
+      "path": "vehicles/part-00047.parquet",
+      "sha256": "1976b70f0c30256bc348b2e2fed1bc8bdca5b324cbca3f0ed291e4dbc4fa3a6c",
+      "size_bytes": 4374490
+    },
+    {
+      "path": "vehicles/part-00048.parquet",
+      "sha256": "ebc93a234d30aba8789f31c35634d040d2c4b4b49a050593d5f636a6435f4287",
+      "size_bytes": 3971548
+    },
+    {
+      "path": "vehicles/part-00049.parquet",
+      "sha256": "b412b2184d3c346149b6a363bec2c74785d2c8dd29bc12cf3b724828893ef832",
+      "size_bytes": 3485684
+    },
+    {
+      "path": "vehicles/part-00050.parquet",
+      "sha256": "233caf4a6fff402c2a4a840f4dc8582166b0ad59318c6922765afe613f2e452b",
+      "size_bytes": 4303992
+    },
+    {
+      "path": "vehicles/part-00051.parquet",
+      "sha256": "80e822daab26b519a71342e1218abaaa18e7d76106c6a4e51e50a98c7efdb740",
+      "size_bytes": 4846630
+    },
+    {
+      "path": "vehicles/part-00052.parquet",
+      "sha256": "d1b9cab2297d52ca1d8e08fae2fd5a8264da3b8787a7bc4b3f4632f11b26229c",
+      "size_bytes": 4567464
+    },
+    {
+      "path": "vehicles/part-00053.parquet",
+      "sha256": "2e9a8c7bfc81b54ff3e528a0e7a7b0d9e75d5efd0ad95e29d99d0b34dab57e96",
+      "size_bytes": 4006661
+    },
+    {
+      "path": "vehicles/part-00054.parquet",
+      "sha256": "16ed2f77b9c2c997862f21883df37b2b90867f291cf6d5b5b35c895ad844972e",
+      "size_bytes": 3382204
+    },
+    {
+      "path": "vehicles/part-00055.parquet",
+      "sha256": "d68d046046399a3d085a11a283adb63eb108c4e63ef32158acedc88481c63b7d",
+      "size_bytes": 3324703
+    },
+    {
+      "path": "vehicles/part-00056.parquet",
+      "sha256": "a15e7a3eadd1e8ec461513685718f9b610e366997abd248f84da3cf58ca05b0d",
+      "size_bytes": 4387138
+    },
+    {
+      "path": "vehicles/part-00057.parquet",
+      "sha256": "a2cfd3e7d4757b7575609bd89b4fbcc9a83f92ba93f77f0b8d995e5a34b5bc3c",
+      "size_bytes": 4567543
+    },
+    {
+      "path": "vehicles/part-00058.parquet",
+      "sha256": "70f7034dbdd8da31d6542cf12ee0193337c34055f52a8d0a4cb315e8b7669ce2",
+      "size_bytes": 4571481
+    },
+    {
+      "path": "vehicles/part-00059.parquet",
+      "sha256": "dbfcbb252447e779a41343f60b4d2e4859bfe49e19d66e7e969e53e56c7d572e",
+      "size_bytes": 4216076
+    },
+    {
+      "path": "vehicles/part-00060.parquet",
+      "sha256": "961d8073c7bf7b6ee6515ced4ca658858dd69089d735593cddc4412482d18342",
+      "size_bytes": 3862881
+    },
+    {
+      "path": "vehicles/part-00061.parquet",
+      "sha256": "3903bc745c7e231fd576457411ef65c5835defbb93fe139fd54e5ca70a0f88db",
+      "size_bytes": 4745434
+    },
+    {
+      "path": "vehicles/part-00062.parquet",
+      "sha256": "90b2f3b86bc3e76a7516c5730687a546208bfe9a633f0acfd412e907f18e4dff",
+      "size_bytes": 4801840
+    },
+    {
+      "path": "vehicles/part-00063.parquet",
+      "sha256": "f3a7faced4296fe1101f7d769b8a78f53d63cdb6f520b18ba952243449788aac",
+      "size_bytes": 4438888
+    },
+    {
+      "path": "vehicles/part-00064.parquet",
+      "sha256": "3e7fd913ff9f9814866e109ce259f858c4c2509b5b38d947b64ffe6b53e439a6",
+      "size_bytes": 3795481
+    },
+    {
+      "path": "vehicles/part-00065.parquet",
+      "sha256": "e5c87a66bd3636044848a7e8581bb8753d9614c4cb134225bb86e864e45de6a5",
+      "size_bytes": 3100870
+    },
+    {
+      "path": "vehicles/part-00066.parquet",
+      "sha256": "188ebc0e5ed8c511a584d198b8d8b96051f64bbe7e948a403abaf68f2cc773f3",
+      "size_bytes": 3328342
+    },
+    {
+      "path": "vehicles/part-00067.parquet",
+      "sha256": "b20dd732887251bd38d79a7b4d257f050d6548e44b6f9a485fcd5e48e8926eca",
+      "size_bytes": 3971287
+    },
+    {
+      "path": "vehicles/part-00068.parquet",
+      "sha256": "a130fbd9b534b31cd142d15c2b47e222ae1b2d9de1e34d214aab9776947480a4",
+      "size_bytes": 4145651
+    },
+    {
+      "path": "vehicles/part-00069.parquet",
+      "sha256": "68d82681569e96277a4b65db2fbcd1eca9b2b7ffe915509755829150bd433ed8",
+      "size_bytes": 3949162
+    },
+    {
+      "path": "vehicles/part-00070.parquet",
+      "sha256": "29df36e7c3d73abc268c4cdb9aa8022215f38ea8c068b610ba5716c69d67d91f",
+      "size_bytes": 3485351
+    },
+    {
+      "path": "vehicles/part-00071.parquet",
+      "sha256": "4891517d5bfe4bc65c4f34a6552564468eca9339c3c0abca40de53bc6bbc31d6",
+      "size_bytes": 3212396
+    },
+    {
+      "path": "vehicles/part-00072.parquet",
+      "sha256": "99feb85219508a5a624e15ea165882acc2f967f0a57ec414f0321edd7d8f7b4b",
+      "size_bytes": 3788492
+    },
+    {
+      "path": "vehicles/part-00073.parquet",
+      "sha256": "afb892f97768bed9c57f03940c73b535143c7ab653c8656d00639dfe6b12e219",
+      "size_bytes": 3724793
+    },
+    {
+      "path": "vehicles/part-00074.parquet",
+      "sha256": "a98706af559af7af021cff521bbc1da948566a1881c30f528ad2ca77fcb38c94",
+      "size_bytes": 3323191
+    },
+    {
+      "path": "vehicles/part-00075.parquet",
+      "sha256": "032a63598bf6b10e865c2c2cee3abe9896c2891d453032dd0283ad555a0a33f9",
+      "size_bytes": 2864480
+    },
+    {
+      "path": "vehicles/part-00076.parquet",
+      "sha256": "d7cfe09f2f3b129cf3dfe5f48bbd50d012879d4d32eb3c88692319d4f45a7a1c",
+      "size_bytes": 2280332
+    },
+    {
+      "path": "vehicles/part-00077.parquet",
+      "sha256": "94f05f98bae915d35ab782146dba7bb2ede2c82ee4e2843ff40fed2e5c9eb460",
+      "size_bytes": 3238289
+    },
+    {
+      "path": "vehicles/part-00078.parquet",
+      "sha256": "30cd7c03e2f515cf82351fada6b2c565738909bc8c47833ecbb8b6ce39a63771",
+      "size_bytes": 3687649
+    },
+    {
+      "path": "vehicles/part-00079.parquet",
+      "sha256": "86252368d524e94a9058405b0fef889a0be0f46f60c32261eb6370b735ed5e9f",
+      "size_bytes": 3550245
+    },
+    {
+      "path": "vehicles/part-00080.parquet",
+      "sha256": "02ac9c80fbffe906a7df58fbdf872608c916e7018bed58c7c1dd133261b8b982",
+      "size_bytes": 3120444
+    },
+    {
+      "path": "vehicles/part-00081.parquet",
+      "sha256": "594392900eede19f8cd691465bafa25250a05e41535e08485b6ca789262a0666",
+      "size_bytes": 2628811
+    },
+    {
+      "path": "vehicles/part-00082.parquet",
+      "sha256": "75bce5fb2b13bffd0a022b562fd0cb4bda0880f3975c189c5cf3f14173af772c",
+      "size_bytes": 2936085
+    },
+    {
+      "path": "vehicles/part-00083.parquet",
+      "sha256": "56c2ba6d320e427affb8a9049c6f6901f298c00d946a8b93321340d1231d0572",
+      "size_bytes": 3764691
+    },
+    {
+      "path": "vehicles/part-00084.parquet",
+      "sha256": "59b5f669335680eb66f0d07e36e4bd432a465b4a51a18a9e752f05d266430073",
+      "size_bytes": 3614647
+    },
+    {
+      "path": "vehicles/part-00085.parquet",
+      "sha256": "8fc19374627cc8168e63acb9a8b145083d4ee7ea05fac79e8e43cc527ee4f388",
+      "size_bytes": 3209745
+    },
+    {
+      "path": "vehicles/part-00086.parquet",
+      "sha256": "9ad23f8eae9b3190fbc8c099b38bf57939768ad384ea42abf56b564d9f7e74f8",
+      "size_bytes": 2908821
+    },
+    {
+      "path": "vehicles/part-00087.parquet",
+      "sha256": "d5732092d2f157042c8dccd8ad2b53f47031dbbe3dd27c88bc169d73a51e0ae6",
+      "size_bytes": 2675683
+    },
+    {
+      "path": "vehicles/part-00088.parquet",
+      "sha256": "aeeea8c3d0d1f70a9d20ba00b71871058a2d21334567926ff9ead8391650c798",
+      "size_bytes": 3514215
+    },
+    {
+      "path": "vehicles/part-00089.parquet",
+      "sha256": "79962f5daad0202a3c1b8b7e4171bdac45162632d00435a437490438acd0046d",
+      "size_bytes": 3734128
+    },
+    {
+      "path": "vehicles/part-00090.parquet",
+      "sha256": "2ad6b6755c67601e804e89195cec889c4fa27621ad95cf881379ad68bec98fc3",
+      "size_bytes": 3739079
+    },
+    {
+      "path": "vehicles/part-00091.parquet",
+      "sha256": "6739811fca0d99c2e6d8b3694324e9cbda022e7ac68000c3765371d59ea1b6c8",
+      "size_bytes": 3513586
+    },
+    {
+      "path": "vehicles/part-00092.parquet",
+      "sha256": "8826e23be61c99a0b3a3d158051c0a378be4b4e21c0f2600044133e815ea138d",
+      "size_bytes": 3024553
+    },
+    {
+      "path": "vehicles/part-00093.parquet",
+      "sha256": "3e8ce5115f4f6c3759028c084d28ac757f4d31aa9ff0e884247877fa5d1fd837",
+      "size_bytes": 3603210
+    },
+    {
+      "path": "vehicles/part-00094.parquet",
+      "sha256": "5590afaf2524b7e88815f3777324d1c75443c9cd57ae0c216d922f1664d32b2d",
+      "size_bytes": 4039984
+    },
+    {
+      "path": "vehicles/part-00095.parquet",
+      "sha256": "89a108e1ad24337d577bf0cfe1d9de07286e4a8969237f8f7cc3c4bf6e847040",
+      "size_bytes": 4119557
+    },
+    {
+      "path": "vehicles/part-00096.parquet",
+      "sha256": "5f2d8b989f819514c6cc047f14fad88cb50ca3bfdd69a0fbc6a4653d236a6f90",
+      "size_bytes": 3873632
+    },
+    {
+      "path": "vehicles/part-00097.parquet",
+      "sha256": "f8c65a015521a62ea7983f8c1db241acdb0b48036dfd0d178a7806f1dd5086a3",
+      "size_bytes": 3530025
+    },
+    {
+      "path": "vehicles/part-00098.parquet",
+      "sha256": "ee53f2b2a09ca1c844914c36c16adad06f27ece83c0196dbe322825ebb212c84",
+      "size_bytes": 3592971
+    },
+    {
+      "path": "vehicles/part-00099.parquet",
+      "sha256": "d6e3c029f543a8eb9eadc955dfa2e4308e4de34b51fd10e6b2fbbbd6eed017d0",
+      "size_bytes": 4452878
+    },
+    {
+      "path": "vehicles/part-00100.parquet",
+      "sha256": "0b3c731917d0c01c25857d059a7a8b1e46eb540a4568d4934ba9504fa2dc636f",
+      "size_bytes": 4452899
+    },
+    {
+      "path": "vehicles/part-00101.parquet",
+      "sha256": "e3a5492460296c8f8201098ccd91c5f4b2d33957e5f3d5b7d5635ac27faa7155",
+      "size_bytes": 4207531
+    },
+    {
+      "path": "vehicles/part-00102.parquet",
+      "sha256": "85bbc22ce26a51967eaf66d2a46ac623e3e29c9e7dc7668326e5a41bf3335d2f",
+      "size_bytes": 3714498
+    },
+    {
+      "path": "vehicles/part-00103.parquet",
+      "sha256": "9cbd9ef32e8bbd9806c5022e15cbf9d2ae50ea64e8193f5edd11aeca6fbe9036",
+      "size_bytes": 3362250
+    },
+    {
+      "path": "vehicles/part-00104.parquet",
+      "sha256": "832367c8663d7792c6042e57602076bceb748d2ce1800375580b002912641df8",
+      "size_bytes": 4194815
+    },
+    {
+      "path": "vehicles/part-00105.parquet",
+      "sha256": "9bc1852a5e504936876dc0a4459d7afec53d0c879bb709f93562217fe9da952d",
+      "size_bytes": 4293396
+    },
+    {
+      "path": "vehicles/part-00106.parquet",
+      "sha256": "175ff2fc65ce50fdffb3e693ee676474365880b9c929faa23736cea6a5961a90",
+      "size_bytes": 4148282
+    },
+    {
+      "path": "vehicles/part-00107.parquet",
+      "sha256": "f2b3e05db7bce26c7d86224cd491dde1a4dd94999c2aae388e0bd240d0f2b66e",
+      "size_bytes": 1802376
+    }
+  ],
+  "input_artifacts": [],
+  "notes": [
+    "warmup_s=300",
+    "saved_duration_s=900",
+    "total_lane_length_m=37332",
+    "density is set directly; no closed-loop flow calibration is performed",
+    "trace_schema_version=1.0.0",
+    "vehicle_rows and partitions are verified after publication"
+  ],
+  "random_seeds": {
+    "mobility": 269074410605433023
+  },
+  "schema_version": "1.0.0",
+  "software_versions": {
+    "mobility_model": "analytic-manhattan-grid",
+    "pyarrow": "19.0.1"
+  }
+}

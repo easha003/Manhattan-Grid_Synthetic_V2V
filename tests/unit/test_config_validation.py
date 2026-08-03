@@ -82,16 +82,16 @@ def test_trace_split_overlap_is_rejected(tmp_path: Path) -> None:
 
 
 def test_missing_density_multiplier_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(ConfigurationError, match="missing=\\[60.0\\]"):
+    with pytest.raises(ConfigurationError, match="missing=\\[30.0\\]"):
         _load_with_override(
             tmp_path,
             "training:\n"
             "  density_multipliers:\n"
-            "    - density_veh_per_lane_km: 20.0\n"
+            "    - density_veh_per_lane_km: 10.0\n"
             "      initial_value: 0.0\n"
             "      learning_rate: 0.05\n"
             "      maximum: 1000000.0\n"
-            "    - density_veh_per_lane_km: 40.0\n"
+            "    - density_veh_per_lane_km: 20.0\n"
             "      initial_value: 0.0\n"
             "      learning_rate: 0.05\n"
             "      maximum: 1000000.0\n",

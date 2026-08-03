@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import pytest
 
 from grail_v.mobility.tagged_pairs import (
+    TaggedPairConfig,
     TaggedPairExtractor,
     VehicleRecord,
     build_vehicle_frames,
@@ -102,6 +103,8 @@ def test_rejects_opposing_and_cross_lane_candidates() -> None:
 
 
 def test_records_a_vehicle_observed_between_pair_endpoints() -> None:
+    """The blocker flag still works when non-adjacent pairs are allowed."""
+
     records = [
         _vehicle(0.0, "tx", 0.0),
         _vehicle(0.0, "blocker", 20.0),
@@ -111,12 +114,34 @@ def test_records_a_vehicle_observed_between_pair_endpoints() -> None:
         _vehicle(0.5, "rx", 50.0),
     ]
 
-    segments = TaggedPairExtractor().extract(records)
+    segments = TaggedPairExtractor(TaggedPairConfig(require_adjacent=False)).extract(records)
 
     long_pair = next(pair for pair in segments if (pair.tx_id, pair.rx_id) == ("tx", "rx"))
     adjacent_pair = next(pair for pair in segments if (pair.tx_id, pair.rx_id) == ("tx", "blocker"))
     assert long_pair.has_intervening_vehicle is True
     assert adjacent_pair.has_intervening_vehicle is False
+
+
+def test_adjacency_is_required_by_default() -> None:
+    """A pair straddling another vehicle is not an immediate leader-follower.
+
+    Allowing it produced a same-lane vehicle in the optical path 97-100% of the
+    time at 40 and 60 veh/lane-km, leaving V-VLC with no availability at all.
+    """
+
+    records = [
+        _vehicle(0.0, "tx", 0.0),
+        _vehicle(0.0, "blocker", 20.0),
+        _vehicle(0.0, "rx", 45.0),
+        _vehicle(0.5, "tx", 5.0),
+        _vehicle(0.5, "blocker", 25.0),
+        _vehicle(0.5, "rx", 50.0),
+    ]
+
+    pairs = {(p.tx_id, p.rx_id) for p in TaggedPairExtractor().extract(records)}
+
+    assert ("tx", "rx") not in pairs, "straddling pair must be rejected"
+    assert ("tx", "blocker") in pairs, "immediate leader-follower must survive"
 
 
 def test_only_continuous_one_second_range_excursion_terminates_episode() -> None:

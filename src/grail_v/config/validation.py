@@ -91,7 +91,7 @@ def _validate_headline_contract(config: ProjectConfig) -> None:
     _require_headline(
         "mobility.target_densities_veh_per_lane_km",
         config.mobility.target_densities_veh_per_lane_km,
-        (20.0, 40.0, 60.0),
+        (10.0, 20.0, 30.0),
     )
 
     _require_headline("cost.rf_activation", config.cost.rf_activation, 1.0)

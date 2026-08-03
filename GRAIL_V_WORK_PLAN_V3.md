@@ -289,19 +289,20 @@ When a vehicle leaves the grid a replacement is injected at a boundary entry
 that has room for it. **The entire closed-loop demand-calibration subsystem of
 v2 §4.2 is deleted**, along with its evaluation budget and failure modes.
 
-Training densities remain \(\rho_L\in\{20,40,60\}\) vehicles/lane-km.
-
 Injection is deferred rather than forced when every boundary entry is occupied,
 because forcing would place overlapping footprints that the occlusion geometry
 cannot interpret. Realised density is therefore reported, never assumed.
 
+Training densities are \(\rho_L\in\{10,20,30\}\) vehicles/lane-km. The choice
+is measured, not conventional — see §4.5.
+
 **Measured, 900 s after a 300 s warm-up:**
 
-| Target \(\rho_L\) | Realised | Error | Mean speed | Stopped |
+| Target \(\rho_L\) | Realised | Error | Episodes | Usable |
 |---:|---:|---:|---:|---:|
-| 20 | 20.01 | 0.05% | 5.36 m/s | 35.3% |
-| 40 | 39.99 | 0.02% | 2.50 m/s | 56.3% |
-| 60 | 59.43 | 0.95% | 1.79 m/s | 71.4% |
+| 10 | 9.99 | 0.10% | 5,364 | 5,354 |
+| 20 | 20.01 | 0.05% | 14,510 | 14,489 |
+| 30 | 30.00 | 0.00% | 19,071 | 19,049 |
 
 ### 4.5 The measured fundamental diagram
 
@@ -321,14 +322,37 @@ Flow saturates near 550 veh/h/lane between \(\rho_L=40\) and 60. The
 **holding capacity of the network is 72 veh/lane-km**, and a density beyond it
 is rejected at construction rather than silently under-filled.
 
+### 4.5.1 Why the training densities are 10 / 20 / 30
+
+The original \(\{20,40,60\}\) was inherited, not measured. A sweep of the two
+quantities the hybrid argument actually depends on shows why it was the wrong
+band:
+
+| \(\rho_L\) | Optical path blocked | Neighbours within 200 m | Regime |
+|---:|---:|---:|---|
+| 5 | 5.3% | 30 | free |
+| 10 | 12.2% | 67 | free |
+| 20 | 22.5% | 114 | free |
+| 30 | 30.6% | 180 | free |
+| 40 | 26.2% | 156 | at capacity |
+| 60 | 30.7% | 197 | oversaturated |
+
+**Both impairments stop responding to density above \(\rho_L\approx30\).**
+Blockage climbs cleanly to 30.6% and then flattens; neighbour count does the
+same and even falls, because past capacity vehicles pack into queues rather
+than spreading through the sensing radius. Under \(\{20,40,60\}\) two of the
+three points were effectively one operating condition — 1.4× spread in
+blockage and 1.7× in neighbours, against 2.5× and 2.7× for
+\(\{10,20,30\}\).
+
+Beyond \(\rho_L=30\) the model measures queueing, not communication.
+
 **Consequences for the generalization tests:**
 
-- Interpolation at 30 and 50 veh/lane-km: **retained** (42% and 69% of
-  capacity).
-- Extrapolation at 70 veh/lane-km: **changed to 65**. At 70 the network is at
-  97% of holding capacity and realised density falls 10.2% below target,
-  failing the tolerance by a factor of two. v2 already made this test
-  conditional; the condition is now measured and fails.
+- Interpolation: **15 and 25 veh/lane-km**, inside the responsive band.
+- Extrapolation: **40 veh/lane-km**, the first point past capacity. The
+  original 70 is abandoned — at 97% of holding capacity realised density falls
+  10.2% below target, failing the tolerance twofold.
 
 ### 4.6 Vehicles and tagged pairs
 
@@ -337,9 +361,18 @@ bus/truck 3% (11.0 × 2.5 × 3.25 m). Heavy-vehicle shares of 0%, 5% and 10% are
 used for blockage sensitivity.
 
 The tagged transmitter follows the tagged receiver: same direction, shared
-upcoming path, separation 10–60 m, stratified into 10–20, 20–40 and 40–60 m.
-Episodes end when the pair leaves the range continuously for one second, when
-the leader leaves the follower's remaining path, or at the 60 s cap.
+upcoming path, **separation 5–40 m**, stratified into three equal strata
+derived from that window (5–16.7, 16.7–28.3, 28.3–40 m). Episodes end when the
+pair leaves the range continuously for one second, when the leader leaves the
+follower's remaining path, or at the 60 s cap.
+
+**The pair must be the immediate leader-follower**
+(`TaggedPairConfig.require_adjacent`). This is not cosmetic. Allowing any two
+same-lane vehicles inside the window put another vehicle in the optical path
+**97–100% of the time at 40 and 60 veh/lane-km**, because mean spacing at those
+densities is smaller than the window, so the pair could not help but straddle
+other traffic. V-VLC had no availability, DUP would have cost 2 to deliver what
+RF alone delivers, and RQ2 had nothing to decide.
 
 **Vehicles are never repositioned to manufacture a pair**, and shorter eligible
 segments are never padded.
@@ -351,17 +384,62 @@ backend, since anonymous route identifiers could never match.
 
 **Measured episode yield** from one 900 s trace per density:
 
-| \(\rho_L\) | Episodes | Usable | Degenerate | Median duration | Blocker fraction |
+| \(\rho_L\) | Episodes | Usable | Degenerate | Mean duration | Ends at cap |
 |---:|---:|---:|---:|---:|---:|
-| 20 | 43,972 | 43,492 | 480 (1.1%) | 14.0 s | 0.59 |
-| 40 | 120,000 | 119,421 | 579 (0.5%) | 50.0 s | 0.83 |
-| 60 | 200,216 | 196,457 | 3,759 (1.9%) | 60.0 s | 0.86 |
+| 10 | 5,364 | 5,354 | 10 (0.2%) | 23.8 s | 11.5% |
+| 20 | 14,510 | 14,489 | 21 (0.1%) | 25.4 s | 14.2% |
+| 30 | 19,071 | 19,049 | 22 (0.1%) | 39.7 s | 47.1% |
 
 A degenerate episode is one of zero duration, produced when an endpoint leaves
 the network before a second observation. It is counted, not silently dropped.
 
-The blocker fraction rising 0.59 → 0.86 with density is third-vehicle optical
-occlusion emerging from the model rather than being assumed.
+Note that `blocker_fraction` in the report is now ≈0.01 and effectively
+vestigial: with adjacency required, no *same-lane* vehicle can be between the
+pair. Real occlusion comes from cross-traffic and is computed by the geometry
+engine per timestep, not by the pair extractor.
+
+### 4.6.1 The complementarity evidence
+
+This is the measurement the whole contribution depends on, so it is recorded
+here rather than left to be rediscovered.
+
+**Optical path blocked, by separation** — the structure a policy can act on:
+
+| Separation | \(\rho_L=10\) | \(\rho_L=20\) | \(\rho_L=30\) |
+|---|---:|---:|---:|
+| 5–10 m | 1.3% | 8.7% | 16.0% |
+| 10–20 m | 3.6% | 41.5% | 21.5% |
+| 20–30 m | 20.0% | 51.0% | 46.8% |
+| 30–40 m | 36.1% | 32.0% | 30.1% |
+
+**Aggregate availability and RF load:**
+
+| \(\rho_L\) | VLC blocked | VLC available | Neighbours within 200 m |
+|---:|---:|---:|---:|
+| 10 | 9.1% | 90.9% | 54 |
+| 20 | 29.0% | 71.0% | 105 |
+| 30 | 14.1% | 85.9% | 199 |
+
+Three properties follow, and each maps to a research question:
+
+1. **V-VLC is genuinely intermittent** — available 71–91%, blocked 9–29%. There
+   is a real trade-off for selective duplication to exploit (RQ2).
+2. **Blockage varies 28× with separation at \(\rho_L=10\)** (1.3% → 36.1%) on a
+   quantity the policy observes directly. A short link is nearly always clear; a
+   long one is frequently swept by cross-traffic at junctions. That is the
+   conditional structure the 200 ms forecast is meant to predict (RQ3, H3).
+3. **The two impairments have different drivers.** Neighbour count scales
+   cleanly 3.7× with density; optical blockage scales with separation and only
+   weakly and non-monotonically with density. They do not track each other,
+   which is the condition diversity requires (RQ4).
+
+**Caveat on the density marginal.** Blockage is non-monotonic in density
+(9.1% → 29.0% → 14.1%) because episode sampling weights pair-instants by
+episode duration, and closely-spaced queued pairs persist far longer than
+free-flowing ones. The median separation of sampled instants is therefore
+7.0 m, 14.1 m and 7.0 m rather than monotone. **Cross-density comparisons must
+be stratified by separation**, which §13.6 already requires for a related
+reason.
 
 ### 4.7 Declared assumptions and known limitations
 
@@ -1072,6 +1150,16 @@ demonstrated value.
 report \(10^{-5}\) with raw miss count and bound; never write "five nines
 achieved".
 
+**R4a — A configuration silently destroys the phenomenon under study.**
+This already happened once and was caught only by measuring the traces. The
+first campaign at \(\{20,40,60\}\) with a 10–60 m window and no adjacency
+requirement blocked the optical path 97–100% of the time, leaving V-VLC with no
+availability at all — while every Gate-1 check passed, because Gate 1 tests
+mobility credibility and not whether the link under study can ever work.
+Mitigation: before each gate, measure the quantity the research question
+depends on, not only the quantities the gate lists. The superseded campaign and
+its rationale are archived under `artifacts/archive/`.
+
 **R4 — The mobility model is challenged as unrealistic.** The declared
 limitations of §4.7 are stated up front, the fundamental diagram of §4.5 is
 reported, and the SUMO implementation is preserved on branch
@@ -1111,14 +1199,20 @@ no shared lineage.
 
 ## 20. Immediate next actions
 
-1. **Source or bound the IDM time headway** (§4.7 item 1). It sets the capacity
+1. **Begin M2 geometry** against the frozen traces in `artifacts/traces/`
+   (config hash `6dc49408`). Buildings are derivable from `GridNetwork`;
+   intersection distance is `edge.length_m - offset_m`. The occlusion engine
+   must reproduce the separation-conditioned blockage of §4.6.1 — that table is
+   its acceptance test.
+2. **Source or bound the IDM time headway** (§4.7 item 1). It sets the capacity
    in §4.5 and is currently undeclared.
-2. **Begin M2 geometry** against the frozen traces in `artifacts/traces/`.
-   Buildings are derivable from `GridNetwork`; intersection distance is
-   `edge.length_m - offset_m`.
 3. **Obtain W18** before Gate 2 needs it for VLC validation.
 4. Decide whether to tighten the density tolerance to 2% (§14 Gate 1).
 5. Review the \(10^{-5}\) curriculum split (§11.3).
+6. Consider whether multi-lane roads are worth the cost (§4.7 item 3). They are
+   *not* required for the current result — blockage comes from junction
+   cross-traffic, which single-lane already provides — but they would answer the
+   standardisation request and make the geometry closer to a real avenue.
 
 ---
 

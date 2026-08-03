@@ -1,0 +1,306 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "grail-v",
+    "experiment": "headline",
+    "description": "Frozen 300-byte, 3-ms, 1e-4 eV2X conference experiment"
+  },
+  "mobility": {
+    "kind": "synthetic_manhattan",
+    "grid": {
+      "avenues": 6,
+      "cross_streets": 12,
+      "avenue_spacing_m": 244.0,
+      "cross_street_spacing_m": 61.0,
+      "evaluation_avenues": 4,
+      "evaluation_cross_streets": 8,
+      "lanes_per_direction": 1
+    },
+    "network_artifact": null,
+    "step_s": 0.05,
+    "speed_limit_mps": 11.18,
+    "target_densities_veh_per_lane_km": [
+      20.0,
+      40.0,
+      60.0
+    ],
+    "density_tolerance_fraction": 0.05,
+    "signal_cycle_s": 90.0,
+    "stagger_signal_offsets": true,
+    "turn_probabilities": {
+      "left": 0.25,
+      "straight": 0.5,
+      "right": 0.25
+    },
+    "straight_heavy_turn_probabilities": {
+      "left": 0.1,
+      "straight": 0.8,
+      "right": 0.1
+    },
+    "warmup_s": 300.0,
+    "trace_duration_s": 900.0,
+    "boundary_arrivals": "poisson",
+    "vehicle_classes": [
+      {
+        "name": "passenger_car",
+        "share": 0.9,
+        "length_m": 4.5,
+        "width_m": 1.8,
+        "height_m": 1.5
+      },
+      {
+        "name": "van_suv",
+        "share": 0.07,
+        "length_m": 5.2,
+        "width_m": 2.0,
+        "height_m": 2.0
+      },
+      {
+        "name": "bus_truck",
+        "share": 0.03,
+        "length_m": 11.0,
+        "width_m": 2.5,
+        "height_m": 3.25
+      }
+    ]
+  },
+  "service": {
+    "payload_bytes": 300,
+    "generation_period_s": 0.1,
+    "deadline_s": 0.003,
+    "miss_budget": 0.0001,
+    "predecision_lead_s": 0.0001,
+    "harq_enabled": false,
+    "rf_attempts_per_packet": 1,
+    "vlc_attempts_per_packet": 1,
+    "dup_simultaneous": true,
+    "rf_resource_assumption": "pre_reserved"
+  },
+  "geometry": {
+    "tagged_pair_mode": "longitudinal_following",
+    "min_separation_m": 10.0,
+    "max_separation_m": 60.0,
+    "rf_antenna_height_m": 1.5,
+    "headlamp_height_m": 0.7,
+    "photodiode_height_m": 0.7,
+    "exact_geometry_hidden_from_policy": true,
+    "include_building_nlos": true
+  },
+  "rf": {
+    "enabled": true,
+    "carrier_hz": 5900000000.0,
+    "bandwidth_hz": 10000000.0,
+    "subcarrier_spacing_hz": 30000.0,
+    "slot_s": 0.0005,
+    "resource_blocks": 24,
+    "modulation": "qpsk",
+    "resource_element_overhead": 0.4,
+    "tx_power_dbm": 23.0,
+    "antenna_height_m": 1.5,
+    "resource_mode": "nr_sidelink_mode2",
+    "opportunity": "pre_reserved",
+    "propagation_family": "3gpp_tr_37_885_urban_grid",
+    "spatially_correlated_shadowing": true,
+    "temporally_correlated_fading": true,
+    "calibration_artifact": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/calibration/rf/mode2-v1",
+    "timing": {
+      "gross_bit_rate_bps": 9000000.0,
+      "airtime_s": 0.001,
+      "framing_overhead_bytes": 48,
+      "code_rate": 0.333333
+    }
+  },
+  "vlc": {
+    "enabled": true,
+    "electrical_bandwidth_hz": 5000000.0,
+    "modulation": "ook",
+    "modulation_order": 2,
+    "pulse_roll_off": 0.3,
+    "headlamp_pattern": "measured_non_lambertian",
+    "pattern_artifact": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/calibration/vlc/headlamp-v1",
+    "receiver_fov_deg": 60.0,
+    "ambient_condition": "clear_night",
+    "complete_blockage_main": true,
+    "residual_optical_floor_enabled": false,
+    "timing": {
+      "gross_bit_rate_bps": 4500000.0,
+      "airtime_s": 0.0024,
+      "framing_overhead_bytes": 32,
+      "code_rate": 0.25
+    }
+  },
+  "observation": {
+    "history_packets": 8,
+    "track_update_s": 0.05,
+    "track_latency_s": 0.05,
+    "position_noise_std_m": 0.5,
+    "speed_noise_std_mps": 0.2,
+    "forecast_horizon_s": 0.2,
+    "interpolate_tracks": false,
+    "action_dependent_link_feedback": true,
+    "features": [
+      "rf_quality",
+      "rf_quality_age",
+      "rf_quality_history",
+      "vlc_quality",
+      "vlc_quality_age",
+      "vlc_quality_history",
+      "rf_channel_busy_ratio",
+      "neighbor_count",
+      "pair_distance",
+      "pair_bearing",
+      "relative_speed",
+      "heading_difference",
+      "optical_fov_margin",
+      "predicted_blockage_probability",
+      "predictor_confidence",
+      "track_age",
+      "previous_action",
+      "last_delivery_outcome",
+      "consecutive_miss_count"
+    ]
+  },
+  "cost": {
+    "units": "normalized_activation",
+    "rf_activation": 1.0,
+    "vlc_activation": 1.0,
+    "dup_activation": 2.0,
+    "vlc_to_rf_sensitivity": [
+      0.3,
+      0.5,
+      1.0
+    ]
+  },
+  "environment": {
+    "actions": [
+      "RF",
+      "VLC",
+      "DUP"
+    ],
+    "episode_duration_s": 60.0,
+    "packets_per_episode": 600,
+    "matched_random_tapes": true,
+    "sample_binary_outcomes": true,
+    "splits": {
+      "train": [
+        "synthetic-train-000",
+        "synthetic-train-001",
+        "synthetic-train-002",
+        "synthetic-train-003",
+        "synthetic-train-004"
+      ],
+      "validation": [
+        "synthetic-validation-000",
+        "synthetic-validation-001"
+      ],
+      "test": [
+        "synthetic-test-000",
+        "synthetic-test-001"
+      ]
+    }
+  },
+  "training": {
+    "algorithm": "primal_dual_ppo",
+    "root_seed": 20260728,
+    "policy_seeds": [
+      1001,
+      1002,
+      1003,
+      1004,
+      1005
+    ],
+    "total_transitions_per_seed": 10000000,
+    "architecture": {
+      "actor_hidden_units": [
+        64,
+        64
+      ],
+      "reward_critic_hidden_units": [
+        64,
+        64
+      ],
+      "cost_critic_hidden_units": [
+        64,
+        64
+      ],
+      "activation": "tanh",
+      "recurrent": false
+    },
+    "rollout_packets": 32768,
+    "minibatch_size": 1024,
+    "update_epochs": 10,
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_ratio": 0.2,
+    "entropy_coefficient": 0.01,
+    "cost_signal": "conditional_miss_probability",
+    "curriculum": [
+      {
+        "fraction": 0.1,
+        "miss_budget": 0.01
+      },
+      {
+        "fraction": 0.2,
+        "miss_budget": 0.001
+      },
+      {
+        "fraction": 0.7,
+        "miss_budget": 0.0001
+      }
+    ],
+    "density_multipliers": [
+      {
+        "density_veh_per_lane_km": 20.0,
+        "initial_value": 0.0,
+        "learning_rate": 0.05,
+        "maximum": 1000000.0
+      },
+      {
+        "density_veh_per_lane_km": 40.0,
+        "initial_value": 0.0,
+        "learning_rate": 0.05,
+        "maximum": 1000000.0
+      },
+      {
+        "density_veh_per_lane_km": 60.0,
+        "initial_value": 0.0,
+        "learning_rate": 0.05,
+        "maximum": 1000000.0
+      }
+    ],
+    "checkpoint_selection": "reliability_then_cost",
+    "normalize_observations_on_training_only": true
+  },
+  "evaluation": {
+    "profile": "primary",
+    "policies": [
+      "rf_only",
+      "vlc_only",
+      "always_dup",
+      "forecast_aware_gate",
+      "constrained_contextual",
+      "fixed_penalty_ppo",
+      "primal_dual_ppo",
+      "oracle"
+    ],
+    "min_packets_per_policy_density": 1000000,
+    "min_trajectory_pair_clusters": 200,
+    "confidence_level": 0.95,
+    "one_sided_upper_bound": true,
+    "interval_method": "trajectory_block_bootstrap",
+    "bootstrap_replicates": 10000,
+    "matched_across_policies": true,
+    "report_raw_counts": true,
+    "require_upper_bound_below_budget": true
+  },
+  "paths": {
+    "project_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO",
+    "artifact_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts",
+    "calibration_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/calibration",
+    "trace_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/traces",
+    "checkpoint_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/checkpoints",
+    "evaluation_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/evaluations",
+    "figure_root": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/figures"
+  }
+}

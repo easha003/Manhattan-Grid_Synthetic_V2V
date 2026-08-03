@@ -13,6 +13,7 @@ from grail_v.mobility.validation import (
     MobilityValidationCriteria,
     MobilityValidationReport,
     MobilityValidator,
+    _separation_bin_edges,
 )
 
 
@@ -103,7 +104,11 @@ def test_complete_report_computes_metrics_and_passes_gate_one() -> None:
     assert report.signal_transition_count == 2
     assert report.pair_statistics.count == 1
     assert report.pair_statistics.blocker_fraction == 1.0
-    assert dict(report.pair_statistics.distance_bin_counts)["20-40"] == 1
+    # Bins follow the configured separation window rather than fixed edges, so
+    # the label is derived the same way the report derives it.
+    edges = _separation_bin_edges(10.0, 60.0)
+    middle = f"{edges[1]:g}-{edges[2]:g}"
+    assert dict(report.pair_statistics.distance_bin_counts)[middle] == 1
     assert report.to_record()["gate1_passed"] is True
 
 

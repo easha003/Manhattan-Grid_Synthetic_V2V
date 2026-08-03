@@ -397,17 +397,42 @@ def _coerce_pairs(
     return tuple(sorted(unique.values(), key=lambda pair: (pair.start_s, pair.tx_id, pair.rx_id)))
 
 
-def _pair_statistics(pairs: tuple[TaggedPairSegment, ...]) -> PairStatistics:
+def _separation_bin_edges(minimum_m: float, maximum_m: float) -> tuple[float, ...]:
+    """Three equal-width strata spanning the configured separation window.
+
+    Deriving the edges from the window rather than hard-coding them keeps the
+    report meaningful when the window changes.  Fixed 10/20/40/60 edges put 45%
+    of pairs in "outside" once the window moved to 5-40 m, which hid the
+    stratification the evaluation depends on.
+    """
+
+    step = (maximum_m - minimum_m) / 3.0
+    return (
+        minimum_m,
+        round(minimum_m + step, 1),
+        round(minimum_m + 2.0 * step, 1),
+        maximum_m,
+    )
+
+
+def _pair_statistics(
+    pairs: tuple[TaggedPairSegment, ...],
+    *,
+    min_separation_m: float = 10.0,
+    max_separation_m: float = 60.0,
+) -> PairStatistics:
     durations = [pair.duration_s for pair in pairs]
-    bins = Counter({"10-20": 0, "20-40": 0, "40-60": 0, "outside": 0})
+    lo, a, b, hi = _separation_bin_edges(min_separation_m, max_separation_m)
+    labels = (f"{lo:g}-{a:g}", f"{a:g}-{b:g}", f"{b:g}-{hi:g}")
+    bins = Counter({labels[0]: 0, labels[1]: 0, labels[2]: 0, "outside": 0})
     for pair in pairs:
         distance = pair.initial_distance_m
-        if 10.0 <= distance < 20.0:
-            bins["10-20"] += 1
-        elif 20.0 <= distance < 40.0:
-            bins["20-40"] += 1
-        elif 40.0 <= distance <= 60.0:
-            bins["40-60"] += 1
+        if lo <= distance < a:
+            bins[labels[0]] += 1
+        elif a <= distance < b:
+            bins[labels[1]] += 1
+        elif b <= distance <= hi:
+            bins[labels[2]] += 1
         else:
             bins["outside"] += 1
     reasons = Counter(pair.eligibility_reason for pair in pairs)
@@ -512,7 +537,11 @@ class MobilityValidator:
         )
         varying_signals = sum(len(set(history)) >= 2 for history in signal_history.values())
 
-        pair_stats = _pair_statistics(pairs)
+        pair_stats = _pair_statistics(
+                pairs,
+                min_separation_m=self.criteria.min_pair_separation_m,
+                max_separation_m=self.criteria.max_pair_separation_m,
+            )
         pairs_valid = all(
             self.criteria.min_pair_separation_m
             <= pair.initial_distance_m

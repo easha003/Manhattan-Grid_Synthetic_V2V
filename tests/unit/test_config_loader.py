@@ -47,9 +47,9 @@ def test_headline_loader_returns_frozen_resolved_configuration() -> None:
     assert config.service.deadline_s == pytest.approx(0.003)
     assert config.service.miss_budget == pytest.approx(1e-4)
     assert config.mobility.target_densities_veh_per_lane_km == (
+        10.0,
         20.0,
-        40.0,
-        60.0,
+        30.0,
     )
     assert config.paths.project_root == PROJECT_ROOT.resolve()
     assert config.rf.calibration_artifact.is_absolute()

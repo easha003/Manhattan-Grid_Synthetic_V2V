@@ -7,8 +7,8 @@ project:
 
 geometry:
   tagged_pair_mode: "longitudinal_following"
-  min_separation_m: 10.0
-  max_separation_m: 60.0
+  min_separation_m: 5.0
+  max_separation_m: 40.0
   rf_antenna_height_m: 1.5
   headlamp_height_m: 0.7
   photodiode_height_m: 0.7

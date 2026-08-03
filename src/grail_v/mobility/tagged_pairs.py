@@ -261,6 +261,21 @@ class TaggedPairConfig:
     outside_range_grace_s: float = 1.0
     max_duration_s: float = 60.0
     max_heading_difference_rad: float = math.radians(30.0)
+    require_adjacent: bool = True
+    """Whether the pair must be the immediate leader-follower.
+
+    With this false, any two same-lane vehicles inside the separation window
+    qualify, including pairs drawn out of a queue with several vehicles between
+    them.  Measured on the generated traces, that yields a same-lane vehicle in
+    the optical path 97-100% of the time at 40 and 60 veh/lane-km, because the
+    mean spacing at those densities is smaller than the separation window --
+    the pair cannot help but straddle other vehicles.  V-VLC then has no
+    availability at all and the hybrid comparison has nothing to decide.
+
+    Requiring adjacency leaves blockage to come from cross-traffic at
+    junctions, which is intermittent, geometry-dependent, and predictable from
+    tracked positions.
+    """
 
     def __post_init__(self) -> None:
         values = (
@@ -570,6 +585,8 @@ class TaggedPairExtractor:
                     frame.vehicles,
                     heading_tolerance_rad=self.config.max_heading_difference_rad,
                 )
+                if self.config.require_adjacent and blocker:
+                    continue
                 candidates.append((follower, leader, distance_m, blocker))
         return tuple(
             sorted(
