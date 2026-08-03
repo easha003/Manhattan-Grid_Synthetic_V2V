@@ -403,42 +403,63 @@ engine per timestep, not by the pair extractor.
 This is the measurement the whole contribution depends on, so it is recorded
 here rather than left to be rediscovered.
 
-**Optical path blocked, by separation** — the structure a policy can act on.
-Measured by the M2 geometry engine: oriented rectangles, headlamp-to-photodiode
-endpoints, height test. Field of view is **not yet applied**, so these values
-are revised once more after M2 phase 3.
+**V-VLC unavailable, by separation** — the structure a policy can act on.
+Measured by the M2 geometry engine through phase 3: oriented rectangles,
+headlamp-to-photodiode endpoints, height test, and the photodiode acceptance
+cone. "Unavailable" is occluded **or** out of field of view.
 
 | Separation | \(\rho_L=10\) | \(\rho_L=20\) | \(\rho_L=30\) |
 |---|---:|---:|---:|
-| 5–10 m | 2.7% | 9.9% | 10.2% |
-| 10–20 m | 25.7% | 32.4% | 30.0% |
-| 20–30 m | 22.0% | 42.0% | 48.3% |
-| 30–40 m | 22.7% | 39.2% | 41.8% |
+| 5–10 m | 2.7% | 10.1% | 10.3% |
+| 10–20 m | 19.0% | 33.5% | 30.6% |
+| 20–30 m | 24.0% | 42.3% | 48.4% |
+| 30–40 m | 24.2% | 39.3% | 41.8% |
 
-**Aggregate availability and RF load:**
+**Aggregate availability, mechanism split, and RF load:**
 
-| \(\rho_L\) | VLC blocked | VLC available | Neighbours within 200 m |
-|---:|---:|---:|---:|
-| 10 | 12.5% | 87.5% | 54 |
-| 20 | 21.8% | 78.2% | 105 |
-| 30 | 15.9% | 84.1% | 199 |
+| \(\rho_L\) | Occluded | Out of FOV | Unavailable | Available | Neighbours ≤200 m |
+|---:|---:|---:|---:|---:|---:|
+| 10 | 11.4% | 0.8% | 11.9% | 88.1% | 54 |
+| 20 | 21.8% | 1.1% | 22.2% | 77.8% | 105 |
+| 30 | 15.9% | 0.5% | 16.1% | 83.9% | 199 |
+
+**Field of view is real but minor.** It removes only 0.13–0.66 percentage
+points of availability beyond what occlusion already catches. It is not zero
+because the 30° heading test in `tagged_pairs.py` is applied at pair
+*formation* and never re-checked by the continuation loop, so a pair survives
+its leader turning at a junction, at which point the photodiode has swung a
+quarter turn away. Consistent with that mechanism, the FOV term concentrates
+in the 10–20 m bin — 2.1–5.9% there against 0.2–0.5% at 5–10 m — which is
+where a leader that has just turned sits.
 
 Three properties follow, and each maps to a research question:
 
-1. **V-VLC is genuinely intermittent** — available 78–88%, blocked 13–22%. There
-   is a real trade-off for selective duplication to exploit (RQ2).
-2. **Blockage varies 4.2–9.5× with separation** (9.5× at \(\rho_L=10\), 4.2×
-   at 20, 4.7× at 30) on a quantity the policy observes directly. A short link
-   is nearly always clear; a long one is frequently swept by cross-traffic at
-   junctions. That is the conditional structure the 200 ms forecast is meant to
-   predict (RQ3, H3).
+1. **V-VLC is genuinely intermittent** — available 78–88%, unavailable 12–22%.
+   There is a real trade-off for selective duplication to exploit (RQ2).
+2. **Unavailability varies 4.2–9.0× with separation** (9.0× at \(\rho_L=10\),
+   4.2× at 20, 4.7× at 30) on a quantity the policy observes directly. A short
+   link is nearly always clear; a long one is frequently swept by cross-traffic
+   at junctions. That is the conditional structure the 200 ms forecast is meant
+   to predict (RQ3, H3).
 3. **The two impairments have different drivers.** Neighbour count scales
    cleanly 3.7× with density; optical blockage scales with separation and only
    weakly and non-monotonically with density. They do not track each other,
    which is the condition diversity requires (RQ4).
 
-**Caveat on the density marginal.** Blockage is non-monotonic in density
-(12.5% → 21.8% → 15.9%) because episode sampling weights pair-instants by
+**These per-bin values are not yet converged.** Pair-instants are strongly
+clustered within episodes, so the effective sample size is closer to the number
+of *pairs* than the number of instants. Re-running \(\rho_L=10\) at 120 and 240
+sampled frames moves the 10–20 m bin between 19.0% and 28.3% while aggregate
+availability moves only 88.1% to 86.8%. Occlusion itself is deterministic —
+the 240-frame phase-3 run reproduced the phase-2 occlusion figures exactly — so
+this is sampling, not instability in the engine. Treat the aggregates as sound
+and the per-bin figures as indicative to a few points. **The definitive table
+comes from the phase-6 full validation**, where the spatial index makes dense
+sampling affordable; the same cluster-aware treatment §13.6 requires for the
+reliability statistics applies here.
+
+**Caveat on the density marginal.** Unavailability is non-monotonic in density
+(11.9% → 22.2% → 16.1%) because episode sampling weights pair-instants by
 episode duration, and closely-spaced queued pairs persist far longer than
 free-flowing ones. The median separation of sampled instants is therefore
 7.0 m, 14.1 m and 7.0 m rather than monotone. **Cross-density comparisons must
