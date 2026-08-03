@@ -538,10 +538,10 @@ class MobilityValidator:
         varying_signals = sum(len(set(history)) >= 2 for history in signal_history.values())
 
         pair_stats = _pair_statistics(
-                pairs,
-                min_separation_m=self.criteria.min_pair_separation_m,
-                max_separation_m=self.criteria.max_pair_separation_m,
-            )
+            pairs,
+            min_separation_m=self.criteria.min_pair_separation_m,
+            max_separation_m=self.criteria.max_pair_separation_m,
+        )
         pairs_valid = all(
             self.criteria.min_pair_separation_m
             <= pair.initial_distance_m
