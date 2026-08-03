@@ -48,6 +48,39 @@ from grail_v.mobility.validation import (
 )
 from grail_v.mobility.vehicle_types import headline_vehicle_distribution
 
+#: Splits a campaign generates, in the order they are produced.
+SPLIT_NAMES = ("train", "validation", "test")
+
+
+def trace_id_for(density: float, split: str, replicate: int, *, prefix: str = "synthetic") -> str:
+    """Canonical trace identifier.
+
+    Density alone is not enough: work-plan §13.1 splits by complete trajectory
+    and seed, so each split needs its own mobility realizations.  Encoding
+    split and replicate here keeps `configs/project/default.yaml` and the
+    generator agreed on names without either hard-coding a list.
+    """
+
+    if split not in SPLIT_NAMES:
+        raise ValueError(f"unknown split {split!r}; expected one of {SPLIT_NAMES}")
+    return f"{prefix}-d{density:g}-{split}-{replicate:03d}"
+
+
+@dataclass(frozen=True, slots=True)
+class SplitCounts:
+    """How many independent mobility realizations each split receives."""
+
+    train: int = 3
+    validation: int = 1
+    test: int = 3
+
+    def __post_init__(self) -> None:
+        if min(self.train, self.validation, self.test) < 1:
+            raise ValueError("every split needs at least one realization")
+
+    def as_pairs(self) -> tuple[tuple[str, int], ...]:
+        return (("train", self.train), ("validation", self.validation), ("test", self.test))
+
 
 @dataclass(frozen=True, slots=True)
 class TraceCampaignPlan:
@@ -73,6 +106,8 @@ class DensityCampaignResult:
 
     target_density_veh_per_lane_km: float
     trace_id: str
+    split: str
+    replicate: int
     artifact_path: Path
     realized_density_veh_per_lane_km: float
     pair_segments: tuple[TaggedPairSegment, ...]
@@ -99,6 +134,8 @@ class DensityCampaignResult:
             "target_density_veh_per_lane_km": self.target_density_veh_per_lane_km,
             "realized_density_veh_per_lane_km": self.realized_density_veh_per_lane_km,
             "trace_id": self.trace_id,
+            "split": self.split,
+            "replicate": self.replicate,
             "artifact_path": str(self.artifact_path),
             "passed": self.passed,
             "pair_count": len(self.pair_segments),
@@ -177,12 +214,22 @@ class GridTracePipeline:
 
     # -- one density ------------------------------------------------------
 
-    def run_density(self, target_density: float, *, index: int) -> DensityCampaignResult:
+    def run_density(
+        self,
+        target_density: float,
+        *,
+        index: int = 0,
+        split: str = "train",
+        replicate: int = 0,
+    ) -> DensityCampaignResult:
         """Run, archive, extract pairs, and produce a Gate-1 report."""
 
         mobility = self.config.mobility
-        seed = derive_seed(self.config.training.root_seed, "mobility", trace_id=f"density-{index}")
-        trace_id = f"{self.plan.trace_id_prefix}-d{target_density:g}".replace(".", "_")
+        trace_id = trace_id_for(target_density, split, replicate, prefix=self.plan.trace_id_prefix)
+        # Seeding on the full identity makes every (density, split, replicate)
+        # an independent realization, which is what lets a held-out split be
+        # genuinely held out rather than a relabelled copy.
+        seed = derive_seed(self.config.training.root_seed, "mobility", trace_id=trace_id)
 
         simulator = GridMobilitySimulator(
             self.network,
@@ -304,6 +351,8 @@ class GridTracePipeline:
         return DensityCampaignResult(
             target_density_veh_per_lane_km=target_density,
             trace_id=trace_id,
+            split=split,
+            replicate=replicate,
             artifact_path=artifact.path,
             realized_density_veh_per_lane_km=realized,
             pair_segments=pairs,
@@ -312,7 +361,12 @@ class GridTracePipeline:
 
     # -- whole campaign ---------------------------------------------------
 
-    def run(self, *, target_densities: Sequence[float] | None = None) -> TraceCampaignResult:
+    def run(
+        self,
+        *,
+        target_densities: Sequence[float] | None = None,
+        splits: SplitCounts | None = None,
+    ) -> TraceCampaignResult:
         densities = tuple(
             target_densities
             if target_densities is not None
@@ -321,8 +375,12 @@ class GridTracePipeline:
         if not densities:
             raise ConfigurationError("at least one target density is required")
 
+        counts = splits or SplitCounts()
         results = tuple(
-            self.run_density(density, index=index) for index, density in enumerate(densities)
+            self.run_density(density, split=split, replicate=replicate)
+            for split, number in counts.as_pairs()
+            for replicate in range(number)
+            for density in densities
         )
 
         manifest_path = self.plan.output_root / "campaign_manifest.json"
@@ -338,6 +396,10 @@ class GridTracePipeline:
                         "spec": asdict(self.network.spec),
                         "total_lane_length_m": self.network.total_lane_length_m,
                         "signalized_junction_count": len(self.network.signalized_junction_ids),
+                    },
+                    "splits": {
+                        name: [r.trace_id for r in results if r.split == name]
+                        for name in SPLIT_NAMES
                     },
                     "gate1_passed": all(item.passed for item in results),
                     "densities": [item.to_record() for item in results],
@@ -358,8 +420,11 @@ class GridTracePipeline:
 
 
 __all__ = [
+    "SPLIT_NAMES",
     "DensityCampaignResult",
+    "SplitCounts",
     "GridTracePipeline",
     "TraceCampaignPlan",
     "TraceCampaignResult",
+    "trace_id_for",
 ]

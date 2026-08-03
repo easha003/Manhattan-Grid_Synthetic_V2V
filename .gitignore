@@ -26,5 +26,12 @@ artifacts/traces/*
 !artifacts/figures/.gitkeep
 !artifacts/traces/.gitkeep
 
+# Superseded campaigns are kept on disk for bookkeeping.  Track only the small
+# provenance records; the parquet bulk stays local like any other trace data.
+artifacts/archive/**
+!artifacts/archive/*/
+!artifacts/archive/*/ARCHIVE_NOTE.md
+!artifacts/archive/*/campaign_manifest.json
+
 # Claude Code tool settings (permission grants, not project configuration).
 .claude/

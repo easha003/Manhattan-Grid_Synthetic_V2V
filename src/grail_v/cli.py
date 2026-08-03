@@ -14,7 +14,12 @@ from grail_v import __version__
 from grail_v.config import headline_config_layers, load_config
 from grail_v.core.errors import GrailVError
 from grail_v.doctor import doctor_succeeded, run_doctor
-from grail_v.mobility.pipeline import GridTracePipeline, TraceCampaignPlan, TraceCampaignResult
+from grail_v.mobility.pipeline import (
+    GridTracePipeline,
+    SplitCounts,
+    TraceCampaignPlan,
+    TraceCampaignResult,
+)
 
 app = typer.Typer(
     name="grailv",
@@ -102,6 +107,7 @@ def _render_campaign(result: TraceCampaignResult) -> None:
     table.add_column("Target ρ", justify="right")
     table.add_column("Realized", justify="right")
     table.add_column("Trace")
+    table.add_column("Split")
     table.add_column("Pairs", justify="right")
     table.add_column("Gate 1")
     for density in result.densities:
@@ -110,6 +116,7 @@ def _render_campaign(result: TraceCampaignResult) -> None:
             f"{density.target_density_veh_per_lane_km:g}",
             f"{density.realized_density_veh_per_lane_km:.2f}",
             density.trace_id,
+            density.split,
             str(len(density.pair_segments)),
             f"[{style}]{'pass' if density.passed else 'FAIL'}[/{style}]",
         )
@@ -140,6 +147,15 @@ def mobility_generate_traces(
         list[float] | None,
         typer.Option("--density", help="Override target densities in veh/lane-km."),
     ] = None,
+    train: Annotated[
+        int, typer.Option("--train", help="Independent realizations in the train split.")
+    ] = 3,
+    validation: Annotated[
+        int, typer.Option("--validation", help="Independent realizations in validation.")
+    ] = 1,
+    test: Annotated[
+        int, typer.Option("--test", help="Independent realizations in the test split.")
+    ] = 3,
     json_output: Annotated[
         bool, typer.Option("--json", help="Emit machine-readable JSON.")
     ] = False,
@@ -158,7 +174,10 @@ def mobility_generate_traces(
             TraceCampaignPlan(output_root=output, code_version=__version__),
         )
         console.print(f"resolved configuration hash: [bold]{pipeline.config_hash}[/bold]")
-        result = pipeline.run(target_densities=density or None)
+        result = pipeline.run(
+            target_densities=density or None,
+            splits=SplitCounts(train=train, validation=validation, test=test),
+        )
     except GrailVError as error:
         console.print(f"[red]{type(error).__name__}: {error}[/red]")
         raise typer.Exit(code=1) from error

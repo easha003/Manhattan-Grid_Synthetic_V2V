@@ -15,7 +15,12 @@ import pytest
 from grail_v.config import headline_config_layers, load_config
 from grail_v.config.models import ProjectConfig
 from grail_v.core.errors import ConfigurationError
-from grail_v.mobility.pipeline import GridTracePipeline, TraceCampaignPlan
+from grail_v.mobility.pipeline import (
+    GridTracePipeline,
+    SplitCounts,
+    TraceCampaignPlan,
+    trace_id_for,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,13 +100,18 @@ def test_realized_density_is_reported_not_assumed(config: ProjectConfig, tmp_pat
 
 
 def test_campaign_manifest_records_provenance(config: ProjectConfig, tmp_path: Path) -> None:
-    result = _pipeline(config, tmp_path).run(target_densities=[20.0])
+    result = _pipeline(config, tmp_path).run(
+        target_densities=[20.0], splits=SplitCounts(train=1, validation=1, test=1)
+    )
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["mobility_model"] == "analytic-manhattan-grid"
     assert manifest["config_hash"] == result.config_hash
     assert manifest["network"]["total_lane_length_m"] == pytest.approx(37_332.0)
-    assert len(manifest["densities"]) == 1
+    # one density x three splits
+    assert len(manifest["densities"]) == 3
+    assert set(manifest["splits"]) == {"train", "validation", "test"}
+    assert all(len(ids) == 1 for ids in manifest["splits"].values())
 
 
 def test_non_grid_mobility_is_rejected(config: ProjectConfig, tmp_path: Path) -> None:
@@ -158,3 +168,52 @@ def test_degenerate_episodes_are_counted_not_hidden(config: ProjectConfig, tmp_p
         1 for segment in result.pair_segments if segment.duration_s <= 0.0
     )
     assert record["usable_pair_count"] + record["degenerate_pair_count"] == record["pair_count"]
+
+
+def test_trace_ids_encode_density_split_and_replicate() -> None:
+    """Work plan §13.1 splits by trajectory and seed, so density alone is not
+    a sufficient identity — each split needs its own realizations."""
+
+    assert trace_id_for(10.0, "train", 0) == "synthetic-d10-train-000"
+    assert trace_id_for(30.0, "test", 2) == "synthetic-d30-test-002"
+    with pytest.raises(ValueError, match="unknown split"):
+        trace_id_for(10.0, "holdout", 0)
+
+
+def test_configured_splits_match_what_the_generator_produces() -> None:
+    """The declared split IDs must be the ones a campaign actually writes.
+
+    They previously named nine traces that were never generated, so a
+    "held-out" evaluation would have silently had nothing to hold out.
+    """
+
+    resolved = load_config(headline_config_layers(PROJECT_ROOT), project_root=PROJECT_ROOT)
+    counts = SplitCounts()
+    densities = resolved.mobility.target_densities_veh_per_lane_km
+
+    expected = {
+        name: [
+            trace_id_for(density, name, replicate)
+            for replicate in range(number)
+            for density in densities
+        ]
+        for name, number in counts.as_pairs()
+    }
+    splits = resolved.environment.splits
+
+    assert list(splits.train) == expected["train"]
+    assert list(splits.validation) == expected["validation"]
+    assert list(splits.test) == expected["test"]
+
+
+def test_splits_are_disjoint_and_cover_every_density() -> None:
+    resolved = load_config(headline_config_layers(PROJECT_ROOT), project_root=PROJECT_ROOT)
+    splits = resolved.environment.splits
+    everything = list(splits.train) + list(splits.validation) + list(splits.test)
+
+    assert len(everything) == len(set(everything)), "a trace may not appear in two splits"
+    for density in resolved.mobility.target_densities_veh_per_lane_km:
+        for name in ("train", "validation", "test"):
+            assert any(
+                f"-d{density:g}-{name}-" in trace_id for trace_id in getattr(splits, name)
+            ), f"{name} split has no trace at density {density}"

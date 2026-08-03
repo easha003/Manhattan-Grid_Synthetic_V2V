@@ -77,7 +77,7 @@ def test_trace_split_overlap_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError, match="trace split overlap"):
         _load_with_override(
             tmp_path,
-            "environment:\n  splits:\n    validation: [synthetic-train-000]\n",
+            "environment:\n  splits:\n    validation: [synthetic-d10-train-000]\n",
         )
 
 
