@@ -30,17 +30,29 @@ environment:
   sample_binary_outcomes: true
   splits:
     train:
-      - "synthetic-train-000"
-      - "synthetic-train-001"
-      - "synthetic-train-002"
-      - "synthetic-train-003"
-      - "synthetic-train-004"
+      - "synthetic-d10-train-000"
+      - "synthetic-d20-train-000"
+      - "synthetic-d30-train-000"
+      - "synthetic-d10-train-001"
+      - "synthetic-d20-train-001"
+      - "synthetic-d30-train-001"
+      - "synthetic-d10-train-002"
+      - "synthetic-d20-train-002"
+      - "synthetic-d30-train-002"
     validation:
-      - "synthetic-validation-000"
-      - "synthetic-validation-001"
+      - "synthetic-d10-validation-000"
+      - "synthetic-d20-validation-000"
+      - "synthetic-d30-validation-000"
     test:
-      - "synthetic-test-000"
-      - "synthetic-test-001"
+      - "synthetic-d10-test-000"
+      - "synthetic-d20-test-000"
+      - "synthetic-d30-test-000"
+      - "synthetic-d10-test-001"
+      - "synthetic-d20-test-001"
+      - "synthetic-d30-test-001"
+      - "synthetic-d10-test-002"
+      - "synthetic-d20-test-002"
+      - "synthetic-d30-test-002"
 
 paths:
   project_root: "."

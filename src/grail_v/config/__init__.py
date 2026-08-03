@@ -1,6 +1,12 @@
 """Public configuration API."""
 
-from grail_v.config.hashing import canonical_data, canonical_json, config_hash
+from grail_v.config.hashing import (
+    HASH_EXCLUDED_PATHS,
+    canonical_data,
+    canonical_json,
+    config_hash,
+    hashed_data,
+)
 from grail_v.config.loader import (
     deep_merge,
     headline_config_layers,
@@ -49,8 +55,10 @@ __all__ = [
     "ServiceConfig",
     "TrainingConfig",
     "VLCConfig",
+    "HASH_EXCLUDED_PATHS",
     "canonical_data",
     "canonical_json",
+    "hashed_data",
     "config_hash",
     "deep_merge",
     "headline_config_layers",

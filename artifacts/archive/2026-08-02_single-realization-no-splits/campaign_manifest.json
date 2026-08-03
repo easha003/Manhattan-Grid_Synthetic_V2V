@@ -1,0 +1,333 @@
+{
+  "code_version": "0.1.0",
+  "config_hash": "6dc49408cb5def8f31a128dde1ca724814490206bba55bed9a3f3b24d10e7058",
+  "densities": [
+    {
+      "artifact_path": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/traces/synthetic-d10",
+      "degenerate_pair_count": 10,
+      "pair_count": 5364,
+      "passed": true,
+      "realized_density_veh_per_lane_km": 9.991428265295285,
+      "target_density_veh_per_lane_km": 10.0,
+      "trace_id": "synthetic-d10",
+      "usable_pair_count": 5354,
+      "validation": {
+        "active_vehicle_observations": 335700,
+        "density_relative_error": 0.0008571734704810652,
+        "frame_count": 900,
+        "gate1_checks": [
+          {
+            "detail": "900 unique frames over 899.000 s",
+            "name": "sufficient_time_samples",
+            "passed": true
+          },
+          {
+            "detail": "0 insertion failures; 335700 arrivals",
+            "name": "stable_insertion_and_routing",
+            "passed": true
+          },
+          {
+            "detail": "mean=9.99143, target=10, relative error=0.086%, limit=5.000%",
+            "name": "density_within_tolerance",
+            "passed": true
+          },
+          {
+            "detail": "mean=6.10201 m/s, std=4.87432 m/s, speed limit=11.18 m/s",
+            "name": "plausible_speed",
+            "passed": true
+          },
+          {
+            "detail": "mean proxy=109.377 vehicles, mean length=820.325 m",
+            "name": "plausible_queue_metrics",
+            "passed": true
+          },
+          {
+            "detail": "40/40 signals varied; 1600 transitions",
+            "name": "signal_state_variation",
+            "passed": true
+          },
+          {
+            "detail": "0 teleports; 0 unexplained",
+            "name": "no_unexplained_teleportation",
+            "passed": true
+          },
+          {
+            "detail": "5364 unique episodes; max duration=60 s",
+            "name": "tagged_pair_separation_logic",
+            "passed": true
+          },
+          {
+            "detail": "trace manifest archive explicitly confirmed",
+            "name": "manifest_archived",
+            "passed": true
+          }
+        ],
+        "gate1_passed": true,
+        "insertion_failures": 0,
+        "mean_queue_length_m": 820.325,
+        "mean_queue_proxy_vehicles": 109.37666666666667,
+        "mean_speed_mps": 6.102006310814223,
+        "observation_duration_s": 899.0,
+        "pair_statistics": {
+          "blocker_fraction": 0.012863534675615212,
+          "count": 5364,
+          "distance_bin_counts": {
+            "16.7-28.3": 972,
+            "28.3-40": 3212,
+            "5-16.7": 1180,
+            "outside": 0
+          },
+          "end_reason_counts": {
+            "max_duration": 616,
+            "outside_range_1s": 927,
+            "route_diverged": 2898,
+            "trace_end": 134,
+            "vehicle_missing": 789
+          },
+          "max_duration_s": 60.0,
+          "mean_duration_s": 23.765473527218493,
+          "min_duration_s": 0.0
+        },
+        "realized_density_max": 9.99142826529519,
+        "realized_density_mean": 9.99142826529519,
+        "realized_density_min": 9.99142826529519,
+        "realized_density_std": 0.0,
+        "signal_count": 40,
+        "signal_transition_count": 1600,
+        "signals_with_state_variation": 40,
+        "speed_std_mps": 4.87431714881804,
+        "stopped_fraction": 0.2932350312779267,
+        "target_density_veh_per_lane_km": 10.0,
+        "teleport_count": 0,
+        "teleport_reason_counts": {},
+        "throughput_vehicle_count": 335700,
+        "throughput_vehicles_per_hour": 1344293.659621802,
+        "trace_id": "synthetic-d10",
+        "unexplained_teleport_count": 0
+      }
+    },
+    {
+      "artifact_path": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/traces/synthetic-d20",
+      "degenerate_pair_count": 21,
+      "pair_count": 14510,
+      "passed": true,
+      "realized_density_veh_per_lane_km": 20.00964320154296,
+      "target_density_veh_per_lane_km": 20.0,
+      "trace_id": "synthetic-d20",
+      "usable_pair_count": 14489,
+      "validation": {
+        "active_vehicle_observations": 672300,
+        "density_relative_error": 0.0004821600771455437,
+        "frame_count": 900,
+        "gate1_checks": [
+          {
+            "detail": "900 unique frames over 899.000 s",
+            "name": "sufficient_time_samples",
+            "passed": true
+          },
+          {
+            "detail": "0 insertion failures; 672300 arrivals",
+            "name": "stable_insertion_and_routing",
+            "passed": true
+          },
+          {
+            "detail": "mean=20.0096, target=20, relative error=0.048%, limit=5.000%",
+            "name": "density_within_tolerance",
+            "passed": true
+          },
+          {
+            "detail": "mean=5.47978 m/s, std=4.79261 m/s, speed limit=11.18 m/s",
+            "name": "plausible_speed",
+            "passed": true
+          },
+          {
+            "detail": "mean proxy=234.978 vehicles, mean length=1762.33 m",
+            "name": "plausible_queue_metrics",
+            "passed": true
+          },
+          {
+            "detail": "40/40 signals varied; 1600 transitions",
+            "name": "signal_state_variation",
+            "passed": true
+          },
+          {
+            "detail": "0 teleports; 0 unexplained",
+            "name": "no_unexplained_teleportation",
+            "passed": true
+          },
+          {
+            "detail": "14510 unique episodes; max duration=60 s",
+            "name": "tagged_pair_separation_logic",
+            "passed": true
+          },
+          {
+            "detail": "trace manifest archive explicitly confirmed",
+            "name": "manifest_archived",
+            "passed": true
+          }
+        ],
+        "gate1_passed": true,
+        "insertion_failures": 0,
+        "mean_queue_length_m": 1762.3333333333333,
+        "mean_queue_proxy_vehicles": 234.9777777777778,
+        "mean_speed_mps": 5.479780298690943,
+        "observation_duration_s": 899.0,
+        "pair_statistics": {
+          "blocker_fraction": 0.013439007580978636,
+          "count": 14510,
+          "distance_bin_counts": {
+            "16.7-28.3": 3293,
+            "28.3-40": 7104,
+            "5-16.7": 4113,
+            "outside": 0
+          },
+          "end_reason_counts": {
+            "max_duration": 2059,
+            "outside_range_1s": 2382,
+            "route_diverged": 7248,
+            "trace_end": 402,
+            "vehicle_missing": 2419
+          },
+          "max_duration_s": 60.0,
+          "mean_duration_s": 25.36554100620262,
+          "min_duration_s": 0.0
+        },
+        "realized_density_max": 20.00964320154291,
+        "realized_density_mean": 20.00964320154291,
+        "realized_density_min": 20.00964320154291,
+        "realized_density_std": 0.0,
+        "signal_count": 40,
+        "signal_transition_count": 1600,
+        "signals_with_state_variation": 40,
+        "speed_std_mps": 4.792612754870012,
+        "stopped_fraction": 0.3145619515097427,
+        "target_density_veh_per_lane_km": 20.0,
+        "teleport_count": 0,
+        "teleport_reason_counts": {},
+        "throughput_vehicle_count": 672300,
+        "throughput_vehicles_per_hour": 2692191.3236929923,
+        "trace_id": "synthetic-d20",
+        "unexplained_teleport_count": 0
+      }
+    },
+    {
+      "artifact_path": "/Users/eashraque/Documents/RL_Hybrid/CMDP_PPO/artifacts/traces/synthetic-d30",
+      "degenerate_pair_count": 22,
+      "pair_count": 19071,
+      "passed": true,
+      "realized_density_veh_per_lane_km": 30.00107146683854,
+      "target_density_veh_per_lane_km": 30.0,
+      "trace_id": "synthetic-d30",
+      "usable_pair_count": 19049,
+      "validation": {
+        "active_vehicle_observations": 1008000,
+        "density_relative_error": 3.571556127006659e-05,
+        "frame_count": 900,
+        "gate1_checks": [
+          {
+            "detail": "900 unique frames over 899.000 s",
+            "name": "sufficient_time_samples",
+            "passed": true
+          },
+          {
+            "detail": "0 insertion failures; 1008000 arrivals",
+            "name": "stable_insertion_and_routing",
+            "passed": true
+          },
+          {
+            "detail": "mean=30.0011, target=30, relative error=0.004%, limit=5.000%",
+            "name": "density_within_tolerance",
+            "passed": true
+          },
+          {
+            "detail": "mean=2.81036 m/s, std=4.24322 m/s, speed limit=11.18 m/s",
+            "name": "plausible_speed",
+            "passed": true
+          },
+          {
+            "detail": "mean proxy=642.886 vehicles, mean length=4821.64 m",
+            "name": "plausible_queue_metrics",
+            "passed": true
+          },
+          {
+            "detail": "40/40 signals varied; 1600 transitions",
+            "name": "signal_state_variation",
+            "passed": true
+          },
+          {
+            "detail": "0 teleports; 0 unexplained",
+            "name": "no_unexplained_teleportation",
+            "passed": true
+          },
+          {
+            "detail": "19071 unique episodes; max duration=60 s",
+            "name": "tagged_pair_separation_logic",
+            "passed": true
+          },
+          {
+            "detail": "trace manifest archive explicitly confirmed",
+            "name": "manifest_archived",
+            "passed": true
+          }
+        ],
+        "gate1_passed": true,
+        "insertion_failures": 0,
+        "mean_queue_length_m": 4821.641666666666,
+        "mean_queue_proxy_vehicles": 642.8855555555556,
+        "mean_speed_mps": 2.8103615664637447,
+        "observation_duration_s": 899.0,
+        "pair_statistics": {
+          "blocker_fraction": 0.006973939489276913,
+          "count": 19071,
+          "distance_bin_counts": {
+            "16.7-28.3": 2534,
+            "28.3-40": 5552,
+            "5-16.7": 10985,
+            "outside": 0
+          },
+          "end_reason_counts": {
+            "max_duration": 8981,
+            "outside_range_1s": 1693,
+            "route_diverged": 5698,
+            "trace_end": 913,
+            "vehicle_missing": 1786
+          },
+          "max_duration_s": 60.0,
+          "mean_duration_s": 39.68874206911017,
+          "min_duration_s": 0.0
+        },
+        "realized_density_max": 30.001071466838102,
+        "realized_density_mean": 30.001071466838102,
+        "realized_density_min": 30.001071466838102,
+        "realized_density_std": 0.0,
+        "signal_count": 40,
+        "signal_transition_count": 1600,
+        "signals_with_state_variation": 40,
+        "speed_std_mps": 4.243223839449964,
+        "stopped_fraction": 0.5740049603174603,
+        "target_density_veh_per_lane_km": 30.0,
+        "teleport_count": 0,
+        "teleport_reason_counts": {},
+        "throughput_vehicle_count": 1008000,
+        "throughput_vehicles_per_hour": 4036484.983314794,
+        "trace_id": "synthetic-d30",
+        "unexplained_teleport_count": 0
+      }
+    }
+  ],
+  "gate1_passed": true,
+  "mobility_model": "analytic-manhattan-grid",
+  "network": {
+    "signalized_junction_count": 40,
+    "spec": {
+      "avenue_spacing_m": 244.0,
+      "avenues": 6,
+      "cross_street_spacing_m": 61.0,
+      "cross_streets": 12,
+      "lanes_per_direction": 1,
+      "speed_limit_mps": 11.18
+    },
+    "total_lane_length_m": 37332.0
+  },
+  "schema": "grail-v.mobility-campaign.v2"
+}
