@@ -145,6 +145,9 @@ class MobilityConfig(ConfigModel):
     signal_cycle_s: PositiveFloat = 90.0
     stagger_signal_offsets: bool = True
     turn_probabilities: TurnProbabilityConfig
+    # Reserved for a future arterial-flow variant; validated but read by no
+    # code.  See configs/mobility/synthetic_manhattan.yaml for the rationale
+    # and for why enabling it is an experimental decision, not a cleanup.
     straight_heavy_turn_probabilities: TurnProbabilityConfig
     warmup_s: NonNegativeFloat = 300.0
     trace_duration_s: PositiveFloat = 900.0
