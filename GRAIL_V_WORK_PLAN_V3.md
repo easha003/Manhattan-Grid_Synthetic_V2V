@@ -403,43 +403,66 @@ engine per timestep, not by the pair extractor.
 This is the measurement the whole contribution depends on, so it is recorded
 here rather than left to be rediscovered.
 
-**Optical path blocked, by separation** — the structure a policy can act on:
+**Optical path blocked, by separation** — the structure a policy can act on.
+Measured by the M2 geometry engine: oriented rectangles, headlamp-to-photodiode
+endpoints, height test. Field of view is **not yet applied**, so these values
+are revised once more after M2 phase 3.
 
 | Separation | \(\rho_L=10\) | \(\rho_L=20\) | \(\rho_L=30\) |
 |---|---:|---:|---:|
-| 5–10 m | 1.3% | 8.7% | 16.0% |
-| 10–20 m | 3.6% | 41.5% | 21.5% |
-| 20–30 m | 20.0% | 51.0% | 46.8% |
-| 30–40 m | 36.1% | 32.0% | 30.1% |
+| 5–10 m | 2.7% | 9.9% | 10.2% |
+| 10–20 m | 25.7% | 32.4% | 30.0% |
+| 20–30 m | 22.0% | 42.0% | 48.3% |
+| 30–40 m | 22.7% | 39.2% | 41.8% |
 
 **Aggregate availability and RF load:**
 
 | \(\rho_L\) | VLC blocked | VLC available | Neighbours within 200 m |
 |---:|---:|---:|---:|
-| 10 | 9.1% | 90.9% | 54 |
-| 20 | 29.0% | 71.0% | 105 |
-| 30 | 14.1% | 85.9% | 199 |
+| 10 | 12.5% | 87.5% | 54 |
+| 20 | 21.8% | 78.2% | 105 |
+| 30 | 15.9% | 84.1% | 199 |
 
 Three properties follow, and each maps to a research question:
 
-1. **V-VLC is genuinely intermittent** — available 71–91%, blocked 9–29%. There
+1. **V-VLC is genuinely intermittent** — available 78–88%, blocked 13–22%. There
    is a real trade-off for selective duplication to exploit (RQ2).
-2. **Blockage varies 28× with separation at \(\rho_L=10\)** (1.3% → 36.1%) on a
-   quantity the policy observes directly. A short link is nearly always clear; a
-   long one is frequently swept by cross-traffic at junctions. That is the
-   conditional structure the 200 ms forecast is meant to predict (RQ3, H3).
+2. **Blockage varies 4.2–9.5× with separation** (9.5× at \(\rho_L=10\), 4.2×
+   at 20, 4.7× at 30) on a quantity the policy observes directly. A short link
+   is nearly always clear; a long one is frequently swept by cross-traffic at
+   junctions. That is the conditional structure the 200 ms forecast is meant to
+   predict (RQ3, H3).
 3. **The two impairments have different drivers.** Neighbour count scales
    cleanly 3.7× with density; optical blockage scales with separation and only
    weakly and non-monotonically with density. They do not track each other,
    which is the condition diversity requires (RQ4).
 
 **Caveat on the density marginal.** Blockage is non-monotonic in density
-(9.1% → 29.0% → 14.1%) because episode sampling weights pair-instants by
+(12.5% → 21.8% → 15.9%) because episode sampling weights pair-instants by
 episode duration, and closely-spaced queued pairs persist far longer than
 free-flowing ones. The median separation of sampled instants is therefore
 7.0 m, 14.1 m and 7.0 m rather than monotone. **Cross-density comparisons must
 be stratified by separation**, which §13.6 already requires for a related
 reason.
+
+**The 30–40 m bin dips below 20–30 m at every density.** Two effects compete: a
+longer path is more likely to be cut, but a pair held at 30–40 m separation is
+typically in free flow rather than queued, and queues are what hold pairs at
+the junctions where crossing traffic is. This is the same confound family as
+the density marginal and reinforces the stratification requirement.
+
+**Provenance of this table.** The values above supersede a point-to-segment
+approximation that treated each vehicle as a point with a half-width tolerance,
+mistook the stored front-bumper position for a body centre, and ran the path
+between two stored positions rather than headlamp to photodiode. Superseded
+values, for the record: \(\rho_L=10\) read 1.3 / 3.6 / 20.0 / 36.1% and 90.9%
+available; \(\rho_L=20\) read 8.7 / 41.5 / 51.0 / 32.0% and 71.0%;
+\(\rho_L=30\) read 16.0 / 21.5 / 46.8 / 30.1% and 85.9%. The approximation
+understated blockage for cross-traffic, which is 98.6–99.5% of all blockage,
+because a vehicle crossing perpendicular presents its length to the path and
+not its width. Aggregate availability moved by at most 7 points and the
+non-monotonic density pattern reproduced under both methods, which is a useful
+independent check; the separation profile changed materially.
 
 ### 4.7 Declared assumptions and known limitations
 

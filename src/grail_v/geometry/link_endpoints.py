@@ -1,0 +1,120 @@
+"""Where each link physically begins and ends on a vehicle.
+
+The RF and V-VLC links do not share endpoints, and neither of them sits at the
+position the trace stores.  Getting this wrong shortens or lengthens every
+obstruction query, so the offsets live here rather than at each call site.
+
+**V-VLC** runs from the transmitting vehicle's headlamp to the receiving
+vehicle's photodiode.  In the longitudinal following geometry of work plan
+section 4.6 the transmitter is the follower and the receiver is its leader, so
+the beam leaves the follower's *front* and arrives at the leader's *rear*.  The
+stored position is already the front bumper, so the transmit end needs no
+correction while the receive end must be moved back one full vehicle length.
+
+**RF** runs roof to roof, taken at the centre of each vehicle.
+
+Both links are horizontal: the headlamp and photodiode sit at the same height,
+as do the two antennas.  A horizontal path means occlusion reduces exactly to a
+planar footprint test plus a scalar height comparison, with no interpolation
+along the path.  :mod:`grail_v.geometry.vehicle_occlusion` relies on this.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from grail_v.geometry.primitives import (
+    Point,
+    Segment,
+    VehicleFootprintSource,
+    vehicle_rear,
+    vehicle_rectangle,
+)
+
+#: Defaults matching ``configs/project/default.yaml`` under ``geometry``.
+DEFAULT_HEADLAMP_HEIGHT_M = 0.7
+DEFAULT_PHOTODIODE_HEIGHT_M = 0.7
+DEFAULT_RF_ANTENNA_HEIGHT_M = 1.5
+
+
+@dataclass(frozen=True, slots=True)
+class LinkPath:
+    """The planar path of one link, with the height it is carried at.
+
+    ``height_m`` is the common height of both endpoints.  Because the path is
+    horizontal, a vehicle obstructs it when its footprint meets ``segment`` and
+    it stands at least ``height_m`` tall.
+    """
+
+    segment: Segment
+    height_m: float
+
+    @property
+    def length_m(self) -> float:
+        return self.segment.length_m
+
+
+def headlamp_position(transmitter: VehicleFootprintSource) -> Point:
+    """Return the transmitting headlamp's planar position.
+
+    This is the vehicle's front bumper, which is what the trace stores.
+    """
+
+    return Point(transmitter.x_m, transmitter.y_m)
+
+
+def photodiode_position(receiver: VehicleFootprintSource) -> Point:
+    """Return the receiving photodiode's planar position.
+
+    The photodiode faces rearward to see a following transmitter, so it sits on
+    the trailing edge, one full vehicle length behind the stored position.
+    """
+
+    return vehicle_rear(receiver)
+
+
+def antenna_position(vehicle: VehicleFootprintSource) -> Point:
+    """Return the roof antenna's planar position, taken at the body centre."""
+
+    return vehicle_rectangle(vehicle).centre
+
+
+def optical_link_path(
+    transmitter: VehicleFootprintSource,
+    receiver: VehicleFootprintSource,
+    *,
+    height_m: float = DEFAULT_HEADLAMP_HEIGHT_M,
+) -> LinkPath:
+    """Return the headlamp-to-photodiode path for a following pair."""
+
+    return LinkPath(
+        segment=Segment(headlamp_position(transmitter), photodiode_position(receiver)),
+        height_m=height_m,
+    )
+
+
+def rf_link_path(
+    transmitter: VehicleFootprintSource,
+    receiver: VehicleFootprintSource,
+    *,
+    height_m: float = DEFAULT_RF_ANTENNA_HEIGHT_M,
+) -> LinkPath:
+    """Return the antenna-to-antenna path for a pair."""
+
+    return LinkPath(
+        segment=Segment(antenna_position(transmitter), antenna_position(receiver)),
+        height_m=height_m,
+    )
+
+
+__all__ = [
+    "DEFAULT_HEADLAMP_HEIGHT_M",
+    "DEFAULT_PHOTODIODE_HEIGHT_M",
+    "DEFAULT_RF_ANTENNA_HEIGHT_M",
+    "LinkPath",
+    "antenna_position",
+    "headlamp_position",
+    "optical_link_path",
+    "photodiode_position",
+    "rf_link_path",
+]
