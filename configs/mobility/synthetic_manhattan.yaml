@@ -15,10 +15,26 @@ mobility:
   density_tolerance_fraction: 0.05
   signal_cycle_s: 90.0
   stagger_signal_offsets: true
+  # The live turn distribution.  Applied at every junction a vehicle reaches
+  # before leaving the grid; realized fractions in the published campaign are
+  # 25.0-25.4% left, 49.6-50.3% straight, 24.4-25.1% right.
   turn_probabilities:
     left: 0.25
     straight: 0.50
     right: 0.25
+  # RESERVED - declared and validated, but no code reads it.
+  #
+  # Intended as an arterial variant: real avenues carry more through-traffic
+  # than side streets, so a vehicle already travelling along an avenue would
+  # draw from this straight-heavy distribution while cross-street traffic kept
+  # the uniform one above.  Applying it would raise mean speed along avenues
+  # and narrow the largest realism gap in the model (work plan section 4.7
+  # item 2, signals staggered rather than progressed).
+  #
+  # Wiring it up changes vehicle trajectories and therefore invalidates every
+  # published trace, so it is a deliberate experimental decision rather than a
+  # cleanup.  Until then this block documents the intent and must not be
+  # mistaken for a knob that currently does anything.
   straight_heavy_turn_probabilities:
     left: 0.10
     straight: 0.80
