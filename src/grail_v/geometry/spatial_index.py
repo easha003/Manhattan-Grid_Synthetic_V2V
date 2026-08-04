@@ -23,7 +23,7 @@ import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from grail_v.geometry.primitives import Segment, vehicle_rectangle
+from grail_v.core.geometry import Segment, vehicle_rectangle
 from grail_v.geometry.vehicle_occlusion import OccludingVehicle
 
 #: Floor on the cell size, so a frame of tiny footprints cannot produce a

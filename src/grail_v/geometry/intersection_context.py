@@ -33,7 +33,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from grail_v.geometry.primitives import (
+from grail_v.core.geometry import (
     OrientedRectangle,
     Point,
     Segment,

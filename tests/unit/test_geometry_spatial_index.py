@@ -6,13 +6,13 @@ from dataclasses import dataclass
 
 import pytest
 
-from grail_v.geometry.link_endpoints import LinkPath
-from grail_v.geometry.primitives import (
+from grail_v.core.geometry import (
     Point,
     Segment,
     segment_intersects_rectangle,
     vehicle_rectangle,
 )
+from grail_v.geometry.link_endpoints import LinkPath
 from grail_v.geometry.spatial_index import SpatialIndex
 from grail_v.geometry.vehicle_occlusion import is_obstructed, occluding_vehicles
 
