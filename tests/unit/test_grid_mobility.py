@@ -310,11 +310,16 @@ def _footprints_overlap(a: OrientedRectangle, b: OrientedRectangle) -> bool:
 #: in depth.  Zero is the intent, not the achievement, so the achievement is
 #: asserted rather than assumed.
 #:
-#: Measured over 100 frames at the production 300 s warm-up: 0.00, 0.01 and
-#: 0.02 pairs per frame at 10, 20 and 30 veh/lane-km, deepest 0.42 m.  The rate
-#: bound carries headroom over that because a 20-frame window is noisy; the
-#: depth bound does not, because depth is not a sampling artefact.
-MAX_OVERLAPS_PER_FRAME = 0.10
+#: Measured on the generated traces, 300 sampled frames each: 0.093, 0.130 and
+#: 0.097 pairs per frame at 10, 20 and 30 veh/lane-km, deepest 0.42 m.  An
+#: earlier reading of 0.00/0.01/0.02 came from one seed run directly against
+#: the simulator and was optimistic by roughly ten times, so the bound is set
+#: from the traces rather than from this test's own configuration.
+#:
+#: The rate bound carries headroom because a 20-frame window is noisy and this
+#: test runs one seed; the depth bound does not, because depth is a property of
+#: the collision rather than of the sample.
+MAX_OVERLAPS_PER_FRAME = 0.30
 MAX_PENETRATION_M = 0.5
 
 

@@ -17,18 +17,22 @@
 #
 #     P(VLC fails) = P_out + (1 - P_out) * PER_clear
 #
-# where P_out is geometric outage, measured at 11.9 / 22.2 / 16.1% for
-# 10 / 20 / 30 veh/lane-km in work plan section 4.6.1.  The concentrator cannot
-# touch P_out: a blocked path delivers nothing at any transmit power.  It acts
-# only on PER_clear, and so moves P(VLC fails) toward its geometric floor
-# without ever going below it.
+# where P_out is geometric outage, measured at 3.41 / 1.87 / 1.01% for
+# 10 / 20 / 30 veh/lane-km in work plan section 4.6.1.  (Superseded values
+# 11.9 / 22.2 / 16.1% came from traces carrying the section 4.6.3 and 4.6.5
+# defects.)  The concentrator cannot touch P_out: a blocked path delivers
+# nothing at any transmit power.  It acts only on PER_clear, and so moves
+# P(VLC fails) toward its geometric floor without ever going below it.
 #
-# The size of that move is therefore bounded but not small.  At 10 veh/lane-km
-# the relaxation factor runs from 1.8x if the wide receiver is marginal
-# (PER_clear ~ 0.5) to 8.4x if the optical link is already strong
-# (PER_clear ~ 0), which is the difference between needing RF single-shot BLER
-# of 1.8e-5 and of 8.4e-5 to reach 10^-5.  Roughly 4.7x of RF headroom is at
-# stake, and that can decide whether the frontier is feasible at all.
+# The size of that move grew when the floor fell.  At 10 veh/lane-km the
+# relaxation factor now runs from 1.9x if the wide receiver is marginal
+# (PER_clear ~ 0.5) to 29.3x if the optical link is already strong
+# (PER_clear ~ 0), the difference between needing RF single-shot BLER of
+# 1.9e-5 and of 2.9e-4 to reach 10^-5.  Roughly 15x of RF headroom is at stake,
+# against 4.7x under the contaminated figures: a lower geometric outage raises
+# the stake on the clear-path link budget, because the optics then decide a
+# larger share of P(VLC fails).  This is now the single largest lever in the
+# section 14.1 table.
 #
 # **Which end of that range applies is a Gate-2 measurement, not an
 # assumption.**  Optical power falls as 1/d^2 and the separation window runs to
