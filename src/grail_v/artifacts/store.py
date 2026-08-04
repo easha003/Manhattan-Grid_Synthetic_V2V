@@ -23,6 +23,7 @@ from grail_v.artifacts.manifest import (
     FileDigest,
 )
 from grail_v.core.errors import ArtifactVersionError, TraceIntegrityError
+from grail_v.core.provenance import code_commit
 
 _HASH_CHUNK_BYTES = 1024 * 1024
 ArtifactProducer = Callable[[Path], None]
@@ -110,6 +111,7 @@ class ArtifactStore:
         notes: Iterable[str] = (),
         created_at_utc: datetime | None = None,
         schema_version: str = MANIFEST_SCHEMA_VERSION,
+        code_commit_override: str | None = None,
     ) -> StoredArtifact:
         """Produce, validate, and atomically publish one artifact.
 
@@ -167,6 +169,7 @@ class ArtifactStore:
                 created_at_utc=created_at_utc or datetime.now(UTC),
                 config_hash=config_hash,
                 code_version=code_version,
+                code_commit=code_commit_override or code_commit(),
                 input_artifacts=list(input_artifacts),
                 random_seeds=dict(random_seeds or {}),
                 software_versions=dict(software_versions or {}),
