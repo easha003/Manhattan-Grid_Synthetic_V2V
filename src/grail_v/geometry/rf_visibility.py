@@ -30,12 +30,12 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 from grail_v.core.enums import RFPropagationState
-from grail_v.geometry.link_endpoints import LinkPath, rf_link_path
-from grail_v.geometry.primitives import (
+from grail_v.core.geometry import (
     OrientedRectangle,
     VehicleFootprintSource,
     segment_intersects_rectangle,
 )
+from grail_v.geometry.link_endpoints import LinkPath, rf_link_path
 from grail_v.geometry.vehicle_occlusion import OccludingVehicle, occluding_vehicles
 
 

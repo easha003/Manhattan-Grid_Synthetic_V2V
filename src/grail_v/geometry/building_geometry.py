@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 
-from grail_v.geometry.primitives import OrientedRectangle, Point
+from grail_v.core.geometry import OrientedRectangle, Point
 from grail_v.mobility.grid_network import LANE_WIDTH_M as _LANE_WIDTH_M
 
 #: Re-exported from the road model, which owns it: lane width moves vehicles,

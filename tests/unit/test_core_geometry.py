@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from grail_v.geometry.primitives import (
+from grail_v.core.geometry import (
     OrientedRectangle,
     Point,
     Segment,

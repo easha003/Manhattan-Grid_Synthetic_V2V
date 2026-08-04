@@ -160,6 +160,43 @@ def test_geometry_results_are_plain_values_and_carry_no_policy_hooks() -> None:
             assert f"def {helper}" not in source, f"{name} exposes {helper}"
 
 
+def test_core_geometry_depends_on_nothing_in_the_project() -> None:
+    """The primitives are usable by the observation layer only while pure.
+
+    They sit in ``grail_v.core`` rather than ``grail_v.geometry`` precisely so
+    the leakage guard above can stay absolute: pure convex mathematics over
+    whatever coordinates it is handed has no more access to hidden state than
+    ``math`` does.  One convenience import from elsewhere in the project would
+    dissolve that argument without any test noticing, so this is the test that
+    notices.
+    """
+
+    imported = imported_names("grail_v.core.geometry")
+
+    offenders = sorted(name for name in imported if name.startswith("grail_v"))
+    assert not offenders, (
+        f"core geometry must stay free of project dependencies; found {offenders}"
+    )
+
+
+def test_the_geometry_package_does_not_re_export_the_primitives() -> None:
+    """A re-export would route ``Segment`` back through the forbidden package.
+
+    The observation guard tests imports of ``grail_v.geometry``; if that
+    package handed out the primitives too, the layer could reach them by
+    importing it and the guard would be theatre.
+    """
+
+    smuggled = [
+        name
+        for name in ("Point", "Segment", "OrientedRectangle", "segment_intersects_rectangle")
+        if hasattr(grail_v.geometry, name)
+    ]
+    assert not smuggled, (
+        f"grail_v.geometry must not re-export core primitives; found {smuggled}"
+    )
+
+
 def test_intersection_context_is_the_only_geometry_a_policy_may_see() -> None:
     """The deliberate exception, and the reason it is allowed.
 

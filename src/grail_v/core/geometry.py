@@ -1,9 +1,23 @@
-"""Exact two-dimensional primitives for obstruction geometry.
+"""Two-dimensional primitives for obstruction geometry.
 
-This module is the foundation of the geometry engine required by work plan
-section 5.  It owns oriented rectangles, segments, and the segment-rectangle
-intersection test from which both RF propagation class and V-VLC occlusion are
-derived.
+Oriented rectangles, segments, and the segment-rectangle intersection test from
+which both RF propagation class and V-VLC occlusion are derived.  It is the
+foundation of the geometry engine required by work plan section 5.
+
+**Why this lives in ``core`` and not in ``grail_v.geometry``.**  Everything in
+that package reasons about *exact* vehicle state and is therefore oracle-only:
+``grail_v.observation`` may not import any of it.  This module reasons about
+nothing.  It is pure convex mathematics over whatever coordinates it is handed,
+with no more access to hidden state than :mod:`math` has, so the observation
+layer may use it on *noisy predicted* positions without leaking anything.
+
+The distinction matters because it is the difference between a rule and a
+proxy.  "Do not import the geometry package" was standing in for "do not use
+exact state", and the two diverged the moment the blockage predictor needed a
+segment-rectangle test.  The choice was to weaken the guard, duplicate tested
+code, or move the boundary; moving it leaves the guard absolute and exception
+free.  Nothing here may import from ``grail_v`` -- a test enforces it, because
+one convenience import would quietly re-couple the layers.
 
 Two conventions are fixed here rather than left to callers, because getting
 either wrong displaces every downstream measurement without failing loudly.

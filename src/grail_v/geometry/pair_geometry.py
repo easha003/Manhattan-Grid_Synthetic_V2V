@@ -33,12 +33,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from grail_v.core.geometry import Point, VehicleFootprintSource
 from grail_v.geometry.link_endpoints import (
     headlamp_position,
     optical_link_path,
     photodiode_position,
 )
-from grail_v.geometry.primitives import Point, VehicleFootprintSource
 
 #: ``vlc.receiver_fov_deg`` default, read as a semi-angle; see the module docstring.
 DEFAULT_FOV_HALF_ANGLE_RAD = math.radians(60.0)

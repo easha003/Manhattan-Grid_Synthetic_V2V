@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from grail_v.geometry.primitives import (
+from grail_v.core.geometry import (
     OrientedRectangle,
     Segment,
     segment_intersects_rectangle,

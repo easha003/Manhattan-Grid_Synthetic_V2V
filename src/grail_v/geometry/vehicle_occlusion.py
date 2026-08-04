@@ -29,14 +29,14 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
-from grail_v.geometry.link_endpoints import LinkPath
-from grail_v.geometry.primitives import (
+from grail_v.core.geometry import (
     Point,
     Segment,
     VehicleFootprintSource,
     segment_intersects_rectangle,
     vehicle_rectangle,
 )
+from grail_v.geometry.link_endpoints import LinkPath
 
 
 class OccludingVehicle(VehicleFootprintSource, Protocol):
@@ -98,7 +98,7 @@ def occluding_vehicles(
     A candidate obstructs when its footprint meets the path *and* it stands at
     least as tall as the path.  Ties at exactly the path height count as
     obstructing, consistent with the boundary convention in
-    :mod:`grail_v.geometry.primitives`.
+    :mod:`grail_v.core.geometry`.
     """
 
     excluded = frozenset(exclude_ids)
