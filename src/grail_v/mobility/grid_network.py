@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 
+from grail_v.core.grid_naming import junction_id
+
 #: Turn names, matching the configured turn-probability fields.
 TurnName = str
 
@@ -185,16 +187,6 @@ class GridEdge:
             self.start_x_m + offset_m * math.cos(heading) + self.carriageway_offset_m * right_x,
             self.start_y_m + offset_m * math.sin(heading) + self.carriageway_offset_m * right_y,
         )
-
-
-def _avenue_letter(index: int) -> str:
-    return chr(ord("A") + index)
-
-
-def junction_id(avenue_index: int, cross_street_index: int) -> str:
-    """Return the canonical junction identifier, e.g. ``B7``."""
-
-    return f"{_avenue_letter(avenue_index)}{cross_street_index}"
 
 
 class GridNetwork:

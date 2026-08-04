@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from grail_v.config import (
     load_config,
     load_headline_config,
 )
+from grail_v.config.hashing import HASH_SCOPES, scope_hash, scoped_data
 from grail_v.core.errors import ConfigurationError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -116,3 +118,96 @@ def test_excluded_path_absent_from_an_unrelated_mapping_is_a_noop() -> None:
 def test_canonical_serialization_rejects_nonfinite_numbers(value: float) -> None:
     with pytest.raises(ConfigurationError, match="non-finite"):
         canonical_json({"value": value})
+
+
+# -- scoped digests: what an artifact can actually depend on -------------------
+
+
+def mobility_relevant_edit(data: dict) -> dict:
+    edited = copy.deepcopy(data)
+    edited["mobility"]["grid"]["lane_width_m"] = 3.6
+    return edited
+
+
+def test_an_observation_edit_moves_the_run_digest_but_not_the_mobility_one() -> None:
+    """A receiver field cannot move a vehicle.
+
+    Under a single global digest it would still strand every trace and force
+    hours of recomputation to reproduce identical bytes.
+    """
+
+    base = canonical_data(load_headline_config(PROJECT_ROOT))
+    edited = copy.deepcopy(base)
+    edited["observation"]["features"] = [*base["observation"]["features"], "distance_to_junction_m"]
+
+    assert config_hash(edited) != config_hash(base)
+    assert scope_hash(edited, "mobility") == scope_hash(base, "mobility")
+
+
+def test_a_channel_edit_does_not_strand_the_mobility_campaign() -> None:
+    """The concrete reason this exists: §7.2's collision model is undefined,
+    so implementing M3 will add configuration the generator never reads."""
+
+    base = canonical_data(load_headline_config(PROJECT_ROOT))
+    edited = copy.deepcopy(base)
+    edited["rf"]["collision_model_placeholder"] = 1.0
+
+    assert config_hash(edited) != config_hash(base)
+    assert scope_hash(edited, "mobility") == scope_hash(base, "mobility")
+
+
+@pytest.mark.parametrize(
+    "section,field,value",
+    [
+        ("mobility", "grid", None),
+        ("geometry", "min_separation_m", 6.0),
+        ("environment", "episode_duration_s", 45.0),
+    ],
+)
+def test_anything_the_generator_reads_still_moves_the_mobility_digest(
+    section: str, field: str, value: object
+) -> None:
+    base = canonical_data(load_headline_config(PROJECT_ROOT))
+    edited = copy.deepcopy(base)
+    if value is None:
+        edited[section][field]["lane_width_m"] = 3.6
+    else:
+        edited[section][field] = value
+
+    assert scope_hash(edited, "mobility") != scope_hash(base, "mobility")
+
+
+def test_the_seed_the_generator_reads_still_moves_the_mobility_digest() -> None:
+    """``training`` stays in scope wholesale because ``root_seed`` lives there.
+
+    Carving out a subtree is where the exclusion list's guarantee would start
+    to erode, so the conservative choice is kept.
+    """
+
+    base = canonical_data(load_headline_config(PROJECT_ROOT))
+    edited = copy.deepcopy(base)
+    edited["training"]["root_seed"] = base["training"]["root_seed"] + 1
+
+    assert scope_hash(edited, "mobility") != scope_hash(base, "mobility")
+
+
+def test_a_scope_digest_still_honours_the_global_exclusions() -> None:
+    base = canonical_data(load_headline_config(PROJECT_ROOT))
+    edited = copy.deepcopy(base)
+    edited["environment"]["splits"] = {"train": ["anything"], "validation": [], "test": []}
+
+    assert scope_hash(edited, "mobility") == scope_hash(base, "mobility")
+
+
+def test_an_unknown_scope_is_refused_rather_than_silently_global() -> None:
+    config = load_headline_config(PROJECT_ROOT)
+    with pytest.raises(ConfigurationError, match="unknown configuration hash scope"):
+        scope_hash(config, "channel")
+
+
+def test_every_declared_scope_is_narrower_than_the_run_digest() -> None:
+    config = load_headline_config(PROJECT_ROOT)
+    for scope in HASH_SCOPES:
+        assert scoped_data(config, scope) != hashed_data(config), (
+            f"scope {scope!r} excludes nothing and is therefore pointless"
+        )

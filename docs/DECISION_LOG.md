@@ -702,6 +702,68 @@ history rewrite, which would invalidate every commit hash cited in this file
 
 ---
 
+## D14 — The junction feature, and the two things that had to move first
+
+4 Aug · work plan §6.1, §11.2 · `HASH_SCOPES`, `core/intersection_context.py`
+
+**The gap.** §6.1's feature list was written before §4.6.1 measured junction
+spanning at a **65–121× lift**, against a separation signal that is weak and
+non-monotonic. The policy was being handed `pair_distance` and asked to infer
+risk from it while the feature carrying the signal was absent — and absent
+despite being lawful, since junction geometry comes from own pose plus a map.
+
+Two blockers, and neither was what it looked like.
+
+**Blocker 1 was a two-line string formatter.** `intersection_context` lived in
+`grail_v.geometry`, unreachable from the observation layer, and I described it
+as reaching `grid_network` and therefore unable to move without inverting the
+layering. What it actually reached was:
+
+```python
+def junction_id(avenue_index, cross_street_index) -> str:
+    return f"{avenue_letter(avenue_index)}{cross_street_index}"
+```
+
+Moving that to `core.grid_naming` — mobility importing core is the correct
+direction — freed `intersection_context` to join the other pure-geometry
+modules in `core`. `grail_v.geometry` is now exactly the four modules that
+consume scene state.
+
+**Blocker 2 was real, and was never about this feature.** Adding an entry to
+`observation.features` moves the global `config_hash`, which strands nine
+mobility traces that cannot possibly depend on a receiver field. Excluding the
+field would be wrong by D3's own test — it *does* determine training artifacts.
+
+The actual defect is that one digest was answering two different questions.
+`config_hash` asks "was this the same run?", which is right for a run. For a
+stored artifact the question is "may this be reused?", and that depends only on
+the configuration its producer can read. `HASH_SCOPES` now defines that subset
+per artifact class and every manifest records `config_scope_hashes`.
+
+Measured: adding the junction features moved the global digest `92bf9cb5` →
+`aff125fe` while the mobility scope stayed `7e72595a`. **The nine traces
+survived a change that would otherwise have cost 1.5 h of recomputation to
+reproduce identical bytes** — and would have done so again at M3, since §7.2's
+collision model is undefined and implementing it will add configuration.
+
+Exclusion, not inclusion, and deliberately conservative: a forgotten exclusion
+causes a visible, wasteful re-stamp; a forgotten inclusion would let two
+different engines share a digest. `training` stays in the mobility scope
+wholesale even though only `root_seed` is read.
+
+**The features.** `distance_to_junction` continuous, `path_spans_junction`
+binary — the network picks its own threshold from the first while the second is
+what §4.6.1 actually measured. Both computed from *noisy* predicted poses, so
+the indicator is honestly uncertain near a boundary rather than a clean oracle
+bit. The vector went 33 → 35 columns.
+
+**What this cost, against what I estimated.** I called blocker 1 a layering
+problem and blocker 2 a reason to defer. Blocker 1 was half an hour. Blocker 2
+was the more valuable finding of the two, and the junction feature only
+surfaced it — M3 would have hit the same wall with no feature involved.
+
+---
+
 ## Known stale, as of 4 August 2026
 
 1. **The 21 published traces** carry `5e42a2ba` and pre-D9 physics. Archived

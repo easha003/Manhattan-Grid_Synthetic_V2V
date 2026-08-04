@@ -112,6 +112,7 @@ class ArtifactStore:
         created_at_utc: datetime | None = None,
         schema_version: str = MANIFEST_SCHEMA_VERSION,
         code_commit_override: str | None = None,
+        config_scope_hashes: dict[str, str] | None = None,
     ) -> StoredArtifact:
         """Produce, validate, and atomically publish one artifact.
 
@@ -170,6 +171,7 @@ class ArtifactStore:
                 config_hash=config_hash,
                 code_version=code_version,
                 code_commit=code_commit_override or code_commit(),
+                config_scope_hashes=dict(config_scope_hashes or {}),
                 input_artifacts=list(input_artifacts),
                 random_seeds=dict(random_seeds or {}),
                 software_versions=dict(software_versions or {}),

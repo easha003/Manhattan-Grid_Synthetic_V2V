@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from grail_v.core.enums import Link
+from grail_v.core.intersection_context import IntersectionContext
 from grail_v.core.pair_geometry import wrap_to_pi
 from grail_v.observation.blockage import BlockageForecast
 from grail_v.observation.forecast import PredictedState
@@ -106,6 +107,11 @@ class PairObservationInputs:
     neighbour_count: int
     channel_busy_ratio: float
     fov_half_angle_rad: float
+    #: Junction relationship of the *predicted* path.  Lawful state: own
+    #: pose plus a road map, which a real vehicle carries.  Because it is
+    #: computed from noisy poses it is honestly uncertain near a boundary,
+    #: rather than the clean oracle bit the geometry engine would give.
+    intersection: IntersectionContext
 
 
 def _quality_and_age(links: LinkStateTracker, link: Link, now_s: float) -> tuple[float, float]:
@@ -188,6 +194,13 @@ def _feature_values(inputs: PairObservationInputs) -> Mapping[str, float | Seque
             inputs.receiver.heading_rad - inputs.transmitter.heading_rad
         ),
         "optical_fov_margin": _optical_fov_margin_rad(inputs),
+        # Work plan section 4.6.1: 65-121x lift, against a separation
+        # signal that is weak and non-monotonic.  Both forms are offered --
+        # the continuous distance lets the network choose its own
+        # threshold and degrade gracefully, while the indicator is the
+        # discriminator actually measured.
+        "distance_to_junction": inputs.intersection.nearest_distance_to_junction_m,
+        "path_spans_junction": float(inputs.intersection.spans_junction),
         "predicted_blockage_probability": inputs.blockage.probability,
         "predictor_confidence": inputs.blockage.confidence,
         # The older of the two, because a pair is only as well known as its
