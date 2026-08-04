@@ -1,0 +1,179 @@
+"""Work plan section 5: exact geometry must not reach a deployable policy.
+
+Everything the geometry engine computes is *hidden simulator state*.  It exists
+to generate outcomes and to answer oracle questions.  The learned and
+deterministic policies see a noisy, aged reconstruction built in M5, never
+these objects.
+
+Three separate guards, because they fail in different ways:
+
+1. the configuration cannot *name* a forbidden observation field;
+2. the geometry layer cannot be reached *from* the observation layer;
+3. the quantities themselves are recognisable, so a future field that smuggles
+   one in under another name is still caught by review of this list.
+
+Section 5.3's module-boundary tests live beside the modules they constrain;
+this file covers the policy boundary rather than the channel boundary.
+"""
+
+from __future__ import annotations
+
+import ast
+import importlib
+import pkgutil
+from pathlib import Path
+
+import pytest
+
+import grail_v.geometry
+from grail_v.config import headline_config_layers, load_config, load_headline_config
+from grail_v.config.validation import FORBIDDEN_OBSERVATION_FIELDS
+from grail_v.core.errors import ConfigurationError
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+#: Every quantity the geometry engine produces that would trivialise the task.
+#: Naming them here is the point: an addition to the geometry layer that is not
+#: obviously safe should be added to this list and then justified.
+EXACT_GEOMETRY_QUANTITIES = frozenset(
+    {
+        "blocker_ids",
+        "nearest_blocker_id",
+        "building_blocked",
+        "is_blocked",
+        "is_obstructed",
+        "vehicle_blocker_ids",
+        "within_field_of_view",
+    }
+)
+
+
+def geometry_module_names() -> list[str]:
+    return [
+        f"grail_v.geometry.{info.name}" for info in pkgutil.iter_modules(grail_v.geometry.__path__)
+    ]
+
+
+def imported_names(module_name: str) -> set[str]:
+    """Modules actually imported by ``module_name``, parsed rather than grepped.
+
+    A text search matches prose in docstrings, which is exactly what this file
+    discusses at length, so the guard would fire on its own explanations.
+    """
+
+    module = importlib.import_module(module_name)
+    tree = ast.parse(Path(module.__file__ or "").read_text(encoding="utf-8"))
+
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found.add(node.module)
+    return found
+
+
+# -- 1. the configuration cannot name hidden state ---------------------------
+
+
+def test_the_headline_configuration_hides_exact_geometry() -> None:
+    config = load_headline_config(PROJECT_ROOT)
+    assert config.geometry.exact_geometry_hidden_from_policy
+
+
+@pytest.mark.parametrize("field", sorted(FORBIDDEN_OBSERVATION_FIELDS))
+def test_every_forbidden_observation_field_is_rejected(field: str, tmp_path: Path) -> None:
+    """The loader refuses each one by name, not just the first."""
+
+    override = tmp_path / f"leak_{field}.yaml"
+    override.write_text(
+        f"observation:\n  features:\n    - rf_quality\n    - {field}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="forbidden hidden field"):
+        load_config(
+            (*headline_config_layers(PROJECT_ROOT), override),
+            project_root=PROJECT_ROOT,
+        )
+
+
+def test_the_forbidden_list_covers_what_the_geometry_engine_produces() -> None:
+    """Occlusion, blocker identity and alignment truth must all be named.
+
+    The engine grew after this list was written, so this checks the list kept
+    up rather than assuming it did.
+    """
+
+    joined = " ".join(FORBIDDEN_OBSERVATION_FIELDS)
+    for topic in ("blocker", "blockage", "geometry", "channel_state", "counterfactual"):
+        assert topic in joined, f"no forbidden field mentions {topic!r}"
+
+
+# -- 2. the observation layer cannot reach the geometry layer ----------------
+
+
+def test_no_observation_module_imports_the_geometry_engine() -> None:
+    """M5 builds observations from noisy tracks, never from exact geometry.
+
+    The observation package is still empty; this guard is installed before it
+    is written so the first module cannot take the shortcut.
+    """
+
+    observation_root = PROJECT_ROOT / "src" / "grail_v" / "observation"
+    sources = sorted(observation_root.rglob("*.py"))
+
+    offenders: list[str] = []
+    for source in sources:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            if any(name.startswith("grail_v.geometry") for name in names):
+                offenders.append(str(source.relative_to(PROJECT_ROOT)))
+                break
+
+    assert not offenders, (
+        f"observation code must not import the geometry engine; offending files: {offenders}"
+    )
+
+
+# -- 3. the engine keeps its results out of anything policy-facing -----------
+
+
+def test_geometry_results_are_plain_values_and_carry_no_policy_hooks() -> None:
+    """Nothing in the geometry layer offers to serialise itself for a policy.
+
+    An ``as_observation`` or ``to_features`` helper is how exact state usually
+    escapes: it looks convenient and nobody re-reads the leakage rule.
+    """
+
+    forbidden_helpers = ("as_observation", "to_features", "as_policy_input", "observe")
+
+    for name in geometry_module_names():
+        module = importlib.import_module(name)
+        source = Path(module.__file__ or "").read_text(encoding="utf-8")
+        for helper in forbidden_helpers:
+            assert f"def {helper}" not in source, f"{name} exposes {helper}"
+
+
+def test_intersection_context_is_the_only_geometry_a_policy_may_see() -> None:
+    """The deliberate exception, and the reason it is allowed.
+
+    Junction distance and span derive from own pose plus a road map, which a
+    real vehicle has.  Every other geometry result depends on where *other*
+    vehicles are, which it does not.  If this ever stops being true the
+    forecast loses its only lawful input.
+    """
+
+    imported = imported_names("grail_v.geometry.intersection_context")
+
+    assert not any("vehicle_occlusion" in name for name in imported), (
+        f"intersection context reached occlusion truth: {sorted(imported)}"
+    )
+    assert not any("rf_visibility" in name for name in imported)
+    # It may reason about the road and about the link's own endpoints.
+    assert any("grid_network" in name or "primitives" in name for name in imported)
