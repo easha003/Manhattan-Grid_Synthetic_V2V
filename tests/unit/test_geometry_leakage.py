@@ -116,8 +116,10 @@ def test_the_forbidden_list_covers_what_the_geometry_engine_produces() -> None:
 def test_no_observation_module_imports_the_geometry_engine() -> None:
     """Week 7 builds observations from noisy tracks, never from exact geometry.
 
-    The observation package is still empty; this guard is installed before it
-    is written so the first module cannot take the shortcut.
+    Installed while the observation package was still empty, so its first
+    module could not take the shortcut.  It now guards six modules, and
+    ``tests/unit/test_observation_pipeline.py`` re-states it against the
+    package as it actually stands.
     """
 
     observation_root = PROJECT_ROOT / "src" / "grail_v" / "observation"
@@ -219,20 +221,27 @@ def test_core_link_endpoints_depends_on_nothing_stateful() -> None:
     assert not offenders, f"core link endpoints reached outside core: {offenders}"
 
 
-def test_intersection_context_is_the_only_geometry_a_policy_may_see() -> None:
-    """The deliberate exception, and the reason it is allowed.
+def test_intersection_context_reasons_about_the_map_and_nothing_hidden() -> None:
+    """It is the map-derived quantity the policy is allowed to have.
 
-    Junction distance and span derive from own pose plus a road map, which a
-    real vehicle has.  Every other geometry result depends on where *other*
-    vehicles are, which it does not.  If this ever stops being true the
-    forecast loses its only lawful input.
+    Junction distance and span come from own pose plus a road map, which a real
+    vehicle carries.  Every other geometry result depends on where *other*
+    vehicles are, which it does not.  That is why this module moved to ``core``
+    with the primitives rather than needing an exception carved into the guard
+    above: it does not belong to the exact-state layer at all, and the
+    two-line junction naming helper that once tied it to ``mobility`` moved to
+    ``core.grid_naming`` for the same reason.
     """
 
-    imported = imported_names("grail_v.geometry.intersection_context")
+    imported = imported_names("grail_v.core.intersection_context")
 
-    assert not any("vehicle_occlusion" in name for name in imported), (
-        f"intersection context reached occlusion truth: {sorted(imported)}"
+    for forbidden in ("vehicle_occlusion", "rf_visibility", "spatial_index", "building_geometry"):
+        assert not any(forbidden in name for name in imported), (
+            f"intersection context reached {forbidden}: {sorted(imported)}"
+        )
+    outside_core = sorted(
+        name for name in imported if name.startswith("grail_v") and not name.startswith("grail_v.core")
     )
-    assert not any("rf_visibility" in name for name in imported)
-    # It may reason about the road and about the link's own endpoints.
-    assert any("grid_network" in name or "primitives" in name for name in imported)
+    assert not outside_core, f"intersection context reached outside core: {outside_core}"
+    # It may still reason about the road and about the link's own endpoints.
+    assert any("core.geometry" in name or "grid_naming" in name for name in imported)

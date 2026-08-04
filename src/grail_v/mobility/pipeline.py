@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from grail_v.artifacts.store import ArtifactStore
-from grail_v.config.hashing import config_hash
+from grail_v.config.hashing import config_hash, scope_hash
 from grail_v.config.models import ProjectConfig
 from grail_v.core.errors import ConfigurationError
 from grail_v.core.randomness import derive_seed
@@ -188,6 +188,10 @@ class GridTracePipeline:
         self.plan = plan
         self.network = _network_from_config(config)
         self.config_hash = config_hash(config)
+        # A trace may be reused whenever this agrees, whatever else in the
+        # configuration moved: the generator reads mobility, geometry,
+        # environment and training.root_seed and nothing else.
+        self.mobility_config_hash = scope_hash(config, "mobility")
 
         turns = config.mobility.turn_probabilities
         self.turns = TurnProbabilities(left=turns.left, straight=turns.straight, right=turns.right)
@@ -333,6 +337,7 @@ class GridTracePipeline:
             route_definition=json.dumps(routes, indent=2, sort_keys=True),
             resolved_config_yaml=self.config.model_dump_json(indent=2),
             config_hash=self.config_hash,
+            config_scope_hashes={"mobility": self.mobility_config_hash},
             code_version=self.plan.code_version,
             random_seeds={"mobility": spec.seed},
             software_versions={"mobility_model": "analytic-manhattan-grid"},

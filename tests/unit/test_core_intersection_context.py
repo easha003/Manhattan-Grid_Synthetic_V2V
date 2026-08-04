@@ -7,12 +7,12 @@ from dataclasses import dataclass
 import pytest
 
 from grail_v.core.geometry import Point, Segment
-from grail_v.core.link_endpoints import optical_link_path
-from grail_v.geometry.building_geometry import LANE_WIDTH_M
-from grail_v.geometry.intersection_context import (
+from grail_v.core.intersection_context import (
     JunctionGrid,
     intersection_context,
 )
+from grail_v.core.link_endpoints import optical_link_path
+from grail_v.geometry.building_geometry import LANE_WIDTH_M
 
 EAST = 0.0
 NORTH = 0.5 * math.pi
@@ -199,7 +199,7 @@ def test_intersection_context_reads_no_blocker_state() -> None:
     only legitimate input.
     """
 
-    module = importlib.import_module("grail_v.geometry.intersection_context")
+    module = importlib.import_module("grail_v.core.intersection_context")
 
     source = module.__file__
     assert source is not None

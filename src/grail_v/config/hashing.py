@@ -34,6 +34,40 @@ full, every trace stores its complete ``resolved_config.yaml``, and the
 campaign manifest records the split map explicitly.
 """
 
+HASH_SCOPES: Final[dict[str, tuple[tuple[str, ...], ...]]] = {
+    "mobility": (
+        ("observation",),
+        ("rf",),
+        ("vlc",),
+        ("service",),
+        ("cost",),
+        ("evaluation",),
+    ),
+}
+"""Per-artifact-class digests: what each kind of artifact can actually depend on.
+
+``config_hash`` answers "same experimental conditions?" for a whole *run*, and
+that is the right question for a run.  It is the wrong question for one
+artifact.  A mobility trace is produced by a generator that reads
+``mobility``, ``geometry``, ``environment`` and ``training.root_seed`` and
+nothing else, so editing a receiver field or a PPO hyperparameter cannot move a
+single vehicle -- yet under a single global digest it strands every trace under
+a stale hash and forces hours of recomputation to reproduce identical bytes.
+
+This is not hypothetical.  §7.2's collision model is undefined, so implementing
+M3 will add configuration; without scoping, that alone invalidates the mobility
+campaign.
+
+Each entry lists paths a scope's generator provably cannot read, *in addition*
+to :data:`HASH_EXCLUDED_PATHS`.  Exclusion rather than inclusion is deliberate
+and is the fail-safe direction: forgetting to exclude something causes a
+spurious re-stamp, which is visible and merely wasteful, whereas forgetting to
+*include* something would silently let two genuinely different engines share a
+digest.  The list is deliberately conservative -- ``training`` stays in, even
+though only ``root_seed`` is read, because carving out a subtree is where that
+guarantee would start to erode.
+"""
+
 
 def _project_root(value: BaseModel) -> Path | None:
     """Return a resolved project root when ``value`` is a project config."""
@@ -171,7 +205,40 @@ def config_hash(config: BaseModel | Mapping[str, Any]) -> str:
 
     Fields listed in ``HASH_EXCLUDED_PATHS`` are omitted so that bookkeeping
     edits do not invalidate artifacts they cannot have affected.
+
+    This is the *run* digest: it answers whether two runs happened under the
+    same conditions.  For "may this artifact be reused?", prefer
+    :func:`scope_hash`, which asks only about the configuration the artifact's
+    producer can read.
     """
 
     payload = _dumps(hashed_data(config)).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def scoped_data(config: BaseModel | Mapping[str, Any], scope: str) -> dict[str, Any]:
+    """Return the canonical mapping that :func:`scope_hash` digests."""
+
+    if scope not in HASH_SCOPES:
+        raise ConfigurationError(
+            f"unknown configuration hash scope {scope!r}; "
+            f"known scopes: {', '.join(sorted(HASH_SCOPES))}"
+        )
+    data = hashed_data(config)
+    for path in HASH_SCOPES[scope]:
+        data = _without_path(data, path)
+    return data
+
+
+def scope_hash(config: BaseModel | Mapping[str, Any], scope: str) -> str:
+    """Digest of only the configuration a ``scope``'s producer can read.
+
+    Two artifacts of the same scope that agree here were produced under
+    identical *relevant* conditions, whatever else changed around them.  That
+    is the question worth asking of a stored artifact, and asking it of the
+    global digest instead is what turns an unrelated edit into hours of
+    recomputation for bytes that could not differ.
+    """
+
+    payload = _dumps(scoped_data(config, scope)).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()

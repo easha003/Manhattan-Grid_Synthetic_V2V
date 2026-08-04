@@ -80,6 +80,12 @@ class ArtifactManifest(ManifestModel):
     #: moves on a release, so it cannot distinguish two engines that differ by
     #: a day's commits.  Work plan §11.2.
     code_commit: str | None = None
+    #: Digests of the configuration subsets this artifact's producer can read,
+    #: keyed by scope name (``grail_v.config.hashing.HASH_SCOPES``).  The
+    #: question "may this artifact be reused?" is answered here; ``config_hash``
+    #: answers the broader "was this the same run?" and moves whenever any
+    #: physics-bearing field changes, including ones the producer never reads.
+    config_scope_hashes: dict[str, str] = Field(default_factory=dict)
     input_artifacts: list[ArtifactReference] = Field(default_factory=list)
     random_seeds: dict[str, Seed] = Field(default_factory=dict)
     software_versions: dict[str, str] = Field(default_factory=dict)

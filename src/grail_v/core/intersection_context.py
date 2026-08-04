@@ -39,7 +39,7 @@ from grail_v.core.geometry import (
     Segment,
     segment_intersects_rectangle,
 )
-from grail_v.mobility.grid_network import junction_id
+from grail_v.core.grid_naming import junction_id
 
 #: Tolerance for deciding a position already sits on a lattice line, in metres.
 _LATTICE_EPS_M = 1e-9

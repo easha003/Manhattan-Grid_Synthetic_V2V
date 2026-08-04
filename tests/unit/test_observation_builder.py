@@ -9,6 +9,12 @@ import pytest
 
 from grail_v.config import load_headline_config
 from grail_v.core.enums import Action, Link
+from grail_v.core.geometry import Point, Segment
+from grail_v.core.intersection_context import (
+    IntersectionContext,
+    JunctionGrid,
+    intersection_context,
+)
 from grail_v.observation.blockage import BlockageForecast
 from grail_v.observation.builder import (
     UNMEASURED_AGE_S,
@@ -47,6 +53,20 @@ def tracked(vehicle_id: str, measured_at_s: float = 1.0) -> Track:
     )
 
 
+
+def grid() -> JunctionGrid:
+    return JunctionGrid.from_grid(
+        avenues=6, cross_streets=12, avenue_spacing_m=244.0,
+        cross_street_spacing_m=61.0, road_half_width_m=3.5,
+    )
+
+
+def context(tx: PredictedState, rx: PredictedState) -> IntersectionContext:
+    return intersection_context(
+        tx.x_m, tx.y_m, tx.heading_rad, rx.x_m, rx.y_m, rx.heading_rad,
+        Segment(Point(tx.x_m, tx.y_m), Point(rx.x_m, rx.y_m)), grid(),
+    )
+
 def inputs(**overrides) -> PairObservationInputs:
     base = dict(
         now_s=1.05,
@@ -59,6 +79,7 @@ def inputs(**overrides) -> PairObservationInputs:
         neighbour_count=42,
         channel_busy_ratio=0.3,
         fov_half_angle_rad=math.radians(60.0),
+        intersection=context(predicted("tx", 0.0, 0.0), predicted("rx", 20.0, 0.0)),
     )
     base.update(overrides)
     return PairObservationInputs(**base)  # type: ignore[arg-type]
@@ -87,8 +108,10 @@ def test_histories_expand_to_one_column_each_and_the_rest_do_not() -> None:
     assert "rf_quality_history[0]" in columns
     assert "rf_quality_history[7]" in columns
     assert "rf_quality" in columns
-    # 19 named features, two of which expand to eight columns.
-    assert schema.width == 17 + 2 * 8 == len(columns)
+    # 21 named features, two of which expand to eight columns each.
+    scalars = len(schema.features) - 2
+    assert schema.width == scalars + 2 * schema.history_packets == len(columns)
+    assert schema.width == 35
 
 
 def test_the_vector_width_matches_the_schema() -> None:
@@ -311,3 +334,59 @@ def test_a_history_of_the_wrong_length_is_refused() -> None:
     )
     with pytest.raises(ValueError, match="expected 4"):
         builder.build(inputs(links=LinkStateTracker(history_packets=8)))
+
+
+# -- junction geometry, the strongest predictor available ---------------------
+
+
+def test_the_junction_features_are_present_and_lawful() -> None:
+    """Work plan §4.6.1 measured a 65-121x lift on junction spanning.
+
+    They derive from own pose plus a road map, which a real vehicle carries,
+    so they are observable rather than oracle state.
+    """
+
+    columns = headline_builder().schema.columns
+    assert "distance_to_junction" in columns
+    assert "path_spans_junction" in columns
+
+
+def test_a_path_across_a_junction_is_flagged_and_one_mid_block_is_not() -> None:
+    builder = headline_builder()
+    index = builder.schema.columns.index("path_spans_junction")
+
+    # Junction B5 sits at x = 244, y = 305; a pair straddling it spans.
+    spanning = builder.build(
+        inputs(
+            transmitter=predicted("tx", 234.0, 305.0),
+            receiver=predicted("rx", 254.0, 305.0),
+            intersection=context(predicted("tx", 234.0, 305.0), predicted("rx", 254.0, 305.0)),
+        )
+    )[index]
+    mid_block = builder.build(
+        inputs(
+            transmitter=predicted("tx", 300.0, 305.0),
+            receiver=predicted("rx", 320.0, 305.0),
+            intersection=context(predicted("tx", 300.0, 305.0), predicted("rx", 320.0, 305.0)),
+        )
+    )[index]
+
+    assert spanning == 1.0
+    assert mid_block == 0.0
+
+
+def test_distance_to_junction_shrinks_as_the_pair_approaches_one() -> None:
+    """Continuous as well as binary: the network picks its own threshold."""
+
+    builder = headline_builder()
+    index = builder.schema.columns.index("distance_to_junction")
+
+    distances = []
+    for start in (140.0, 180.0, 210.0, 230.0):
+        tx = predicted("tx", start, 305.0)
+        rx = predicted("rx", start + 10.0, 305.0)
+        distances.append(builder.build(inputs(transmitter=tx, receiver=rx,
+                                              intersection=context(tx, rx)))[index])
+
+    assert distances == sorted(distances, reverse=True)
+    assert all(value >= 0.0 for value in distances)

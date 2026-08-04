@@ -21,6 +21,14 @@ observation:
     - "relative_speed"
     - "heading_difference"
     - "optical_fov_margin"
+    # Junction geometry, added after work plan section 4.6.1 measured a
+    # 65-121x lift on it against a separation signal that is weak and
+    # non-monotonic.  Lawful: own pose plus a road map, which a real
+    # vehicle carries.  Computed from noisy poses, so the spanning
+    # indicator is honestly uncertain near the boundary rather than a
+    # clean oracle bit.
+    - "distance_to_junction"
+    - "path_spans_junction"
     - "predicted_blockage_probability"
     - "predictor_confidence"
     - "track_age"

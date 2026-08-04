@@ -22,13 +22,19 @@ import pytest
 from grail_v.config import load_headline_config
 from grail_v.config.validation import FORBIDDEN_OBSERVATION_FIELDS
 from grail_v.core.enums import Action, Link
+from grail_v.core.geometry import Point, Segment
+from grail_v.core.intersection_context import (
+    IntersectionContext,
+    JunctionGrid,
+    intersection_context,
+)
 from grail_v.observation.blockage import BlockerShape, blockage_probability
 from grail_v.observation.builder import (
     UNMEASURED_AGE_S,
     ObservationBuilder,
     PairObservationInputs,
 )
-from grail_v.observation.forecast import ConstantVelocityForecaster
+from grail_v.observation.forecast import ConstantVelocityForecaster, PredictedState
 from grail_v.observation.link_state import LinkStateTracker
 from grail_v.observation.sensing import SensorModel, sense_frame
 from grail_v.observation.tracks import TrackStore
@@ -63,6 +69,20 @@ def scene() -> list[Vehicle]:
         Vehicle("far", 120.0, 40.0, EAST, 11.0),
     ]
 
+
+
+def grid() -> JunctionGrid:
+    return JunctionGrid.from_grid(
+        avenues=6, cross_streets=12, avenue_spacing_m=244.0,
+        cross_street_spacing_m=61.0, road_half_width_m=3.5,
+    )
+
+
+def context(tx: PredictedState, rx: PredictedState) -> IntersectionContext:
+    return intersection_context(
+        tx.x_m, tx.y_m, tx.heading_rad, rx.x_m, rx.y_m, rx.heading_rad,
+        Segment(Point(tx.x_m, tx.y_m), Point(rx.x_m, rx.y_m)), grid(),
+    )
 
 def observe(
     vehicles: list[Vehicle],
@@ -110,6 +130,7 @@ def observe(
             ),
             channel_busy_ratio=0.3,
             fov_half_angle_rad=math.radians(60.0),
+            intersection=context(transmitter, receiver),
         )
     )
 

@@ -883,26 +883,26 @@ current consecutive-miss count.
 There is no head-of-line slack because packets do not queue across their
 deadlines in this model.
 
-Nineteen named features; two of them carry eight-packet histories, so the
-policy receives **33 columns**. Order follows the configured `features` list,
+Twenty-one named features; two of them carry eight-packet histories, so the
+policy receives **35 columns**. Order follows the configured `features` list,
 so it is fixed by the frozen configuration rather than by construction order —
 a silent reordering would leave a checkpoint reading the wrong columns with
 every shape check still passing.
 
-**Open — this list has no junction feature.** It was written before §4.6.1
-established junction spanning as the strongest predictor available, a 65–121×
-lift against a separation signal that is non-monotonic and weak. The policy is
-currently handed `pair_distance` and asked to infer from it while the feature
-that carries the signal is absent, even though junction context is lawful
-(own pose plus a map) and is already the barrier's one deliberate exception.
-Two things must be settled before adding it: `intersection_context` lives in
-`grail_v.geometry`, which the observation layer cannot import, and it reaches
-`grid_network` so it cannot simply move to `core` without inverting the
-layering; and adding a feature changes the configuration hash and therefore
-re-stamps traces, even though `observation.features` cannot alter a generated
-mobility byte. That is §11.2's exclusion question on a field where the answer
-is not obviously the same, because the field *does* determine training
-artifacts.
+**Junction geometry was added on 2026-08-04**, after §4.6.1 measured a 65–121×
+lift on junction spanning against a separation signal that is weak and
+non-monotonic. `distance_to_junction` is continuous, so the network chooses its
+own threshold and degrades gracefully; `path_spans_junction` is the
+discriminator actually measured. Both derive from own pose plus a road map,
+which a real vehicle carries, and both are computed from *noisy* poses, so the
+indicator is honestly uncertain near a boundary rather than a clean oracle bit.
+
+Two things had to move first, and both are recorded in `docs/DECISION_LOG.md`
+D14. `intersection_context` was unreachable from the observation layer; it now
+lives in `core` beside the other pure-geometry modules, which required moving a
+two-line junction-naming helper out of `mobility`. And adding any observation
+feature moved the single global configuration digest, which would have stranded
+a mobility campaign that cannot depend on it — see §11.2.
 
 ### 6.2 Sensor and track abstraction
 
@@ -1190,6 +1190,29 @@ serializes the excluded fields, every trace stores its complete
 Adding to this list is a deliberate act, not a convenience. The test to apply
 is whether a field can alter any generated artifact; if it can, it stays in the
 digest even when that is inconvenient.
+
+**Scoped digests, added 2026-08-04.** The rule above answers "was this the same
+run?", which is the right question for a run and the wrong one for a single
+artifact. A mobility trace is produced by a generator that reads `mobility`,
+`geometry`, `environment` and `training.root_seed` and nothing else, so editing
+a receiver field or a channel parameter cannot move a vehicle — yet under one
+global digest it strands every trace and forces hours of recomputation to
+reproduce identical bytes. `HASH_SCOPES` therefore defines, per artifact class,
+the paths its producer provably cannot read, and every manifest records
+`config_scope_hashes` beside `config_hash`. **Reuse is decided on the scope
+digest; provenance still reports both.**
+
+Exclusion rather than inclusion is the fail-safe direction: a forgotten
+exclusion causes a visible, merely wasteful re-stamp, whereas a forgotten
+inclusion would let two genuinely different engines share a digest. The
+mobility scope keeps `training` wholesale even though only `root_seed` is read,
+because carving out a subtree is where that guarantee starts to erode.
+
+This is not hypothetical. Adding the junction features of §6.1 moved the global
+digest from `92bf9cb5` to `aff125fe` while the mobility scope stayed at
+`7e72595a`, so the nine traces remained valid. §7.2's collision model is still
+undefined, so implementing M3 will add configuration that would otherwise have
+invalidated the campaign for the same non-reason.
 
 The Option-B campaign of 2026-08-03 was published under the pre-exclusion
 digest `137941801b86…` and re-stamped to `5e42a2ba61e1…`. The re-stamp was
