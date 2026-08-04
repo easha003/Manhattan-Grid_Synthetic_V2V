@@ -97,6 +97,12 @@ class GridConfig(ConfigModel):
     evaluation_avenues: Annotated[int, Field(ge=1)]
     evaluation_cross_streets: Annotated[int, Field(ge=1)]
     lanes_per_direction: PositiveInt = 1
+    lane_width_m: PositiveFloat = 3.5
+    """Sets how far each direction runs from the street centreline.
+
+    Physics-bearing: it moves every vehicle, so it belongs in the config hash.
+    Opposing carriageways end up ``lanes_per_direction * lane_width_m`` apart.
+    """
 
     @model_validator(mode="after")
     def evaluation_region_fits(self) -> GridConfig:

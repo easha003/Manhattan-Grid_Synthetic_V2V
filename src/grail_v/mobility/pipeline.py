@@ -169,6 +169,7 @@ def _network_from_config(config: ProjectConfig) -> GridNetwork:
             avenue_spacing_m=grid.avenue_spacing_m,
             cross_street_spacing_m=grid.cross_street_spacing_m,
             lanes_per_direction=grid.lanes_per_direction,
+            lane_width_m=grid.lane_width_m,
             speed_limit_mps=config.mobility.speed_limit_mps,
         )
     )
