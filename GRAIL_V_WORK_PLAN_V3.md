@@ -502,6 +502,18 @@ These are modelling choices the paper must state, not hide.
 5. **No calibration against measured NYC traffic counts.** The real-map
    robustness test of v2 §4.5 is **removed from scope**, not deferred: it
    required a SUMO network import that no longer exists.
+6. **The grid understates the cost of a narrow optical field of view.**
+   `vlc.receiver_fov_deg` is the receiver semi-angle \(\psi_c\); the headline
+   uses 60° and the \(10^{-5}\) frontier uses 30° via
+   `configs/channel/vlc_vehicle_concentrated.yaml`. A 30° semi-angle still
+   allows 8.9 m of lateral offset over a 15.5 m optical path against roughly
+   3 m of lane width, so the model charges it almost nothing — measured
+   availability barely moves while the link budget moves about 10 dB. That
+   asymmetry is an artefact of items 2–4: straight streets, one lane, no
+   grade, no lane changing, so none of the road curvature, braking pitch or
+   lateral dynamics that are the real price of a narrow cone can appear.
+   **The 30° sensitivity is therefore optimistic and must be reported as
+   such.** The value itself is also unsourced, like item 1.
 
 ### 4.8 Determinism and reproducibility
 
@@ -1274,17 +1286,27 @@ no shared lineage.
 
 ## 20. Immediate next actions
 
-1. **Begin M2 geometry** against the frozen traces in `artifacts/traces/`
-   (config hash `6dc49408`). Buildings are derivable from `GridNetwork`;
-   intersection distance is `edge.length_m - offset_m`. The occlusion engine
-   must reproduce the separation-conditioned blockage of §4.6.1 — that table is
-   its acceptance test.
+1. **Continue M2 geometry** against the frozen traces in `artifacts/traces/`
+   (config hash `5e42a2ba`). Phases 1–3 are complete: primitives and the
+   front-bumper footprint convention, link endpoints and occlusion, pair
+   geometry and the acceptance cone. Remaining: buildings and RF visibility,
+   intersection context, the spatial index and definitive validation, and the
+   leakage tests. Buildings are derivable from `GridNetwork`; intersection
+   distance is `edge.length_m - offset_m`.
 2. **Source or bound the IDM time headway** (§4.7 item 1). It sets the capacity
    in §4.5 and is currently undeclared.
-3. **Obtain W18** before Gate 2 needs it for VLC validation.
-4. Decide whether to tighten the density tolerance to 2% (§14 Gate 1).
-5. Review the \(10^{-5}\) curriculum split (§11.3).
-6. Consider whether multi-lane roads are worth the cost (§4.7 item 3). They are
+3. **Source the receiver field of view** (§4.7 item 6), and confirm the
+   semi-angle reading of `receiver_fov_deg`. W18 may settle both this and the
+   headlamp pattern. Until then the headline holds the pessimistic 60° and the
+   frontier reports 30° as a declared, optimistic sensitivity. Whichever value
+   is in force, M4 must use the same \(\psi_c\) in the concentrator gain
+   \(n^2/\sin^2\psi_c\) as the acceptance test uses; a wide cone for
+   availability combined with narrow-cone gain would count the same physics
+   twice.
+4. **Obtain W18** before Gate 2 needs it for VLC validation.
+5. Decide whether to tighten the density tolerance to 2% (§14 Gate 1).
+6. Review the \(10^{-5}\) curriculum split (§11.3).
+7. Consider whether multi-lane roads are worth the cost (§4.7 item 3). They are
    *not* required for the current result — blockage comes from junction
    cross-traffic, which single-lane already provides — but they would answer the
    standardisation request and make the geometry closer to a real avenue.

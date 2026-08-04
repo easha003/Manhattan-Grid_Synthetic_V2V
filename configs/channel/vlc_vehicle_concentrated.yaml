@@ -1,0 +1,28 @@
+# Concentrated optical front end for the exploratory 10^-5 reliability
+# frontier.  Layer this after configs/channel/vlc_vehicle.yaml; it overrides
+# the receiver semi-angle and nothing else.
+#
+# Narrowing psi_c from 60 to 30 deg raises concentrator gain from 1.33 n^2 to
+# 4 n^2, a 4.8 dB optical and 9.5 dB electrical improvement.  Background
+# collection falls only slightly, by 1.24x, because a narrower cone also
+# implies a smaller entrance aperture for the same detector; the two effects
+# very nearly cancel, which is why the wide cone buys almost no noise relief
+# for all the gain it gives up.  Net electrical SNR improves by roughly 10 dB
+# whether the receiver is background-limited by day or thermal-limited at
+# night.
+#
+# That headroom is exactly what the 10^-5 target needs, which is why the
+# narrow receiver belongs here rather than in the headline.
+#
+# **This sensitivity is optimistic and must be reported as such.**  A 30 deg
+# semi-angle leaves 8.9 m of lateral tolerance over a 15.5 m optical path,
+# against roughly 3 m of lane width, so the analytic grid charges it almost
+# nothing.  The grid is straight, single-lane, and without grade or lane
+# changing (work plan section 4.7), so it cannot represent the road curvature,
+# braking pitch and lateral dynamics that are the real cost of a narrow cone.
+# Measured availability therefore barely moves between the two values while
+# the link budget moves by 10 dB, and that asymmetry is an artefact of the
+# mobility model, not a property of the hardware.
+
+vlc:
+  receiver_fov_deg: 30.0
