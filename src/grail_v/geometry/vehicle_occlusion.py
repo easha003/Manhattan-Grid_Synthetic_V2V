@@ -15,7 +15,7 @@ Path loss *given* a class belongs in ``channels/rf/pathloss_37885.py``; the
 class itself is decided here, from rectangles.
 
 Because both supported links are horizontal (see
-:mod:`grail_v.geometry.link_endpoints`), obstruction is exactly a planar
+:mod:`grail_v.core.link_endpoints`), obstruction is exactly a planar
 footprint intersection combined with a scalar height test.  A vehicle shorter
 than the path passes beneath it; every vehicle class in the configured mixture
 is at least 1.5 m tall, so nothing passes beneath a 0.7 m optical path, but the
@@ -36,7 +36,7 @@ from grail_v.core.geometry import (
     segment_intersects_rectangle,
     vehicle_rectangle,
 )
-from grail_v.geometry.link_endpoints import LinkPath
+from grail_v.core.link_endpoints import LinkPath
 
 
 class OccludingVehicle(VehicleFootprintSource, Protocol):

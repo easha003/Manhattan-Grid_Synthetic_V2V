@@ -12,7 +12,7 @@ from grail_v.core.geometry import (
     segment_intersects_rectangle,
     vehicle_rectangle,
 )
-from grail_v.geometry.link_endpoints import LinkPath
+from grail_v.core.link_endpoints import LinkPath
 from grail_v.geometry.spatial_index import SpatialIndex
 from grail_v.geometry.vehicle_occlusion import is_obstructed, occluding_vehicles
 

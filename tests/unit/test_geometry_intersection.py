@@ -7,12 +7,12 @@ from dataclasses import dataclass
 import pytest
 
 from grail_v.core.geometry import Point, Segment
+from grail_v.core.link_endpoints import optical_link_path
 from grail_v.geometry.building_geometry import LANE_WIDTH_M
 from grail_v.geometry.intersection_context import (
     JunctionGrid,
     intersection_context,
 )
-from grail_v.geometry.link_endpoints import optical_link_path
 
 EAST = 0.0
 NORTH = 0.5 * math.pi

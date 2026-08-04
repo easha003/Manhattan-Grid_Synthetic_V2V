@@ -35,7 +35,7 @@ from grail_v.core.geometry import (
     VehicleFootprintSource,
     segment_intersects_rectangle,
 )
-from grail_v.geometry.link_endpoints import LinkPath, rf_link_path
+from grail_v.core.link_endpoints import LinkPath, rf_link_path
 from grail_v.geometry.vehicle_occlusion import OccludingVehicle, occluding_vehicles
 
 
