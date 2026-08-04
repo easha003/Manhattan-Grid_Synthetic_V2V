@@ -53,9 +53,52 @@ def test_edge_geometry_and_headings_are_consistent() -> None:
 
     start = edge.position_at(0.0)
     end = edge.position_at(edge.length_m)
-    assert start == pytest.approx((244.0, 305.0))
+    # Traffic keeps right, so a northbound lane sits east of the centreline.
+    assert start == pytest.approx((244.0 + 1.75, 305.0))
     assert end[0] == pytest.approx(start[0])
     assert end[1] - start[1] == pytest.approx(61.0)
+
+
+def test_opposing_carriageways_are_laterally_separated() -> None:
+    """Regression on work plan section 4.6.3.
+
+    Both directions used to share one centreline, so northbound and southbound
+    vehicles occupied the same line: they passed through one another, and an
+    oncoming vehicle sat exactly on the optical path between a tagged pair.
+    That single defect produced 94% of all measured V-VLC blockage.
+    """
+
+    network = GridNetwork()
+    northbound = network.edge("B5B6")
+    southbound = network.edge("B6B5")
+
+    assert northbound.direction is Direction.NORTH
+    assert southbound.direction is Direction.SOUTH
+
+    # Sample both lanes at the same point along the street.
+    north_point = northbound.position_at(30.0)
+    south_point = southbound.position_at(61.0 - 30.0)
+
+    assert north_point[1] == pytest.approx(south_point[1])
+    separation = abs(north_point[0] - south_point[0])
+    assert separation == pytest.approx(2 * 1.75)
+    assert separation > 1.8, "opposing lanes must clear a vehicle width"
+
+
+def test_wider_lanes_push_the_carriageways_further_apart() -> None:
+    narrow = GridNetwork(GridNetworkSpec(lane_width_m=3.0))
+    wide = GridNetwork(GridNetworkSpec(lane_width_m=4.0))
+
+    assert narrow.spec.carriageway_offset_m == pytest.approx(1.5)
+    assert wide.spec.carriageway_offset_m == pytest.approx(2.0)
+    assert wide.edge("B5B6").position_at(0.0)[0] > narrow.edge("B5B6").position_at(0.0)[0]
+
+
+def test_a_carriageway_wider_than_the_block_is_rejected() -> None:
+    """Cross streets are 61 m apart; enough lanes leave no street left."""
+
+    with pytest.raises(ValueError, match="carriageways are wider than the block"):
+        GridNetworkSpec(lanes_per_direction=20)
 
 
 def test_turns_resolve_correctly_and_exclude_u_turns() -> None:

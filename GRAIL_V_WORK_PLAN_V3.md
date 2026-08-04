@@ -581,20 +581,48 @@ a headlamp-to-photodiode path running along the transmitter's own lane.
 **Consequences.**
 
 1. §4.6.1, §4.6.2 and §14.1's worked numbers are all built on the artefact.
-2. The fix — offsetting each direction by half a lane width — changes
-   trajectories, so all 21 traces regenerate and the config hash changes. This
-   is the third mobility retune, and exactly the case risk R4b anticipated.
-3. **The research question needs re-examination before the fix is worth
-   making.** At ≈98% availability V-VLC is no longer intermittent, and the
-   selective-duplication trade-off RQ2 rests on becomes thin. Note the two
-   regimes already observed: non-adjacent pairs blocked 97–100% of the time,
-   adjacent pairs with correct geometry blocked ≈2%. Neither is the
-   intermittent middle the contribution assumes, and no amount of fixing
-   produces one from a straight single-lane grid. That is a scope question, not
-   a bug.
-4. Not all bad: at 98% availability the hybrid relaxes the RF requirement by
-   ≈33× rather than the 4.5–8.4× of §14.1, which makes the \(10^{-5}\) frontier
-   substantially more reachable.
+2. The fix changes trajectories, so all 21 traces regenerate and the config
+   hash moves from `5e42a2ba` to `92bf9cb5`. This is the third mobility retune
+   and exactly the case risk R4b anticipated.
+
+**The fix, and what it revealed.** `GridNetworkSpec` now carries
+`lane_width_m`, and each direction runs `carriageway_offset_m` to the right of
+the street centreline, so opposing lanes are 3.5 m apart. Measured on a fresh
+\(\rho_L=20\) trace:
+
+| | Shared centreline | Separated carriageways |
+|---|---:|---:|
+| Closest opposing approach | 0.000 m | **3.500 m** |
+| Blockers that are cross-traffic | 5.1% | **73.8%** |
+| Blockers that are oncoming | 93.9% | 6.6% |
+| Optical path blocked | 27.1% | **1.58%** |
+| Out of field of view | 1.3% | 1.01% |
+| **V-VLC available** | 72.9% | **97.95%** |
+
+**The junction signal is far stronger than the contaminated measurement
+suggested:**
+
+| Path position | Instants | V-VLC unavailable |
+|---|---:|---:|
+| Spans a junction | 1,651 | **27.01%** |
+| Mid-block | 24,690 | **0.38%** |
+| **Lift** | | **71.7×** |
+
+Mid-block is essentially clean. Blockage is now almost entirely explained by a
+single, observable, predictable condition.
+
+**What this does to the four conditions of §4.6.4.** Condition C
+(predictability) is far better than assumed: a 71.7× lift on a feature derived
+from own pose and a map is close to an oracle. Condition A (intermittency) is
+weak in the aggregate at 98% availability, but is **not** weak conditionally —
+the policy faces a genuine 27% risk whenever it spans a junction, roughly 6% of
+the time. That is precisely the state-dependent structure the contribution
+wants: use one link mid-block, duplicate at junctions, and beat Always-DUP on
+cost while holding reliability. Condition D remains the open one and still
+needs M4.
+
+The hybrid also relaxes the RF requirement by ≈49× at this availability rather
+than the 4.5–8.4× of §14.1, which helps the \(10^{-5}\) frontier.
 
 ### 4.7 Declared assumptions and known limitations
 

@@ -28,6 +28,11 @@ from functools import cached_property
 #: Turn names, matching the configured turn-probability fields.
 TurnName = str
 
+#: Conventional urban lane width in metres.  Owned here rather than in the
+#: geometry layer because it changes vehicle positions and is therefore part of
+#: the road model, not an interpretation of it.
+LANE_WIDTH_M = 3.5
+
 
 class Direction(Enum):
     """Travel direction of a one-way directed edge."""
@@ -88,6 +93,7 @@ class GridNetworkSpec:
     avenue_spacing_m: float = 244.0
     cross_street_spacing_m: float = 61.0
     lanes_per_direction: int = 1
+    lane_width_m: float = LANE_WIDTH_M
     speed_limit_mps: float = 11.18
 
     def __post_init__(self) -> None:
@@ -99,8 +105,28 @@ class GridNetworkSpec:
             raise ValueError("grid spacings must be positive")
         if self.lanes_per_direction < 1:
             raise ValueError("lanes_per_direction must be at least one")
+        if self.lane_width_m <= 0.0:
+            raise ValueError("lane_width_m must be positive")
         if self.speed_limit_mps <= 0.0:
             raise ValueError("speed_limit_mps must be positive")
+        if self.carriageway_offset_m >= 0.5 * min(
+            self.avenue_spacing_m, self.cross_street_spacing_m
+        ):
+            raise ValueError("carriageways are wider than the block they separate")
+
+    @property
+    def carriageway_offset_m(self) -> float:
+        """Lateral distance from a street centreline to a travel lane's centre.
+
+        Traffic keeps right, so each direction runs this far to the right of
+        the centreline and the two opposing lanes are ``2 *
+        carriageway_offset_m`` apart.  Without this offset both directions
+        would share one line: vehicles would pass through one another, and an
+        oncoming vehicle would sit exactly on the optical path between a tagged
+        pair, which is the defect recorded in work plan section 4.6.3.
+        """
+
+        return 0.5 * self.lanes_per_direction * self.lane_width_m
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,10 +152,19 @@ class GridEdge:
     length_m: float
     start_x_m: float
     start_y_m: float
+    carriageway_offset_m: float = 0.0
+    """Lateral shift to the right of the street centreline; see the spec."""
 
     @property
     def heading_rad(self) -> float:
         return self.direction.heading_rad
+
+    @property
+    def right_unit(self) -> tuple[float, float]:
+        """Unit vector 90 degrees clockwise from the heading."""
+
+        heading = self.heading_rad
+        return (math.sin(heading), -math.cos(heading))
 
     def lane_id(self, lane_index: int = 0) -> str:
         """SUMO-style lane identifier."""
@@ -137,12 +172,18 @@ class GridEdge:
         return f"{self.edge_id}_{lane_index}"
 
     def position_at(self, offset_m: float) -> tuple[float, float]:
-        """Cartesian position ``offset_m`` along this edge from its start."""
+        """Cartesian position ``offset_m`` along this edge from its start.
+
+        The returned point is on this direction's travel lane, offset to the
+        right of the street centreline, not on the centreline itself.  Opposing
+        edges therefore never overlap.
+        """
 
         heading = self.heading_rad
+        right_x, right_y = self.right_unit
         return (
-            self.start_x_m + offset_m * math.cos(heading),
-            self.start_y_m + offset_m * math.sin(heading),
+            self.start_x_m + offset_m * math.cos(heading) + self.carriageway_offset_m * right_x,
+            self.start_y_m + offset_m * math.sin(heading) + self.carriageway_offset_m * right_y,
         )
 
 
@@ -203,6 +244,7 @@ class GridNetwork:
                     length_m=length,
                     start_x_m=node.x_m,
                     start_y_m=node.y_m,
+                    carriageway_offset_m=spec.carriageway_offset_m,
                 )
                 self._edges[edge.edge_id] = edge
                 self._outgoing[node.junction_id].append(edge)

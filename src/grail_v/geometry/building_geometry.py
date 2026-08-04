@@ -6,13 +6,11 @@ rectangle is left between four surrounding street centrelines once the
 carriageway is taken out.  Nothing here needs to be fitted or downloaded, and a
 link around a corner is obstructed by construction.
 
-**Road width is introduced here.**  ``GridConfig`` carries lane *count* but no
-lane width, and both travel directions share a single centreline in
-``mobility/grid_network.py``, so the roadway has no extent until this module
-gives it one.  The default is ``lanes_per_direction`` lanes of
-:data:`LANE_WIDTH_M` on each side of the centreline, which for the headline
-single-lane grid insets each block by 3.5 m per edge and leaves 237 x 54 m
-blocks inside the 244 x 61 m street pitch.
+**Road width comes from the road model.**  ``GridConfig.lane_width_m`` sets it,
+because lane width moves vehicles and so belongs to mobility rather than to an
+interpretation applied afterwards.  A block is inset by ``lanes_per_direction``
+lanes on each side of the centreline, which for the headline single-lane grid
+leaves 237 x 54 m blocks inside the 244 x 61 m street pitch.
 
 **Buildings are opaque at every link height.**  No height is modelled because
 every plausible building exceeds both the 1.5 m antenna path and the 0.7 m
@@ -26,9 +24,12 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from grail_v.geometry.primitives import OrientedRectangle, Point
+from grail_v.mobility.grid_network import LANE_WIDTH_M as _LANE_WIDTH_M
 
-#: Urban lane width in metres.  A conventional value, not a measured one.
-LANE_WIDTH_M = 3.5
+#: Re-exported from the road model, which owns it: lane width moves vehicles,
+#: so it is part of the mobility configuration rather than an interpretation
+#: applied afterwards.
+LANE_WIDTH_M = _LANE_WIDTH_M
 
 #: Buildings are axis-aligned, so every rectangle is built on this heading and
 #: ``length_m`` runs east while ``width_m`` runs north.
