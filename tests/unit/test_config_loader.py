@@ -136,6 +136,39 @@ def test_secondary_ultra_reliability_layers_form_valid_configuration() -> None:
     assert config.evaluation.min_packets_per_policy_density == 10_000_000
 
 
+def test_concentrated_receiver_layer_narrows_the_frontier_field_of_view() -> None:
+    """The 10^-5 frontier runs a 30 deg semi-angle; the headline stays at 60.
+
+    ``receiver_fov_deg`` is the receiver semi-angle.  Narrowing it raises
+    concentrator gain as ``n^2/sin^2(psi_c)``, worth about 10 dB of electrical
+    SNR, which is the headroom the ultra-reliability target needs.  Pinning
+    both values here keeps the layer from silently going unused and keeps the
+    headline from drifting onto the optimistic front end.
+    """
+
+    config_root = PROJECT_ROOT / "configs"
+    layers = list(headline_config_layers(PROJECT_ROOT))
+    layers[2] = config_root / "service" / "ev2x_300B_3ms_1e-5.yaml"
+    layers.insert(
+        layers.index(config_root / "channel" / "vlc_vehicle.yaml") + 1,
+        config_root / "channel" / "vlc_vehicle_concentrated.yaml",
+    )
+    layers.insert(-1, config_root / "training" / "primal_dual_ppo_ultra.yaml")
+    layers[-1] = config_root / "evaluation" / "ultra_reliability.yaml"
+
+    frontier = load_config(layers, project_root=PROJECT_ROOT)
+    headline = load_headline_config(PROJECT_ROOT)
+
+    assert frontier.vlc.receiver_fov_deg == pytest.approx(30.0)
+    assert headline.vlc.receiver_fov_deg == pytest.approx(60.0)
+    assert frontier.service.miss_budget == pytest.approx(1e-5)
+    # The override touches the receiver only; the rest of the optical front
+    # end must be identical, or the sensitivity would confound two changes.
+    assert frontier.vlc.electrical_bandwidth_hz == headline.vlc.electrical_bandwidth_hz
+    assert frontier.vlc.modulation == headline.vlc.modulation
+    assert frontier.vlc.timing == headline.vlc.timing
+
+
 def test_shortened_deadline_is_rejected_by_the_channel_layers(tmp_path: Path) -> None:
     """Channel timing targets 3 ms; a tighter deadline must fail, not silently pass.
 

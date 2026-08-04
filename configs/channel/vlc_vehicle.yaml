@@ -9,6 +9,33 @@ vlc:
   pulse_roll_off: 0.3
   headlamp_pattern: "measured_non_lambertian"
   pattern_artifact: "artifacts/calibration/vlc/headlamp-v1"
+  # Receiver *semi-angle* psi_c, not a full cone: the photodiode accepts light
+  # arriving up to 60 deg off its boresight, for a total opening of 120 deg.
+  # This follows the Kahn-Barry optical front end the Lambertian and
+  # non-Lambertian treatment here is built on, where the concentrator admits
+  # 0 <= psi <= psi_c.  Geometry applies the interpretation in exactly one
+  # place, grail_v/geometry/pair_geometry.py.
+  #
+  # 60 deg is the deliberately pessimistic choice, and it is pessimistic for
+  # V-VLC rather than against it.  Concentrator gain goes as n^2/sin^2(psi_c),
+  # so a wider cone collects *less* signal: 1.33 n^2 here against 4 n^2 at
+  # 30 deg, a 4.8 dB optical penalty.  Background collection barely
+  # compensates, since it goes as 2*pi*n^2/(1 + cos psi_c) and differs by only
+  # 1.24x between the two.  Net electrical SNR is roughly 10 dB worse at
+  # 60 deg.  The headline therefore claims a weaker optical front end than a
+  # well-designed receiver would deliver, so the hybrid result gets stronger
+  # under scrutiny rather than weaker.
+  #
+  # The exploratory 10^-5 reliability frontier uses 30 deg instead, in
+  # configs/channel/vlc_vehicle_concentrated.yaml.  That is where the extra
+  # ~10 dB is wanted, and reporting it as a sensitivity turns a convention
+  # ambiguity into a result.
+  #
+  # Whatever value is in force, M4 must use the same psi_c in the concentrator
+  # gain as the acceptance test uses.  A wide cone for availability combined
+  # with narrow-cone gain in the link budget counts the same physics twice.
+  #
+  # Still unsourced; see work plan section 4.7 item 6 and section 20.
   receiver_fov_deg: 60.0
   ambient_condition: "clear_night"
   complete_blockage_main: true
