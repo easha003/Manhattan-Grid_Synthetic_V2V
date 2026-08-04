@@ -1049,7 +1049,54 @@ all three densities clear 2% comfortably.
 - analytical collision model scoped, with sensitivity bands declared;
 - VLC model validated against empirical/non-Lambertian evidence;
 - LOS/NLOSv/NLOS and optical occlusion unit tests pass;
-- residual-NLOS and ambient-light sensitivities defined.
+- residual-NLOS and ambient-light sensitivities defined;
+- **clear-path VLC PER measured against separation at both receiver
+  semi-angles** (§14.1), which decides whether the concentrated front end is
+  load-bearing or redundant.
+
+#### 14.1 The reliability floor and what the optical front end can move
+
+Worth computing before any training, because it bounds what the hybrid can
+deliver and is answerable from link budgets alone.
+
+Under duplication a miss requires both legs to fail, so the hybrid relaxes the
+RF single-shot requirement by a factor \(1/P(\text{VLC fails})\), where
+
+\[
+P(\text{VLC fails}) = P_\text{out} + (1 - P_\text{out})\,\text{PER}_\text{clear}
+\]
+
+and \(P_\text{out}\) is the geometric outage measured in §4.6.1: 11.9%, 22.2%
+and 16.1% at \(\rho_L = 10, 20, 30\).
+
+**Geometry sets a floor the optics cannot cross.** No concentrator gain reaches
+a blocked path, so the hybrid's benefit is capped at \(1/P_\text{out}\) —
+between 4.5× and 8.4× depending on density. Reliability at \(10^{-5}\) is
+therefore primarily an **RF** requirement; V-VLC's role is to cover the ~80% of
+instants where its path is clear.
+
+**Within that cap the optical front end matters a great deal.** At
+\(\rho_L=10\):
+
+| \(\text{PER}_\text{clear}\) | Relaxation | RF BLER needed for \(10^{-5}\) |
+|---|---:|---:|
+| 0.5 — marginal link | 1.8× | \(1.8\times10^{-5}\) |
+| 0.05 | 6.1× | \(6.1\times10^{-5}\) |
+| \(\approx 0\) — strong link | 8.4× | \(8.4\times10^{-5}\) |
+
+So roughly **4.7× of RF headroom** turns on where \(\text{PER}_\text{clear}\)
+sits, which can decide whether the \(10^{-5}\) frontier is reachable at all.
+Optical power falls as \(1/d^2\) and the separation window runs to 40 m, so the
+60° receiver may sit on its PER waterfall at the long end — precisely where
+blockage is also highest. If \(\text{PER}_\text{clear}\) is already negligible
+at 40 m with 60°, `vlc_vehicle_concentrated.yaml` is redundant and the headline
+value is simply correct.
+
+**These figures assume RF and VLC failures are independent, which is
+optimistic.** A queue at a junction produces a high channel-busy ratio and
+cross-traffic in the optical path at the same time. Any positive correlation
+raises the floor, which is what Gate 3's joint-failure characterisation exists
+to detect.
 
 ### Gate 3 — Hybrid feasibility — **hard stop**
 
@@ -1298,15 +1345,19 @@ no shared lineage.
 3. **Source the receiver field of view** (§4.7 item 6), and confirm the
    semi-angle reading of `receiver_fov_deg`. W18 may settle both this and the
    headlamp pattern. Until then the headline holds the pessimistic 60° and the
-   frontier reports 30° as a declared, optimistic sensitivity. Whichever value
-   is in force, M4 must use the same \(\psi_c\) in the concentrator gain
-   \(n^2/\sin^2\psi_c\) as the acceptance test uses; a wide cone for
-   availability combined with narrow-cone gain would count the same physics
-   twice.
-4. **Obtain W18** before Gate 2 needs it for VLC validation.
-5. Decide whether to tighten the density tolerance to 2% (§14 Gate 1).
-6. Review the \(10^{-5}\) curriculum split (§11.3).
-7. Consider whether multi-lane roads are worth the cost (§4.7 item 3). They are
+   frontier reports 30° as a sensitivity. Whichever value is in force, M4 must
+   use the same \(\psi_c\) in the concentrator gain \(n^2/\sin^2\psi_c\) as the
+   acceptance test uses; a wide cone for availability combined with narrow-cone
+   gain would count the same physics twice.
+4. **Measure clear-path VLC PER against separation at both semi-angles** as
+   soon as M4's link budget exists (§14.1). It decides whether the concentrated
+   receiver is load-bearing or redundant, and it is worth up to 4.7× of RF
+   single-shot BLER headroom on the \(10^{-5}\) frontier. Answerable from link
+   budgets alone, before any training.
+5. **Obtain W18** before Gate 2 needs it for VLC validation.
+6. Decide whether to tighten the density tolerance to 2% (§14 Gate 1).
+7. Review the \(10^{-5}\) curriculum split (§11.3).
+8. Consider whether multi-lane roads are worth the cost (§4.7 item 3). They are
    *not* required for the current result — blockage comes from junction
    cross-traffic, which single-lane already provides — but they would answer the
    standardisation request and make the geometry closer to a real avenue.
