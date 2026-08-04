@@ -1123,6 +1123,20 @@ link-dependent measurements and feature ages; and sampled packet outcomes.
 Every run is keyed by configuration hash, mobility-trace hash, channel
 calibration version, code commit, policy seed, and evaluation scenario seed.
 
+**The code commit is recorded, and `code_version` is not a substitute.** Every
+manifest carries `code_commit` (`src/grail_v/core/provenance.py`), suffixed
+`-dirty` when the producing tree had uncommitted changes, because an artifact
+built from modified code cannot be reproduced from a commit alone and recording
+the clean hash would assert a reproducibility that does not hold. `None`
+appears only outside a checkout. This was added on 2026-08-04 after the gap was
+found: manifests recorded `code_version`, which is the package version and
+moves on a release, so the mobility engine could change twice in a day — as it
+did, at §4.6.3 and §4.6.5 — while two traces still agreed on `config_hash` and
+`code_version` and came from materially different simulators. The nine traces
+generated that day carry the field backfilled to `d165358`, with a note saying
+so; no file under `src/` differs between that commit and the next, so the value
+is certain rather than inferred.
+
 **What the configuration hash covers.** `config_hash` digests the physics-
 bearing configuration only. Paths listed in `HASH_EXCLUDED_PATHS`
 (`src/grail_v/config/hashing.py`) are omitted because changing them cannot

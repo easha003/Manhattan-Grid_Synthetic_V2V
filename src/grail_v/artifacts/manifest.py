@@ -74,6 +74,12 @@ class ArtifactManifest(ManifestModel):
     created_at_utc: AwareDatetime
     config_hash: NonEmptyString
     code_version: NonEmptyString
+    #: Git commit the producing code came from, ``-dirty`` when the tree was
+    #: modified.  ``None`` only when the artifact was built outside a checkout.
+    #: ``code_version`` alone is insufficient: it is the package version and
+    #: moves on a release, so it cannot distinguish two engines that differ by
+    #: a day's commits.  Work plan §11.2.
+    code_commit: str | None = None
     input_artifacts: list[ArtifactReference] = Field(default_factory=list)
     random_seeds: dict[str, Seed] = Field(default_factory=dict)
     software_versions: dict[str, str] = Field(default_factory=dict)

@@ -650,6 +650,58 @@ training rather than discovered during it.
 
 ---
 
+## D13 — Artifacts record the producing commit, and archives keep provenance without bulk
+
+4 Aug · work plan §11.2 ·
+[`src/grail_v/core/provenance.py`](../src/grail_v/core/provenance.py)
+
+**The gap.** §11.2 required every run to be keyed by, among other things, the
+**code commit**. Manifests recorded `code_version`, which is the package
+version string and moves only on a release. So two traces could agree on
+`config_hash` *and* `code_version` and still come from materially different
+simulators — which is not hypothetical: the mobility engine changed twice on
+2026-08-04 (D9, D11) under an unchanged `0.1.0`. Found while auditing disk
+usage, not by a test.
+
+**The fix.** `ArtifactStore.create` stamps `code_commit` on every artifact, so
+traces, calibrations and checkpoints all get it from one place. Two design
+choices worth keeping:
+
+* A modified tree is recorded as `<sha>-dirty`. An artifact built from
+  uncommitted code cannot be reproduced from the commit, and recording the
+  clean hash would assert a reproducibility that does not hold. Untracked files
+  count, because a new module changes behaviour.
+* Outside a checkout the field is `None` rather than a guess. Absent provenance
+  is honest; invented provenance is not.
+
+The nine D12 traces were backfilled to `d165358` with a note recording that it
+was done retrospectively. The value is certain rather than inferred: generation
+ran between `d165358` and `7801ac5`, and no file under `src/` differs between
+them. All nine still verify, because the manifest is written last and excluded
+from its own digest list.
+
+**Why this matters at M7.** The top-up regeneration will add 12 traces beside
+these nine. The check that they belong to the same campaign is
+`config_hash` **and** `code_commit`; without the second, a silent engine change
+would produce a mixed store that nothing could detect.
+
+**Archive policy, settled while cleaning up.** `vehicles/` is 99.6% of an
+archived trace (279 MB against ~1 MB for everything else). Deleting it from the
+three superseded campaigns freed 6.5 GB and left every manifest, resolved
+config, route table, extracted pair set and archive note — 31 MB total. What is
+lost is the ability to re-run *geometry* on superseded traces, which is
+acceptable because their measurements are already recorded and marked
+superseded. **The rule: archives keep provenance, not bulk.**
+
+**Git history is deliberately not rewritten.** `.git` holds 1.08 GB of parquet
+committed in `91b588e` before the ignore rules covered archives. `git gc` packs
+it but cannot prune it, since the blobs are reachable. Removing them needs a
+history rewrite, which would invalidate every commit hash cited in this file
+*and* the `code_commit` values just written into nine trace manifests. The
+1.08 GB stays; provenance is worth more than the disk.
+
+---
+
 ## Known stale, as of 4 August 2026
 
 1. **The 21 published traces** carry `5e42a2ba` and pre-D9 physics. Archived
