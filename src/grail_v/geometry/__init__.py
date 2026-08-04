@@ -20,6 +20,7 @@ from grail_v.geometry.primitives import (
     vehicle_rectangle,
 )
 from grail_v.geometry.rf_visibility import RFVisibility, classify_pair, classify_path
+from grail_v.geometry.spatial_index import SpatialIndex
 from grail_v.geometry.vehicle_occlusion import Occlusion, is_obstructed, occluding_vehicles
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "Point",
     "RFVisibility",
     "Segment",
+    "SpatialIndex",
     "VehicleFootprintSource",
     "classify_pair",
     "classify_path",
