@@ -27,9 +27,13 @@ vlc:
   # under scrutiny rather than weaker.
   #
   # The exploratory 10^-5 reliability frontier uses 30 deg instead, in
-  # configs/channel/vlc_vehicle_concentrated.yaml.  That is where the extra
-  # ~10 dB is wanted, and reporting it as a sensitivity turns a convention
-  # ambiguity into a result.
+  # configs/channel/vlc_vehicle_concentrated.yaml, and reporting it as a
+  # sensitivity turns a convention ambiguity into a result.  The extra ~10 dB
+  # does not lower the reliability floor -- geometric outage sets that, and no
+  # optical gain reaches a blocked path -- but it does decide how close the
+  # link gets to that floor, which is worth up to 4.7x of RF single-shot BLER
+  # headroom.  Whether it is worth 1.1x or 4.7x depends on the clear-path PER
+  # at long separation, which is a Gate-2 measurement.
   #
   # Whatever value is in force, M4 must use the same psi_c in the concentrator
   # gain as the acceptance test uses.  A wide cone for availability combined
