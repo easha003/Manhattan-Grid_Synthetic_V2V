@@ -11,6 +11,13 @@ import math
 
 import pytest
 
+from grail_v.geometry.primitives import (
+    OrientedRectangle,
+    Segment,
+    segment_intersects_rectangle,
+    vehicle_rectangle,
+)
+from grail_v.geometry.spatial_index import SpatialIndex
 from grail_v.mobility.car_following import (
     IDMParameters,
     acceleration_mps2,
@@ -250,9 +257,14 @@ def test_different_seeds_diverge() -> None:
 
 
 def test_no_two_vehicles_overlap_on_the_same_edge() -> None:
-    """SUMO logged 347 junction collisions under --collision.action warn, which
-    recorded overlapping vehicles. Overlapping footprints make the occlusion
-    geometry unphysical, so the analytic model must never produce them."""
+    """Car following must never let a vehicle drive into the one ahead.
+
+    SUMO logged 347 junction collisions under --collision.action warn, which
+    recorded overlapping vehicles. This is the *in-lane* half of the invariant,
+    checked in edge-local coordinates because that is the arithmetic
+    `car_following.py` actually performs. The general statement lives in
+    :func:`test_no_two_vehicle_footprints_overlap_anywhere`.
+    """
 
     simulator, spec = _run(density=60.0, duration=5.0, warmup=30.0)
 
@@ -266,6 +278,143 @@ def test_no_two_vehicles_overlap_on_the_same_edge() -> None:
             occupants.sort()
             for (back, _), (front, front_length) in zip(occupants, occupants[1:], strict=False):
                 assert front - back >= front_length - 1e-6, "vehicle footprints overlap"
+
+
+def _rectangle_edges(rectangle: OrientedRectangle) -> tuple[Segment, ...]:
+    corners = rectangle.corners()
+    return tuple(
+        Segment(corners[index], corners[(index + 1) % len(corners)])
+        for index in range(len(corners))
+    )
+
+
+def _footprints_overlap(a: OrientedRectangle, b: OrientedRectangle) -> bool:
+    """Exact overlap test for two convex rectangles.
+
+    Two convex bodies overlap iff an edge of one meets the other. Both
+    directions are checked so that full containment — a short body sitting
+    wholly inside a bus, where no edges cross — is caught as well.
+    """
+
+    return any(
+        segment_intersects_rectangle(edge, other)
+        for first, other in ((a, b), (b, a))
+        for edge in _rectangle_edges(first)
+    )
+
+
+#: Declared residual tolerance for footprint overlap; work plan section 4.7
+#: item 7 records how it was reached.  Junction arbitration removed 99.9% of the
+#: overlaps the shared-centreline and point-junction models produced; what
+#: remains is a rare same-step race between two crossings, bounded in rate and
+#: in depth.  Zero is the intent, not the achievement, so the achievement is
+#: asserted rather than assumed.
+#:
+#: Measured over 100 frames at the production 300 s warm-up: 0.00, 0.01 and
+#: 0.02 pairs per frame at 10, 20 and 30 veh/lane-km, deepest 0.42 m.  The rate
+#: bound carries headroom over that because a 20-frame window is noisy; the
+#: depth bound does not, because depth is not a sampling artefact.
+MAX_OVERLAPS_PER_FRAME = 0.10
+MAX_PENETRATION_M = 0.5
+
+
+def _penetration_depth_m(a: OrientedRectangle, b: OrientedRectangle) -> float:
+    """Minimum translation distance separating two overlapping rectangles."""
+
+    deepest = math.inf
+    for rectangle in (a, b):
+        for axis_rad in (rectangle.heading_rad, rectangle.heading_rad + 0.5 * math.pi):
+            unit_x, unit_y = math.cos(axis_rad), math.sin(axis_rad)
+            spans = []
+            for target in (a, b):
+                projected = [c.x_m * unit_x + c.y_m * unit_y for c in target.corners()]
+                spans.append((min(projected), max(projected)))
+            (low_a, high_a), (low_b, high_b) = spans
+            gap = min(high_a, high_b) - max(low_a, low_b)
+            if gap <= 0.0:
+                return 0.0
+            deepest = min(deepest, gap)
+    return deepest
+
+
+def _overlapping_pairs(simulator, spec) -> tuple[int, int, float]:
+    """Return ``(frames, overlapping_pairs, deepest_penetration_m)``."""
+
+    def circumscribed_radius(record) -> float:
+        return 0.5 * math.hypot(record.length_m, record.width_m)
+
+    frames = pairs = 0
+    deepest = 0.0
+    for time_s, vehicles in simulator.run(spec):
+        records = list(simulator.vehicle_records(spec, time_s, vehicles))
+        index = SpatialIndex.build(records)
+        rectangles = {record.vehicle_id: vehicle_rectangle(record) for record in records}
+        widest = max(circumscribed_radius(record) for record in records)
+
+        seen: set[tuple[str, ...]] = set()
+        for record in records:
+            centre = rectangles[record.vehicle_id].centre
+            # A body overlapping this one must share a point within its own
+            # circumscribed radius of this centre, so it is bucketed in a cell
+            # the query below reaches. The extra `widest` is slack, not need.
+            reach = circumscribed_radius(record) + widest
+            for other in index.candidates(Segment(centre, centre), margin_m=reach):
+                if other.vehicle_id == record.vehicle_id:
+                    continue
+                key = tuple(sorted((record.vehicle_id, other.vehicle_id)))
+                if key in seen:
+                    continue
+                seen.add(key)
+                first, second = rectangles[key[0]], rectangles[key[1]]
+                if _footprints_overlap(first, second):
+                    pairs += 1
+                    deepest = max(deepest, _penetration_depth_m(first, second))
+        frames += 1
+
+    return frames, pairs, deepest
+
+
+@pytest.mark.parametrize("density", [10.0, 20.0, 30.0])
+def test_vehicle_footprints_barely_overlap_at_generated_densities(density: float) -> None:
+    """Work plan section 16.3, in world coordinates and over *all* pairs.
+
+    The same-edge test above compares vehicles sharing an ``edge_id``, and a
+    street's two directions carry different ids, ``E7F7`` against ``F7E7``, so
+    an opposing pair was never a candidate. Under the shared centreline of work
+    plan section 4.6.3 that let roughly 74 pairs per frame occupy the same
+    ground, head to head, while every mobility test passed.
+
+    This assertion makes no assumption about lanes, headings or edge identity:
+    it asks only whether any body is inside any other, so it keeps holding when
+    those change. A wider vehicle class, a narrower lane, a second lane per
+    direction with the offset miscomputed, or lane changing would each dissolve
+    the current clearance margin silently.
+
+    It runs at the densities traces are actually generated at. Above 30
+    veh/lane-km the model is past capacity and measures queueing rather than
+    communication (section 4.5.1), so its junction behaviour there does not
+    reach a recorded frame.
+
+    Deliberately uses the geometry engine rather than reimplementing the
+    predicate, since geometry is the consumer an overlap actually breaks.
+    """
+
+    # The production warm-up, because the residual is sensitive to how settled
+    # the network is: at 120 s it is several times higher than at the 300 s
+    # traces are generated with, so a cheaper warm-up would measure a regime
+    # that never reaches a trace.
+    simulator, spec = _run(density=density, duration=1.0, warmup=300.0)
+    frames, pairs, deepest = _overlapping_pairs(simulator, spec)
+
+    assert frames > 0, "the run produced no frames to check"
+    assert pairs <= MAX_OVERLAPS_PER_FRAME * frames, (
+        f"{pairs} overlapping pairs over {frames} frames at rho={density:g} "
+        f"exceeds the declared bound of {MAX_OVERLAPS_PER_FRAME}/frame"
+    )
+    assert deepest < MAX_PENETRATION_M, (
+        f"deepest penetration {deepest:.3f} m at rho={density:g} exceeds "
+        f"the declared bound of {MAX_PENETRATION_M} m"
+    )
 
 
 def test_vehicles_queue_near_intersections() -> None:

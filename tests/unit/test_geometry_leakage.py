@@ -2,8 +2,8 @@
 
 Everything the geometry engine computes is *hidden simulator state*.  It exists
 to generate outcomes and to answer oracle questions.  The learned and
-deterministic policies see a noisy, aged reconstruction built in M5, never
-these objects.
+deterministic policies see a noisy, aged reconstruction — the sensor tracks and
+blockage forecast that complete M2 in week 7 — never these objects.
 
 Three separate guards, because they fail in different ways:
 
@@ -114,7 +114,7 @@ def test_the_forbidden_list_covers_what_the_geometry_engine_produces() -> None:
 
 
 def test_no_observation_module_imports_the_geometry_engine() -> None:
-    """M5 builds observations from noisy tracks, never from exact geometry.
+    """Week 7 builds observations from noisy tracks, never from exact geometry.
 
     The observation package is still empty; this guard is installed before it
     is written so the first module cannot take the shortcut.

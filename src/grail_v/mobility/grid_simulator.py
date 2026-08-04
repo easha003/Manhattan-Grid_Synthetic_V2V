@@ -26,8 +26,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from grail_v.core.errors import GrailVError
-from grail_v.mobility.car_following import IDMParameters, acceleration_mps2, integrate
-from grail_v.mobility.grid_network import GridEdge, GridNetwork
+from grail_v.mobility.car_following import (
+    IDMParameters,
+    acceleration_mps2,
+    integrate,
+    stop_line_gap,
+)
+from grail_v.mobility.grid_network import _TURNS, Direction, GridEdge, GridNetwork
 from grail_v.mobility.grid_signals import SignalController
 from grail_v.mobility.trace_io import SignalStateRecord, VehicleTraceRecord
 from grail_v.mobility.vehicle_types import (
@@ -38,6 +43,60 @@ from grail_v.mobility.vehicle_types import (
 
 #: Maximum edges sampled for one vehicle route before forcing an exit.
 MAX_ROUTE_EDGES = 200
+
+
+#: Slack left by the following-distance clamp, so bodies stop just short of
+#: touching rather than exactly at contact, which the occlusion geometry
+#: counts as an intersection.
+_CONTACT_EPS_M = 1e-6
+
+#: One junction movement, as the ``(approach, exit)`` direction pair it traces.
+_Movement = tuple[Direction, Direction]
+
+_OPPOSITE: dict[Direction, Direction] = {
+    Direction.NORTH: Direction.SOUTH,
+    Direction.SOUTH: Direction.NORTH,
+    Direction.EAST: Direction.WEST,
+    Direction.WEST: Direction.EAST,
+}
+
+
+def _movements_conflict(a: _Movement, b: _Movement) -> bool:
+    """Do two paths through a junction box cross one another?
+
+    Deliberately conservative, because a false "compatible" produces
+    overlapping bodies while a false "conflicting" only costs throughput. Two
+    movements are compatible **only** when they approach from opposite
+    directions and neither turns left:
+
+    * opposing straight traffic runs on separate carriageways and never meets;
+    * an unprotected left turn crosses the opposing lane;
+    * anything perpendicular crosses by construction;
+    * two vehicles from the *same* approach share one lane, so the follower
+      must wait for the leader's tail to clear the box even though their paths
+      never cross.
+    """
+
+    (from_a, to_a), (from_b, to_b) = a, b
+    if from_a is not _OPPOSITE[from_b]:
+        return True
+    return _TURNS[from_a]["left"] is to_a or _TURNS[from_b]["left"] is to_b
+
+
+def _release_reservation(
+    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, _Movement]]]
+) -> None:
+    """Drop this vehicle's junction claim, if it holds one."""
+
+    junction = vehicle.reserved_junction
+    if junction is None:
+        return
+    holders = reservations.get(junction)
+    if holders is not None:
+        reservations[junction] = [
+            entry for entry in holders if entry[0] != vehicle.vehicle_id
+        ]
+    vehicle.reserved_junction = None
 
 
 class MobilityModelError(GrailVError):
@@ -99,6 +158,10 @@ class _Vehicle:
     offset_m: float
     speed_mps: float
     acceleration_mps2: float = 0.0
+    #: Junction this vehicle currently holds the right to cross, if any.  Held
+    #: from before the braking point until the tail clears the box, so the
+    #: decision cannot flip while the vehicle is too close to stop.
+    reserved_junction: str | None = None
 
     @property
     def edge(self) -> GridEdge:
@@ -148,6 +211,17 @@ class GridMobilitySimulator:
         self.distribution = vehicle_distribution or headline_vehicle_distribution()
         self.spec_turns: dict[str, float] = TurnProbabilities().as_mapping()
 
+        # Reach of the junction box along an approach, measured from the
+        # junction centre.  It is *not* the carriageway offset alone: the
+        # crossing street's outermost lane edge sits that far out plus half a
+        # vehicle width, so a stop line set at the offset still leaves the
+        # front bumper standing inside the crossing lane.  With 3.5 m lanes and
+        # a 2.5 m bus that is 1.75 + 1.25 = 3.0 m.
+        widest_half_width_m = 0.5 * max(
+            vehicle.width_m for vehicle in self.distribution.vehicle_types
+        )
+        self._junction_half_box_m = self.network.spec.carriageway_offset_m + widest_half_width_m
+
     # -- vehicle creation -------------------------------------------------
 
     def _sample_type(self, rng: np.random.Generator) -> VehicleType:
@@ -194,13 +268,20 @@ class GridMobilitySimulator:
         entries = self.network.entry_edges
         vehicle_type = self._sample_type(rng)
 
+        # `offset_m` is the front bumper, so injecting at zero leaves the body
+        # extending backwards through the junction the edge leaves, where it
+        # meets vehicles injected onto the other edges of that same junction.
+        # Start far enough along that the tail clears the box.
+        entry_offset_m = self._junction_half_box_m + vehicle_type.length_m
+
         start: GridEdge | None = None
         for position in rng.permutation(len(entries)):
             candidate = entries[int(position)]
             rear = None if occupancy is None else occupancy.get(candidate.edge_id)
-            # The injected front sits at offset 0, so it must clear the tail of
-            # whatever is already rearmost on that edge.
-            if rear is None or rear[0] - rear[1] >= self.idm.minimum_gap_m:
+            if (
+                rear is None
+                or (rear[0] - rear[1]) - entry_offset_m >= self.idm.minimum_gap_m
+            ):
                 start = candidate
                 break
         if start is None:
@@ -214,7 +295,7 @@ class GridMobilitySimulator:
             vehicle_type=vehicle_type,
             route=self._sample_route(start, rng),
             route_index=0,
-            offset_m=0.0,
+            offset_m=entry_offset_m,
             speed_mps=0.0,
         )
 
@@ -267,6 +348,202 @@ class GridMobilitySimulator:
                     )
         return gaps
 
+    def _enforce_following_distance(self, vehicles: list[_Vehicle]) -> None:
+        """Never let a front bumper pass the tail ahead of it.
+
+        IDM is not collision-free.  A leader braking hard at a stop line,
+        sampled every 50 ms, can leave its follower's front a few centimetres
+        past its tail, and the residue after junction arbitration was almost
+        entirely this.  Clamping is the standard microsimulation safeguard: the
+        follower is placed exactly at contact and takes the leader's speed, so
+        the correction does not simply recur on the next step.
+
+        Both leaders matter -- the one on this edge and, for the frontmost
+        vehicle, the one that has already crossed onto the next edge of its
+        route and whose tail still lies in the junction.
+        """
+
+        by_edge: dict[str, list[_Vehicle]] = {}
+        for vehicle in vehicles:
+            by_edge.setdefault(vehicle.edge.edge_id, []).append(vehicle)
+        for group in by_edge.values():
+            group.sort(key=lambda item: item.offset_m)
+        rearmost = {edge_id: group[0] for edge_id, group in by_edge.items() if group}
+
+        for group in by_edge.values():
+            leading = group[-1]
+            following = (
+                leading.route[leading.route_index + 1]
+                if leading.route_index + 1 < len(leading.route)
+                else None
+            )
+            ahead = rearmost.get(following.edge_id) if following is not None else None
+            if ahead is not None and ahead is not leading:
+                limit = (
+                    leading.edge.length_m + ahead.offset_m - ahead.vehicle_type.length_m - _CONTACT_EPS_M
+                )
+                if leading.offset_m > limit:
+                    leading.offset_m = limit
+                    leading.speed_mps = min(leading.speed_mps, ahead.speed_mps)
+
+            for index in range(len(group) - 2, -1, -1):
+                follower, leader = group[index], group[index + 1]
+                limit = leader.offset_m - leader.vehicle_type.length_m - _CONTACT_EPS_M
+                if follower.offset_m > limit:
+                    follower.offset_m = limit
+                    follower.speed_mps = min(follower.speed_mps, leader.speed_mps)
+
+    def _movement_of(self, vehicle: _Vehicle) -> _Movement:
+        """The ``(from, to)`` direction pair this vehicle will trace through the box."""
+
+        following = (
+            vehicle.route[vehicle.route_index + 1]
+            if vehicle.route_index + 1 < len(vehicle.route)
+            else None
+        )
+        onward = following.direction if following is not None else vehicle.edge.direction
+        return (vehicle.edge.direction, onward)
+
+    def _junction_occupancy(
+        self, vehicles: list[_Vehicle], half_box: float
+    ) -> dict[str, list[tuple[str, _Movement]]]:
+        """Which vehicles' bodies currently lie inside each junction box.
+
+        A vehicle occupies the box ahead once its front passes the stop line,
+        and still occupies the box behind until its tail clears it.  Both ends
+        matter: a long vehicle that has crossed is still in the way.
+        """
+
+        occupancy: dict[str, list[tuple[str, _Movement]]] = {}
+        for vehicle in vehicles:
+            edge = vehicle.edge
+            if vehicle.reserved_junction is not None:
+                occupancy.setdefault(vehicle.reserved_junction, []).append(
+                    (
+                        vehicle.vehicle_id,
+                        self._movement_through(vehicle, vehicle.reserved_junction),
+                    )
+                )
+            elif vehicle.offset_m > edge.length_m - half_box:
+                occupancy.setdefault(edge.to_junction, []).append(
+                    (vehicle.vehicle_id, self._movement_of(vehicle))
+                )
+            if vehicle.offset_m - vehicle.vehicle_type.length_m < half_box:
+                occupancy.setdefault(edge.from_junction, []).append(
+                    (vehicle.vehicle_id, self._movement_through(vehicle, edge.from_junction))
+                )
+        return occupancy
+
+    def _movement_through(self, vehicle: _Vehicle, junction: str) -> _Movement:
+        """The movement this vehicle makes through ``junction`` specifically.
+
+        Once a vehicle has crossed, :meth:`_movement_of` describes the turn it
+        will make at the *next* junction, not the one it is still lying in.
+        Labelling a held reservation with that future movement let two genuinely
+        conflicting crossers each be granted the same box.
+        """
+
+        edge = vehicle.edge
+        if edge.from_junction != junction:
+            return self._movement_of(vehicle)
+
+        previous = vehicle.route[vehicle.route_index - 1] if vehicle.route_index > 0 else None
+        entered_from = previous.direction if previous is not None else edge.direction
+        return (entered_from, edge.direction)
+
+    def _decision_distance_m(self, vehicle: _Vehicle, step_s: float) -> float:
+        """How far back the crossing must be decided for a refusal to be obeyable.
+
+        A hold is only meaningful if the vehicle can still stop at the line, so
+        the request is made at least a full braking distance out.  Deciding any
+        later produces an advisory that IDM physically cannot honour, which is
+        how a per-step check leaks vehicles into an occupied box.
+        """
+
+        braking_m = vehicle.speed_mps**2 / (2.0 * self.idm.comfortable_deceleration_mps2)
+        return braking_m + vehicle.speed_mps * step_s + self.idm.minimum_gap_m
+
+    def _reserve_junction(
+        self,
+        vehicle: _Vehicle,
+        reservations: dict[str, list[tuple[str, _Movement]]],
+        half_box: float,
+        step_s: float,
+    ) -> bool:
+        """Grant, keep, or refuse this vehicle's right to cross.
+
+        Signals separate the two street axes at the 40 interior junctions, but
+        they arbitrate nothing at the 32 unsignalized boundary junctions and
+        nothing between turning movements sharing one green -- an unprotected
+        left turn crosses the opposing straight lane on the same phase.
+
+        The reservation is *held* once granted.  Re-deciding every step lets a
+        vehicle be waved through, accelerate, and then be refused when it is
+        already too close to stop.  Returns whether the vehicle may proceed.
+        """
+
+        edge = vehicle.edge
+        junction = edge.to_junction
+
+        if vehicle.reserved_junction == junction:
+            return True  # already holds it; keeps it until the tail is clear
+
+        entry_m = edge.length_m - half_box
+        if vehicle.offset_m > entry_m:
+            # Physically inside the box without a reservation: it entered under
+            # a reservation for a junction it has since passed, or it spawned
+            # here.  Refusing now would park it in the box.
+            return True
+
+        if entry_m - vehicle.offset_m > self._decision_distance_m(vehicle, step_s):
+            return True  # far enough out that nothing needs deciding yet
+
+        mine = self._movement_of(vehicle)
+        for other_id, theirs in reservations.get(junction, ()):
+            if other_id == vehicle.vehicle_id:
+                continue
+            if _movements_conflict(mine, theirs):
+                return False
+
+        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine))
+        vehicle.reserved_junction = junction
+        return True
+
+    def _can_clear_junction(
+        self,
+        vehicle: _Vehicle,
+        occupancy: dict[str, tuple[float, float]],
+        half_box: float,
+    ) -> bool:
+        """Is there room beyond the junction for this vehicle's whole body?
+
+        "Don't block the box": a driver who cannot complete the crossing waits
+        before it rather than stopping inside it.  Without this rule a queue
+        spilling back from the next stop line parks vehicles across the
+        intersection, and crossing traffic passes straight through them --
+        which is where 61% of the measured footprint overlaps came from.
+
+        The vehicle clears the box once its tail passes ``half_box`` beyond the
+        junction centre, so it needs to reach ``half_box + length`` on the far
+        edge and still keep its minimum gap to whatever waits there.
+        """
+
+        following = (
+            vehicle.route[vehicle.route_index + 1]
+            if vehicle.route_index + 1 < len(vehicle.route)
+            else None
+        )
+        if following is None:
+            return True  # leaving the grid; nothing to block
+
+        occupied = occupancy.get(following.edge_id)
+        if occupied is None:
+            return True
+
+        tail_m = occupied[0] - occupied[1]
+        needed_m = half_box + vehicle.vehicle_type.length_m + self.idm.minimum_gap_m
+        return tail_m >= needed_m
+
     def _step(
         self,
         vehicles: list[_Vehicle],
@@ -277,17 +554,60 @@ class GridMobilitySimulator:
         target_count: int,
     ) -> None:
         leader_gaps = self._leader_gaps(vehicles)
+        half_box = self._junction_half_box_m
+        occupancy = self._rearmost_offsets(vehicles)
+        box_occupancy = self._junction_occupancy(vehicles, half_box)
 
-        for vehicle in vehicles:
+        # Entry is granted one vehicle at a time against a *live* occupancy
+        # map.  Deciding every vehicle against the same start-of-step snapshot
+        # lets two of them both see an empty box and both take it, which is a
+        # race rather than a conflict and produced the residual overlaps after
+        # the conflict rule alone.  Nearest to the box is served first, ties
+        # broken by identifier so the order is reproducible.
+        order = sorted(
+            vehicles,
+            key=lambda v: (v.edge.length_m - half_box - v.offset_m, v.vehicle_id),
+        )
+
+        for vehicle in order:
             edge = vehicle.edge
             gap, leader_speed = leader_gaps[vehicle.vehicle_id]
 
-            # A red signal at the end of the edge acts as a stationary leader,
-            # which is what makes queues emerge from the car-following law.
-            if not self.signals.may_enter(edge.to_junction, edge.direction, time_s):
-                stop_gap = edge.length_m - vehicle.offset_m
-                if gap is None or stop_gap < gap:
-                    gap, leader_speed = max(0.0, stop_gap), 0.0
+            # The stop line stands clear of the junction box rather than at its
+            # centre.  `edge.length_m` is the junction *centre*, so holding
+            # there parks a vehicle's front bumper in the middle of the
+            # intersection, directly in the path of cross traffic.  See work
+            # plan section 4.6.5.
+            stop_line_m = edge.length_m - half_box
+
+            # A red signal acts as a stationary leader, which is what makes
+            # queues emerge from the car-following law rather than from a
+            # bespoke rule.  Keeping the box clear uses the same mechanism: a
+            # vehicle that could not finish its crossing must not begin it.
+            stopped_by_signal = not self.signals.may_enter(
+                edge.to_junction, edge.direction, time_s
+            )
+            blocked_exit = not self._can_clear_junction(vehicle, occupancy, half_box)
+            entered_box = vehicle.offset_m > stop_line_m
+
+            if (stopped_by_signal or blocked_exit) and not entered_box:
+                # Not going anywhere, so surrender the claim on the junction
+                # *ahead* rather than hold it against cross traffic that does
+                # have a green.  A claim on the junction behind is untouched:
+                # the vehicle is still lying in that box and must keep it until
+                # its tail is clear.
+                if vehicle.reserved_junction == edge.to_junction:
+                    _release_reservation(vehicle, box_occupancy)
+                holding = True
+            else:
+                holding = not self._reserve_junction(
+                    vehicle, box_occupancy, half_box, step_s
+                )
+
+            if holding:
+                hold_gap, hold_speed = stop_line_gap(stop_line_m, vehicle.offset_m)
+                if gap is None or hold_gap < gap:
+                    gap, leader_speed = hold_gap, hold_speed
 
             vehicle.acceleration_mps2 = acceleration_mps2(
                 vehicle.speed_mps, gap, leader_speed, self.idm
@@ -296,6 +616,8 @@ class GridMobilitySimulator:
                 vehicle.speed_mps, vehicle.acceleration_mps2, step_s
             )
             vehicle.offset_m += travelled
+
+        self._enforce_following_distance(vehicles)
 
         # Advance across junctions, and replace anything that left the grid.
         #
@@ -330,8 +652,12 @@ class GridMobilitySimulator:
                     occupied is not None
                     and (occupied[0] - occupied[1]) - landing < self.idm.minimum_gap_m
                 ):
-                    # Exit is blocked: hold at the stop line rather than enter.
-                    vehicle.offset_m = vehicle.edge.length_m - 1e-9
+                    # Exit is blocked.  The keep-clear rule above should have
+                    # held this vehicle before the box, so this is a fallback
+                    # for the step in which the far side filled.  Hold where it
+                    # stands rather than snapping back, which would be
+                    # teleportation, and never advance past the centre.
+                    vehicle.offset_m = min(vehicle.offset_m, vehicle.edge.length_m)
                     vehicle.speed_mps = 0.0
                     break
 
@@ -339,8 +665,26 @@ class GridMobilitySimulator:
                 vehicle.route_index += 1
                 rearmost[target.edge_id] = (landing, vehicle.vehicle_type.length_m)
 
+        # A claim is surrendered only once the tail is clear of the box, so a
+        # long body still lying across the junction keeps holding it.
+        for vehicle in vehicles:
+            junction = vehicle.reserved_junction
+            if junction is None:
+                continue
+            cleared = (
+                vehicle.edge.from_junction == junction
+                and vehicle.offset_m - vehicle.vehicle_type.length_m >= half_box
+            )
+            if cleared:
+                vehicle.reserved_junction = None
+
         gone = set(departed)
         survivors = [v for i, v in enumerate(vehicles) if i not in gone]
+        # Again after the crossings.  A vehicle that changes edge in this step
+        # was not covered by the first pass, and a long body landing with its
+        # tail still spanning the junction is exactly the case that reaches the
+        # recorded frame uncorrected.
+        self._enforce_following_distance(survivors)
         # Refill to the target population, not merely one-for-one: an injection
         # deferred earlier because every boundary was full is retried here as
         # soon as room appears, so realised density tracks the target instead
@@ -396,7 +740,13 @@ class GridMobilitySimulator:
         # with spare room.  Dropping the surplus instead would leave the initial
         # population short of the target density before the run even starts.
         largest = max(vehicle.length_m for vehicle in self.distribution.vehicle_types)
-        capacity = np.floor(lengths / (largest + self.idm.minimum_gap_m)).astype(int)
+        # The first slot on an edge starts clear of the junction the edge leaves,
+        # for the same reason injection does, so that much of every edge is not
+        # available for placement.
+        head_room_m = self._junction_half_box_m + largest
+        capacity = np.floor(
+            np.maximum(lengths - head_room_m, 0.0) / (largest + self.idm.minimum_gap_m)
+        ).astype(int)
         if int(capacity.sum()) < count:
             raise MobilityModelError(
                 "target density exceeds the network's holding capacity",
@@ -414,7 +764,7 @@ class GridMobilitySimulator:
         for edge, quota in zip(edges, allocation, strict=True):
             if quota <= 0:
                 continue
-            spacing = edge.length_m / float(quota)
+            spacing = (edge.length_m - head_room_m) / float(quota)
             for slot in range(int(quota)):
                 vehicles.append(
                     _Vehicle(
@@ -422,7 +772,7 @@ class GridMobilitySimulator:
                         vehicle_type=self._sample_type(rng),
                         route=self._sample_route(edge, rng),
                         route_index=0,
-                        offset_m=(slot + 0.5) * spacing,
+                        offset_m=head_room_m + (slot + 0.5) * spacing,
                         speed_mps=float(rng.uniform(0.0, self.idm.desired_speed_mps)),
                     )
                 )

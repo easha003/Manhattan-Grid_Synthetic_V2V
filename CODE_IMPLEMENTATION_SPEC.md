@@ -9,6 +9,10 @@
 > `src/grail_v/mobility/grid_*.py` and `car_following.py`. The trace schema
 > (§8.6 vehicle columns) is unchanged, so every downstream section still
 > applies. These sections need rewriting once the model is approved.
+>
+> The milestone exit criteria in §30 sat outside that list and were themselves
+> stale — M0 required SUMO discovery and M1 required the abandoned 20/40/60
+> density band. Both are corrected in place, so §30 is current.
 
 **Status:** implementation contract
 
@@ -18,13 +22,13 @@
 
 **Supported Python:** 3.11 and 3.12
 
-**Detected local SUMO:** Eclipse SUMO 1.27.0 in a Python 3.11.8 environment
+**Mobility backend:** analytic Manhattan-grid model; no SUMO or TraCI dependency
 
 This document defines the software architecture that will implement GRAIL-V. It
 describes module responsibilities, interfaces, data schemas, configuration,
 execution flows, tests, artifacts, and implementation order. Runtime code should
 not diverge from these contracts without updating this document and recording the
-reason in the decision log.
+reason in [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md).
 
 ---
 
@@ -2302,7 +2306,6 @@ Deliver:
 Exit:
 
 - supported Python environment works;
-- SUMO is discovered;
 - config hash is reproducible;
 - no runtime feature has been implemented prematurely.
 
@@ -2310,18 +2313,23 @@ Exit:
 
 Deliver:
 
-- rectangular grid builder;
-- demand generator;
-- density calibrator;
+- rectangular grid builder with laterally separated carriageways;
+- boundary injection and turn routing;
+- IDM car following and fixed-cycle signals;
 - trace writer/reader;
 - tagged-pair extractor;
 - mobility validation report.
 
 Exit:
 
-- 20/40/60 vehicles/lane-km achieved within 5%;
+- 10/20/30 vehicles/lane-km achieved within 5%;
 - no unexplained teleportation;
+- no overlapping vehicle footprints in any recorded frame;
 - trace artifact verifies.
+
+The density band is measured rather than conventional; the original 20/40/60
+destroyed the phenomenon under study. See `docs/DECISION_LOG.md` D1 and work
+plan §4.5.1.
 
 ### M2 — Shared geometry and observations
 
