@@ -344,35 +344,58 @@ that sweep from the regenerated traces before treating §4.5.1 as settled.**
 
 ### 4.5.1 Why the training densities are 10 / 20 / 30
 
-The original \(\{20,40,60\}\) was inherited, not measured. A sweep of the two
-quantities the hybrid argument actually depends on shows why it was the wrong
-band:
+The original \(\{20,40,60\}\) was inherited, not measured, and was abandoned
+because it destroyed the phenomenon under study (risk R4a). The band that
+replaced it was justified by a sweep showing both impairments climbing to
+\(\rho_L\approx30\) and then flattening. **That justification is withdrawn.**
+Its blockage column was dominated by the shared-centreline artefact of §4.6.3,
+and the capacity point it relied on moved when §4.6.5 was fixed. Superseded,
+for the record: 5.3 / 12.2 / 22.5 / 30.6 / 26.2 / 30.7% blocked at
+\(\rho_L = 5, 10, 20, 30, 40, 60\).
 
-| \(\rho_L\) | Optical path blocked | Neighbours within 200 m | Regime |
+**The band survives on a different and stronger argument.** Measured on the
+corrected traces, the two impairments do not merely differ in driver — they
+move in **opposite directions**:
+
+| \(\rho_L\) | V-VLC unavailable | Neighbours ≤200 m | Weak link |
 |---:|---:|---:|---|
-| 5 | 5.3% | 30 | free |
-| 10 | 12.2% | 67 | free |
-| 20 | 22.5% | 114 | free |
-| 30 | 30.6% | 180 | free |
-| 40 | 26.2% | 156 | at capacity |
-| 60 | 30.7% | 197 | oversaturated |
+| 10 | **3.41%** | 54 | optical |
+| 20 | 1.87% | 105 | — |
+| 30 | **1.01%** | 199 | radio |
 
-**Both impairments stop responding to density above \(\rho_L\approx30\).**
-Blockage climbs cleanly to 30.6% and then flattens; neighbour count does the
-same and even falls, because past capacity vehicles pack into queues rather
-than spreading through the sensing radius. Under \(\{20,40,60\}\) two of the
-three points were effectively one operating condition — 1.4× spread in
-blockage and 1.7× in neighbours, against 2.5× and 2.7× for
-\(\{10,20,30\}\).
+Optical availability *improves* with density, 3.4× across the band, because
+closer spacing shortens the optical path so fewer paths reach across a
+junction. RF load *worsens*, roughly 3.7×, because neighbour count is a
+headcount. At \(\rho_L=10\) the optical link is the weaker one; at
+\(\rho_L=30\) the radio is.
 
-Beyond \(\rho_L=30\) the model measures queueing, not communication.
+This is a better foundation than the one it replaces. The earlier band was
+chosen because both impairments responded to density, which is a weak
+complementarity argument: if both links degrade together, diversity buys
+little. Here **no fixed link choice can be right at both ends of the band**,
+which is the condition RQ4 actually needs, and it now holds by mechanism rather
+than by coincidence.
+
+**The optical signal is not on the density axis at all.** Aggregate
+availability spans only 96.6–99.0%, while the same quantity conditioned on
+whether the path crosses a junction spans 0.25% to 32.6% (§4.6.1). Density
+stratifies the **radio** load; the junction condition stratifies the
+**optical** link. The per-density constraint \(J_{c,k}\) should be read
+accordingly.
 
 **Consequences for the generalization tests:**
 
-- Interpolation: **15 and 25 veh/lane-km**, inside the responsive band.
-- Extrapolation: **40 veh/lane-km**, the first point past capacity. The
-  original 70 is abandoned — at 97% of holding capacity realised density falls
-  10.2% below target, failing the tolerance twofold.
+- Interpolation: **15 and 25 veh/lane-km**, inside the band.
+- Extrapolation: **40 veh/lane-km**, past capacity. The original 70 is
+  abandoned — at 97% of holding capacity realised density falls 10.2% below
+  target, failing the tolerance twofold.
+
+**Open.** Capacity now arrives at \(\rho_L\approx20\)–25 rather than 40
+(§4.5), so \(\rho_L=30\) sits at capacity rather than in free flow and 53% of
+its vehicles are stopped. The band still spans free flow to capacity, which is
+a legitimate spread of regimes, but whether a fourth point below 10 would
+better exercise the optical side is unresolved and should be settled before
+M7.
 
 ### 4.6 Vehicles and tagged pairs
 
@@ -420,141 +443,169 @@ engine per timestep, not by the pair extractor.
 
 ### 4.6.1 The complementarity evidence
 
-> **⚠ SUPERSEDED PENDING A MOBILITY FIX — see §4.6.3.** Every blockage figure in
-> §4.6.1 and §4.6.2 is dominated by an artefact: opposing travel directions
-> share one street centreline with no lateral separation, so oncoming vehicles
-> sit exactly on the optical path and physically overlap one another. Removing
-> oncoming blockers drops V-VLC unavailability from 27.1% to 1.8% at
-> \(\rho_L=20\). **Do not cite these tables.** They are retained only so the
-> correction can be audited.
-
 This is the measurement the whole contribution depends on, so it is recorded
 here rather than left to be rediscovered.
 
-**V-VLC unavailable, by separation** — the structure a policy can act on.
-Measured by the M2 geometry engine through phase 3: oriented rectangles,
-headlamp-to-photodiode endpoints, height test, and the photodiode acceptance
-cone. "Unavailable" is occluded **or** out of field of view.
+**Provenance.** Measured by the M2 geometry engine — oriented rectangles,
+headlamp-to-photodiode endpoints, height test, photodiode acceptance cone,
+spatial index — on the traces regenerated 2026-08-04 under configuration hash
+`92bf9cb5`, 300 sampled frames per trace, one trace per density. It supersedes
+two earlier attempts, both contaminated: a point-to-segment approximation, and
+a phase-3 run on traces carrying the §4.6.3 and §4.6.5 defects. Superseded
+aggregate availability, for the record: 90.9 / 71.0 / 85.9% and then 88.1 /
+77.8 / 83.9% at \(\rho_L = 10, 20, 30\).
+
+"Unavailable" means occluded **or** outside the photodiode's acceptance cone.
+
+**Aggregate availability and RF load:**
+
+| \(\rho_L\) | Instants | Occluded | Out of FOV | Unavailable | **Available** | Neighbours ≤200 m |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 39,664 | 0.57% | 2.87% | 3.41% | **96.59%** | 54 |
+| 20 | 136,580 | 0.63% | 1.28% | 1.87% | **98.13%** | 105 |
+| 30 | 259,377 | 0.41% | 0.62% | 1.01% | **98.99%** | 199 |
+
+**The aggregate is the wrong summary, and this is the central result.**
+Conditioned on whether the optical path crosses a junction, the same quantity
+is bimodal:
+
+| \(\rho_L\) | Spanning | Unavailable | Mid-block | Unavailable | **Lift** | Exposure |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 3,602 | **32.57%** | 36,062 | **0.50%** | 65.6× | 9.08% |
+| 20 | 6,353 | **32.10%** | 130,227 | **0.39%** | 81.3× | 4.65% |
+| 30 | 6,537 | **30.50%** | 252,840 | **0.25%** | 121.1× | 2.52% |
+
+The two reconcile exactly, which is the check that they are one measurement:
+\(0.0465\times32.10 + 0.9535\times0.39 = 1.87\%\) at \(\rho_L=20\).
+
+Read that as: **the conditional risk is ~31% at every density**, and what
+density changes is *exposure* — how often a pair spans a junction at all, which
+falls as closer spacing shortens the optical path. "V-VLC is 98% available" and
+"V-VLC fails a third of the time" are both true of this system; which applies
+is decided by an observable condition.
+
+**Two independent mechanisms produce the junction risk**, and both are real:
+
+| \(\rho_L\) | | Occluded | Out of FOV | FOV alone |
+|---:|---|---:|---:|---:|
+| 10 | spanning | 3.30% | 29.43% | 29.26% |
+| | mid-block | 0.30% | 0.22% | 0.19% |
+| 20 | spanning | 6.89% | 25.58% | 25.20% |
+| | mid-block | 0.32% | 0.09% | 0.07% |
+| 30 | spanning | 8.05% | 22.78% | 22.46% |
+| | mid-block | 0.22% | 0.04% | 0.03% |
+
+Junction lift on **occlusion alone** is 10.9× / 21.5× / 37.1×; including
+misalignment it is 65.6× / 81.3× / 121.1×.
+
+**Misalignment is physics, not a bookkeeping error.** An earlier version of
+this section called it an artefact of pair extraction. That was wrong and is
+withdrawn. The continuation loop already ends a pair with `route_diverged` when
+the leader leaves the follower's path; what survives is the case where **both
+share the route and the leader turns first**, so for a second or two the leader
+sits perpendicular to its follower with its photodiode swung away. A deployed
+V-VLC system loses that link at exactly that moment, and the leader is still
+the vehicle immediately ahead on the follower's own path — still the one that
+must receive the safety message. Adding a heading re-check would delete a real
+failure mode and inflate availability, which is selection bias in the
+flattering direction.
+
+The two mechanisms also move oppositely with density: occlusion at junctions
+rises 3.30 → 8.05% as cross traffic thickens, while misalignment falls
+29.43 → 22.78% as queueing leaves fewer turns completed per unit time.
+
+**V-VLC unavailable, by separation:**
 
 | Separation | \(\rho_L=10\) | \(\rho_L=20\) | \(\rho_L=30\) |
 |---|---:|---:|---:|
-| 5–10 m | 2.7% | 10.1% | 10.3% |
-| 10–20 m | 19.0% | 33.5% | 30.6% |
-| 20–30 m | 24.0% | 42.3% | 48.4% |
-| 30–40 m | 24.2% | 39.3% | 41.8% |
+| 5–10 m | 1.6% | 0.6% | 0.3% |
+| 10–20 m | 9.0% | 5.2% | 3.7% |
+| 20–30 m | 3.2% | 6.6% | 7.0% |
+| 30–40 m | 3.5% | 4.5% | 5.4% |
 
-**Aggregate availability, mechanism split, and RF load:**
+Separation is a far weaker predictor than junction geometry and is
+non-monotonic, because it conflates two effects: a longer path is more likely
+to be cut, but a pair held at long separation is typically in free flow rather
+than queued at the junctions where crossing traffic is. **Prefer the junction
+condition; stratify by separation when comparing across densities**, as §13.6
+already requires.
 
-| \(\rho_L\) | Occluded | Out of FOV | Unavailable | Available | Neighbours ≤200 m |
-|---:|---:|---:|---:|---:|---:|
-| 10 | 11.4% | 0.8% | 11.9% | 88.1% | 54 |
-| 20 | 21.8% | 1.1% | 22.2% | 77.8% | 105 |
-| 30 | 15.9% | 0.5% | 16.1% | 83.9% | 199 |
+**Three properties follow, each mapping to a research question:**
 
-**Field of view is real but minor.** It removes only 0.13–0.66 percentage
-points of availability beyond what occlusion already catches. It is not zero
-because the 30° heading test in `tagged_pairs.py` is applied at pair
-*formation* and never re-checked by the continuation loop, so a pair survives
-its leader turning at a junction, at which point the photodiode has swung a
-quarter turn away. Consistent with that mechanism, the FOV term concentrates
-in the 10–20 m bin — 2.1–5.9% there against 0.2–0.5% at 5–10 m — which is
-where a leader that has just turned sits.
+1. **V-VLC intermittency is conditional, not aggregate** (RQ2). At 98%
+   availability there is little for duplication to exploit on average; at a
+   junction there is a 31% risk on 2.5–9% of packets. Duplicating only there
+   pays the cost-2 premium on a small minority of packets while covering the
+   overwhelming majority of the risk.
+2. **The risk is predictable from lawful state** (RQ3, H3). A 65–121× lift on a
+   condition derived from own pose and a road map, with two independent causes
+   — cross traffic in the box, and a leader turning out of the cone — both
+   forecastable 200 ms ahead. This is what the forecast field exists to carry.
+3. **The impairments have opposing density gradients** (RQ4). Optical
+   availability improves with density while RF load worsens; see §4.5.1.
 
-Three properties follow, and each maps to a research question:
+### 4.6.2 Where the two links fail together, and where they do not
 
-1. **V-VLC is genuinely intermittent** — available 78–88%, unavailable 12–22%.
-   There is a real trade-off for selective duplication to exploit (RQ2).
-2. **Unavailability varies 4.2–9.0× with separation** (9.0× at \(\rho_L=10\),
-   4.2× at 20, 4.7× at 30) on a quantity the policy observes directly. A short
-   link is nearly always clear; a long one is frequently swept by cross-traffic
-   at junctions. That is the conditional structure the 200 ms forecast is meant
-   to predict (RQ3, H3).
-3. **RF congestion and optical blockage have different drivers.** Neighbour
-   count scales cleanly 3.7× with density; optical blockage scales with
-   separation and only weakly and non-monotonically with density. They do not
-   track each other, which is the condition diversity requires (RQ4). See
-   §4.6.2 for the impairment that *does* track it.
+Measured on the same instants as §4.6.1, cross-tabulating RF propagation class
+against V-VLC availability.
 
-### 4.6.2 Obstruction geometry is strongly coupled — the asymmetry is in the consequence
+**RF propagation class:**
 
-Measured by the M2 geometry engine on the train-000 traces, cross-tabulating
-RF propagation class against V-VLC availability per pair-instant:
+| \(\rho_L\) | LOS | NLOSv | NLOS | Obstructed |
+|---:|---:|---:|---:|---:|
+| 10 | 98.02% | 0.27% | **1.71%** | 1.98% |
+| 20 | 98.74% | 0.31% | **0.95%** | 1.26% |
+| 30 | 99.23% | 0.20% | **0.57%** | 0.77% |
 
-| | \(\rho_L=10\) | \(\rho_L=20\) |
-|---|---:|---:|
-| RF obstructed (NLOSv or NLOS) | 10.2% | 23.2% |
-| V-VLC unavailable | 8.9% | 19.7% |
-| **Both at once** | **8.5%** | **19.2%** |
-| Expected if independent | 0.9% | 4.6% |
-| **Lift over independence** | **9.3×** | **4.2×** |
-| Exactly one impaired | 2.2% | 4.6% |
+**This supersedes the argument that stood here, which is withdrawn.** The
+earlier version claimed the two links are blocked by the same vehicle body,
+with RF surviving it as extra path loss — obstruction coupled 4–9× over
+independence, with RF obstructed 10.2% and 23.2% of the time. Those figures
+came from the §4.6.3 traces and were an artefact. Vehicle blockage of the radio
+link is now **0.20–0.31%**. There is almost no NLOSv left to build an argument
+on.
 
-The two are very nearly the same geometric event, and the reason is structural:
-every configured vehicle class is at least 1.5 m tall, so anything that cuts
-the 0.7 m optical path also meets the 1.5 m antenna path. The height test
-almost never discriminates. Residual differences come only from the RF path
-being longer — centre-to-centre rather than front-to-rear — and from V-VLC
-having a field of view that RF does not.
+What obstructs RF is instead **buildings**, by a factor of 3–6× over vehicles,
+and by the same geometry that produces the optical misalignment: once the
+leader has rounded a corner, the straight line between antennas cuts the block.
 
-**This does not undermine the contribution, but it relocates it.** The claim is
-not that the two links are blocked at different times; measurably they are not.
-The claim is that *the same obstruction has categorically different
-consequences*: TR 37.885 prices NLOSv as extra path loss and the radio link
-usually survives it, while an occluded optical path delivers nothing at all.
+**Joint failure:**
 
-Three things follow that the rest of the plan must respect:
+| \(\rho_L\) | Both impaired | Exactly one | **Share where exactly one** | Lift over independence |
+|---:|---:|---:|---:|---:|
+| 10 | 1.177% | 3.03% | **72.0%** | 17.5× |
+| 20 | 0.820% | 1.49% | **64.5%** | 34.7× |
+| 30 | 0.502% | 0.78% | **60.8%** | 64.2× |
 
-1. **RF has two impairment mechanisms and only one is decoupled.** Congestion
-   and interference scale with neighbour count and are independent of optical
-   blockage (§4.6.1 property 3); NLOSv attenuation is strongly coupled to it.
-   Diversity arguments must name which mechanism they mean.
-2. **The hybrid's value now rests on RF surviving NLOSv.** That makes M3's
-   NLOSv loss model load-bearing rather than incidental — if NLOSv is severe
-   enough to fail RF often, joint failure rises and the §14.1 independence
-   assumption breaks in the unfavourable direction.
-3. **Gate 3's joint-failure characterisation is the decisive check**, and it
-   now has a concrete prior: geometric coupling of 4–9× over independence. It
-   should measure failure correlation, not obstruction correlation, and report
-   both.
+**The share where exactly one link is impaired is the number that matters, and
+it improved from roughly 20% to 61–72%.** Under the contaminated traces four
+impairments in five struck both links at once, which is close to fatal for a
+diversity argument. Now three in five to nearly three in four strike only one,
+which is precisely the condition duplication exists to exploit.
 
-**These per-bin values are not yet converged.** Pair-instants are strongly
-clustered within episodes, so the effective sample size is closer to the number
-of *pairs* than the number of instants. Re-running \(\rho_L=10\) at 120 and 240
-sampled frames moves the 10–20 m bin between 19.0% and 28.3% while aggregate
-availability moves only 88.1% to 86.8%. Occlusion itself is deterministic —
-the 240-frame phase-3 run reproduced the phase-2 occlusion figures exactly — so
-this is sampling, not instability in the engine. Treat the aggregates as sound
-and the per-bin figures as indicative to a few points. **The definitive table
-comes from the phase-6 full validation**, where the spatial index makes dense
-sampling affordable; the same cluster-aware treatment §13.6 requires for the
-reliability statistics applies here.
+**Report the lift, but do not lead with it.** It rose to 17–64× while the thing
+it measures fell by an order of magnitude, because when both marginals are near
+1% independence predicts ~0.01% and any shared cause looks enormous in ratio.
+Absolute co-occurrence fell from 19.2% to 0.82% at \(\rho_L=20\). Both belong
+in the paper; the absolute figure is the honest headline.
 
-**Caveat on the density marginal.** Unavailability is non-monotonic in density
-(11.9% → 22.2% → 16.1%) because episode sampling weights pair-instants by
-episode duration, and closely-spaced queued pairs persist far longer than
-free-flowing ones. The median separation of sampled instants is therefore
-7.0 m, 14.1 m and 7.0 m rather than monotone. **Cross-density comparisons must
-be stratified by separation**, which §13.6 already requires for a related
-reason.
+**Consequences:**
 
-**The 30–40 m bin dips below 20–30 m at every density.** Two effects compete: a
-longer path is more likely to be cut, but a pair held at 30–40 m separation is
-typically in free flow rather than queued, and queues are what hold pairs at
-the junctions where crossing traffic is. This is the same confound family as
-the density marginal and reinforces the stratification requirement.
-
-**Provenance of this table.** The values above supersede a point-to-segment
-approximation that treated each vehicle as a point with a half-width tolerance,
-mistook the stored front-bumper position for a body centre, and ran the path
-between two stored positions rather than headlamp to photodiode. Superseded
-values, for the record: \(\rho_L=10\) read 1.3 / 3.6 / 20.0 / 36.1% and 90.9%
-available; \(\rho_L=20\) read 8.7 / 41.5 / 51.0 / 32.0% and 71.0%;
-\(\rho_L=30\) read 16.0 / 21.5 / 46.8 / 30.1% and 85.9%. The approximation
-understated blockage for cross-traffic, which is 98.6–99.5% of all blockage,
-because a vehicle crossing perpendicular presents its length to the path and
-not its width. Aggregate availability moved by at most 7 points and the
-non-monotonic density pattern reproduced under both methods, which is a useful
-independent check; the separation profile changed materially.
+1. **The NLOSv path-loss model is no longer load-bearing.** M3 must still
+   implement it, but at 0.2–0.3% occurrence it can no longer decide the
+   hybrid's value either way. The decisive RF parameter is the **collision
+   model of §7.2**, which remains undefined.
+2. **Gate 3's prior changes.** It should test joint *failure* against a
+   measured obstruction co-occurrence of 0.5–1.2%, not the 4–9× coupling this
+   section used to assert. Coincident obstruction is now rare; coincident
+   *failure* is what the contribution cannot survive, and only the channel
+   models can measure it.
+3. **A declared asymmetry in the obstruction tests.** `is_obstructed` tests
+   vehicles only, so V-VLC occlusion never considers buildings, while RF
+   classification does. For the turning case this changes no verdict, because
+   misalignment already marks those instants unavailable. It is recorded here
+   because "VLC occluded" and "RF obstructed" are therefore not measuring the
+   same set of obstacles, and a like-for-like comparison must say so.
 
 ### 4.6.3 Opposing carriageways are not separated — a blocking defect
 
@@ -620,16 +671,18 @@ the street centreline, so opposing lanes are 3.5 m apart. Measured on a fresh
 | **V-VLC available** | 72.9% | **97.95%** |
 
 **The junction signal is far stronger than the contaminated measurement
-suggested:**
+suggested.** Measured here on one fresh \(\rho_L=20\) trace, before the §4.6.5
+fix; **§4.6.1 carries the settled figures** across all three densities:
 
 | Path position | Instants | V-VLC unavailable |
 |---|---:|---:|
-| Spans a junction | 1,651 | **27.01%** |
-| Mid-block | 24,690 | **0.38%** |
+| Spans a junction | 1,651 | 27.01% |
+| Mid-block | 24,690 | 0.38% |
 | **Lift** | | **71.7×** |
 
-Mid-block is essentially clean. Blockage is now almost entirely explained by a
-single, observable, predictable condition.
+Mid-block is essentially clean. Blockage is almost entirely explained by a
+single, observable, predictable condition — which §4.6.1 later confirms at
+30.5–32.6% spanning against 0.25–0.50% mid-block, a 65–121× lift.
 
 **What this does to the four conditions of §4.6.4.** Condition C
 (predictability) is far better than assumed: a 71.7× lift on a feature derived
@@ -643,7 +696,8 @@ link budget on **both** legs, so M3 and M4 together, and the feasible-region
 characterisation itself is Gate 3 at M5.
 
 The hybrid also relaxes the RF requirement by ≈49× at this availability rather
-than the 4.5–8.4× of §14.1, which helps the \(10^{-5}\) frontier.
+than the 4.5–8.4× originally computed; §14.1 settles this at 29–99× across the
+band, and at 256× mid-block against 3.1× at a junction.
 
 ### 4.6.5 Vehicles passed through one another at junctions — a second blocking defect
 
@@ -737,17 +791,26 @@ These are modelling choices the paper must state, not hide.
    **The 30° sensitivity is therefore optimistic and must be reported as
    such.** The value itself is also unsourced, like item 1.
 7. **A small residue of vehicle footprints still overlap at junctions.**
-   After the §4.6.5 fix the measured rate is 0.00, 0.01 and 0.02 pairs per
-   frame at \(\rho_L=10, 20, 30\) — 0.0%, 0.003% and 0.004% of vehicles — with
-   the deepest penetration 0.42 m, roughly a quarter of a car width. What
-   remains is a same-step race between two crossings rather than a systematic
-   error, and it is bounded by an asserted test
-   (`test_vehicle_footprints_barely_overlap_at_generated_densities`) rather
-   than left to drift. It is disclosed here because §16.3 states the invariant
-   without qualification and the achievement is a bound, not zero. The
-   contamination risk is low — an overlapping pair is two real bodies at real
-   junction positions, so occlusion counts one blockage where it should count
-   two — but it is not nil, and a reviewer is entitled to the number.
+   Measured **on the generated traces**, 300 sampled frames each: 0.093, 0.130
+   and 0.097 overlapping pairs per frame at \(\rho_L=10, 20, 30\), affecting
+   0.05%, 0.03% and 0.02% of vehicles, deepest penetration 0.42 m — roughly a
+   quarter of a car width. What remains is a same-step race between two
+   crossings rather than a systematic error, and it is bounded by an asserted
+   test (`test_vehicle_footprints_barely_overlap_at_generated_densities`)
+   rather than left to drift.
+
+   These figures replace an earlier claim of 0.00 / 0.01 / 0.02 per frame,
+   which came from 100 frames of a single seed run directly against the
+   simulator. The traces use per-trace derived seeds over 900 s, and the rate
+   is roughly ten times higher; the first measurement was an unlucky
+   generalisation from a lucky sample. **The trace-measured value is the one
+   that counts**, because the traces are what every downstream stage reads.
+
+   Disclosed because §16.3 states the invariant without qualification and the
+   achievement is a bound, not zero. The contamination risk is low — an
+   overlapping pair is two real bodies at real junction positions, so occlusion
+   counts one blockage where it should count two — but it is not nil, and a
+   reviewer is entitled to the number.
 
 ### 4.8 Determinism and reproducibility
 
@@ -1300,37 +1363,67 @@ RF single-shot requirement by a factor \(1/P(\text{VLC fails})\), where
 P(\text{VLC fails}) = P_\text{out} + (1 - P_\text{out})\,\text{PER}_\text{clear}
 \]
 
-and \(P_\text{out}\) is the geometric outage measured in §4.6.1: 11.9%, 22.2%
-and 16.1% at \(\rho_L = 10, 20, 30\).
+and \(P_\text{out}\) is the geometric outage of §4.6.1. **Restated on the
+corrected traces**; the superseded values were 11.9 / 22.2 / 16.1%, which
+inflated the floor by roughly an order of magnitude:
 
-**Geometry sets a floor the optics cannot cross.** No concentrator gain reaches
-a blocked path, so the hybrid's benefit is capped at \(1/P_\text{out}\) —
-between 4.5× and 8.4× depending on density. Reliability at \(10^{-5}\) is
-therefore primarily an **RF** requirement; V-VLC's role is to cover the ~80% of
-instants where its path is clear.
+| \(\rho_L\) | \(P_\text{out}\) | Cap \(1/P_\text{out}\) | RF BLER admissible for \(10^{-5}\) |
+|---:|---:|---:|---:|
+| 10 | 3.41% | **29.3×** | \(2.9\times10^{-4}\) |
+| 20 | 1.87% | **53.5×** | \(5.4\times10^{-4}\) |
+| 30 | 1.01% | **99.0×** | \(9.9\times10^{-4}\) |
 
-**Within that cap the optical front end matters a great deal.** At
-\(\rho_L=10\):
+**Geometry still sets a floor the optics cannot cross** — no concentrator gain
+reaches a blocked path — but that floor is now 30–99× rather than 4.5–8.4×.
+The \(10^{-5}\) frontier consequently asks RF for a single-shot BLER of
+\(3\text{–}10\times10^{-4}\) rather than \(10^{-5}\), which is a different and
+far more achievable requirement.
 
-| \(\text{PER}_\text{clear}\) | Relaxation | RF BLER needed for \(10^{-5}\) |
-|---|---:|---:|
-| 0.5 — marginal link | 1.8× | \(1.8\times10^{-5}\) |
-| 0.05 | 6.1× | \(6.1\times10^{-5}\) |
-| \(\approx 0\) — strong link | 8.4× | \(8.4\times10^{-5}\) |
+**The aggregate cap is the wrong instrument, because \(P_\text{out}\) is
+bimodal.** At \(\rho_L=20\):
 
-So roughly **4.7× of RF headroom** turns on where \(\text{PER}_\text{clear}\)
-sits, which can decide whether the \(10^{-5}\) frontier is reachable at all.
-Optical power falls as \(1/d^2\) and the separation window runs to 40 m, so the
-60° receiver may sit on its PER waterfall at the long end — precisely where
-blockage is also highest. If \(\text{PER}_\text{clear}\) is already negligible
-at 40 m with 60°, `vlc_vehicle_concentrated.yaml` is redundant and the headline
-value is simply correct.
+| Condition | \(P_\text{out}\) | Cap | RF BLER admissible for \(10^{-5}\) | Share |
+|---|---:|---:|---:|---:|
+| Mid-block | 0.39% | **256×** | \(2.6\times10^{-3}\) | 95.4% |
+| Spans a junction | 32.10% | **3.1×** | \(3.1\times10^{-5}\) | 4.6% |
+
+**This is the whole control problem in one table.** Mid-block, duplication buys
+two orders of magnitude and is almost certainly wasted spend. At a junction it
+buys a factor of three, and the RF leg must carry the target nearly alone. A
+policy that cannot tell the two apart must price every packet at one of these
+two numbers and will be wrong most of the time.
+
+**Within the cap the optical front end still matters.** At \(\rho_L=10\):
+
+| \(\text{PER}_\text{clear}\) | \(P(\text{VLC fails})\) | Relaxation | RF BLER for \(10^{-5}\) |
+|---|---:|---:|---:|
+| 0.5 — marginal link | 0.5171 | 1.9× | \(1.9\times10^{-5}\) |
+| 0.05 | 0.0824 | 12.1× | \(1.2\times10^{-4}\) |
+| \(\approx 0\) — strong link | 0.0341 | **29.3×** | \(2.9\times10^{-4}\) |
+
+Roughly **15× of RF headroom** now turns on where \(\text{PER}_\text{clear}\)
+sits, against 4.7× before. Lower geometric outage *raises* the stake on the
+clear-path link budget, because the optics now determine a larger share of
+\(P(\text{VLC fails})\). Optical power falls as \(1/d^2\) and the window runs
+to 40 m, so whether the 60° receiver sits on its PER waterfall at the long end
+is now the single largest lever in this table. It remains a Gate-2 measurement,
+not an assumption.
+
+**One structural consequence, from geometry alone.** Even mid-block,
+\(P_\text{out} = 0.25\text{–}0.50\%\) is 25–50× the \(10^{-4}\) budget, so
+**V-VLC alone never meets the target instantaneously anywhere in the
+network**. Its role in this system is as a duplication partner, not as a
+standalone action. If M3 and M4 confirm it, the `VLC` action at cost 1 may be
+dominated and the live decision reduces to RF versus DUP. That is a finding
+about the action space and should be checked at Gate 3 rather than discovered
+during training.
 
 **These figures assume RF and VLC failures are independent, which is
 optimistic.** A queue at a junction produces a high channel-busy ratio and
-cross-traffic in the optical path at the same time. Any positive correlation
-raises the floor, which is what Gate 3's joint-failure characterisation exists
-to detect.
+cross-traffic in the optical path at the same time, and §4.6.2 measures
+obstruction co-occurring 17–64× above independence even though its absolute
+rate is now 0.5–1.2%. Any positive correlation raises the floor, which is what
+Gate 3's joint-failure characterisation exists to detect.
 
 ### Gate 3 — Hybrid feasibility — **hard stop**
 
@@ -1339,11 +1432,20 @@ to detect.
 - a nonempty \(10^{-4}\) feasible region exists;
 - failure mechanisms explainable from saved traces;
 - **joint-failure correlation reported against the measured obstruction
-  coupling of §4.6.2.** Obstruction geometry is already 4–9× more coupled than
-  independence, so this gate must separate the two: coincident *obstruction* is
-  expected and benign, coincident *failure* is what the contribution cannot
-  survive. Report both, and the §14.1 floor recomputed with the measured
-  correlation rather than under independence.
+  co-occurrence of §4.6.2** — 1.18 / 0.82 / 0.50% of instants, which is 17–64×
+  above independence. Separate the two: coincident *obstruction* is expected
+  and benign, coincident *failure* is what the contribution cannot survive.
+  Report the absolute rate alongside the lift, because with both marginals near
+  1% the lift is large by construction. Recompute the §14.1 floor with the
+  measured correlation rather than under independence;
+- **whether V-VLC alone ever meets \(10^{-4}\) instantaneously.** Geometry says
+  no — even mid-block \(P_\text{out}\) is 25–50× the budget — so if the channel
+  models agree, the `VLC` action is dominated and the decision is RF versus
+  DUP. Establish this here rather than during training;
+- **\(P_\text{out}\) conditioned on junction spanning, not only aggregated.**
+  §14.1's cap ranges from 3.1× to 256× across that single condition, so a gate
+  run on aggregates alone would miss the structure the policy exists to
+  exploit.
 
 If the oracle cannot meet \(10^{-4}\) anywhere, PPO does not start. That
 outcome is finding #1, not failure — see `research/HYPOTHESES.md` H1.

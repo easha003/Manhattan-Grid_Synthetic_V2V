@@ -595,17 +595,76 @@ about lanes, headings or edge identity, so it keeps holding when those change.
 
 ---
 
+## D12 — The evidence base, restated on corrected traces
+
+4 Aug · work plan §4.5.1, §4.6.1, §4.6.2, §14.1
+
+Nine traces regenerated at `92bf9cb5` against the settled engine — one per
+split per density, which is the minimum the pipeline emits and what R4b
+prescribes. Seeds are content-addressed by `trace_id`, so the eventual 21-trace
+campaign reproduces these exactly; only a code or config change between now and
+M7 would force a full regeneration rather than a top-up. Gate 1 passes on all
+nine.
+
+Measured at 300 sampled frames per trace, the headline moved as follows.
+
+**V-VLC availability 96.59 / 98.13 / 99.0%** at \(\rho_L = 10/20/30\), against
+88.1 / 77.8 / 83.9% before. The aggregate at \(\rho_L=20\) is unchanged from
+the single post-D9 trace (97.95% → 98.13%), which confirms D9 was the whole of
+the earlier error and nothing since has moved it.
+
+**The aggregate is the wrong summary.** Conditioned on junction spanning the
+same quantity is bimodal — 0.25–0.50% mid-block against 30.5–32.6% spanning, a
+65–121× lift — and the conditional risk is nearly constant across density while
+*exposure* varies (9.08 → 2.52%). Density stratifies the radio; the junction
+condition stratifies the optics.
+
+**Two real mechanisms, not one.** Cross-traffic occlusion lifts 10.9–37.1× at a
+junction; leader-turn misalignment supplies the rest. An earlier draft called
+misalignment an artefact of pair extraction and recommended a heading re-check.
+**That was wrong and the change was cancelled before it was made.** The
+continuation loop already ends a pair on route divergence; what survives is a
+leader turning *on a shared route*, which a deployed system genuinely loses.
+Re-checking would have deleted a real failure mode and inflated availability —
+selection bias in the flattering direction, the same error class as D1 and D9.
+
+**§4.6.2's premise collapsed.** RF vehicle blockage is 0.20–0.31%, against the
+10.2–23.2% the old argument rested on, and RF obstruction is now dominated by
+*buildings* 3–6× over vehicles. The "same body blocks both, RF survives it"
+claim is withdrawn. What replaced it is better: the share of impairments
+striking **exactly one** link rose from ~20% to **61–72%**, which is the
+condition diversity actually requires.
+
+**§14.1's floor fell by an order of magnitude.** \(1/P_\text{out}\) is now
+29–99× rather than 4.5–8.4×, so \(10^{-5}\) asks RF for \(3\text{–}10\times
+10^{-4}\) single-shot BLER rather than \(10^{-5}\). Conditionally it ranges
+256× mid-block to 3.1× at a junction — the control problem in one number. And
+because the floor fell, the stake on the clear-path link budget *rose*, from
+4.7× of RF headroom to 15×.
+
+**One structural finding.** Even mid-block, \(P_\text{out}=0.25\text{–}0.50\%\)
+is 25–50× the \(10^{-4}\) budget, so V-VLC alone never meets the target
+instantaneously anywhere. Its role is as a duplication partner; the `VLC`
+action at cost 1 may be dominated. Added to Gate 3 to be settled before
+training rather than discovered during it.
+
+---
+
 ## Known stale, as of 4 August 2026
 
-1. **The 21 published traces** carry `5e42a2ba` and pre-D9 physics. Stale by
-   design; regeneration pending.
-2. **Work plan §4.6.1 and §4.6.2** are marked superseded in place. Do not cite
-   those tables. The obstruction-coupling *mechanism* (D5) will survive
-   regeneration; the magnitude (4–9× over independence) will move.
-3. **§14.1's worked numbers** use contaminated \(P_\text{out}\). See the note
-   in D8.
-4. Corrected figures exist at \(\rho_L=20\) **only**. The density sweep and the
-   per-separation profile must be rebuilt from regenerated traces.
+1. **The 21 published traces** carry `5e42a2ba` and pre-D9 physics. Archived
+   under `artifacts/archive/2026-08-04_pre-junction-fix/`; superseded by the
+   nine regenerated in D12.
+2. **§4.5.1's density-sweep table** is withdrawn, not restated. Its blockage
+   column was the §4.6.3 artefact and the capacity point moved with §4.6.5. The
+   band now rests on opposing gradients; whether a fourth point below
+   \(\rho_L=10\) would better exercise the optical side is unresolved.
+3. **Only replicate 000 exists per split.** No across-seed variance until M7,
+   which is deliberate.
+4. **`is_obstructed` tests vehicles only**, so V-VLC occlusion never considers
+   buildings while RF classification does. It changes no verdict today, because
+   misalignment already marks the turning case unavailable, but the two are not
+   measuring the same set of obstacles. Declared in §4.6.2 consequence 3.
 
 ## Open, and decisive
 
