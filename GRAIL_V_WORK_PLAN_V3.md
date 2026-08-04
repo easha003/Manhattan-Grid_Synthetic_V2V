@@ -441,10 +441,53 @@ Three properties follow, and each maps to a research question:
    link is nearly always clear; a long one is frequently swept by cross-traffic
    at junctions. That is the conditional structure the 200 ms forecast is meant
    to predict (RQ3, H3).
-3. **The two impairments have different drivers.** Neighbour count scales
-   cleanly 3.7× with density; optical blockage scales with separation and only
-   weakly and non-monotonically with density. They do not track each other,
-   which is the condition diversity requires (RQ4).
+3. **RF congestion and optical blockage have different drivers.** Neighbour
+   count scales cleanly 3.7× with density; optical blockage scales with
+   separation and only weakly and non-monotonically with density. They do not
+   track each other, which is the condition diversity requires (RQ4). See
+   §4.6.2 for the impairment that *does* track it.
+
+### 4.6.2 Obstruction geometry is strongly coupled — the asymmetry is in the consequence
+
+Measured by the M2 geometry engine on the train-000 traces, cross-tabulating
+RF propagation class against V-VLC availability per pair-instant:
+
+| | \(\rho_L=10\) | \(\rho_L=20\) |
+|---|---:|---:|
+| RF obstructed (NLOSv or NLOS) | 10.2% | 23.2% |
+| V-VLC unavailable | 8.9% | 19.7% |
+| **Both at once** | **8.5%** | **19.2%** |
+| Expected if independent | 0.9% | 4.6% |
+| **Lift over independence** | **9.3×** | **4.2×** |
+| Exactly one impaired | 2.2% | 4.6% |
+
+The two are very nearly the same geometric event, and the reason is structural:
+every configured vehicle class is at least 1.5 m tall, so anything that cuts
+the 0.7 m optical path also meets the 1.5 m antenna path. The height test
+almost never discriminates. Residual differences come only from the RF path
+being longer — centre-to-centre rather than front-to-rear — and from V-VLC
+having a field of view that RF does not.
+
+**This does not undermine the contribution, but it relocates it.** The claim is
+not that the two links are blocked at different times; measurably they are not.
+The claim is that *the same obstruction has categorically different
+consequences*: TR 37.885 prices NLOSv as extra path loss and the radio link
+usually survives it, while an occluded optical path delivers nothing at all.
+
+Three things follow that the rest of the plan must respect:
+
+1. **RF has two impairment mechanisms and only one is decoupled.** Congestion
+   and interference scale with neighbour count and are independent of optical
+   blockage (§4.6.1 property 3); NLOSv attenuation is strongly coupled to it.
+   Diversity arguments must name which mechanism they mean.
+2. **The hybrid's value now rests on RF surviving NLOSv.** That makes M3's
+   NLOSv loss model load-bearing rather than incidental — if NLOSv is severe
+   enough to fail RF often, joint failure rises and the §14.1 independence
+   assumption breaks in the unfavourable direction.
+3. **Gate 3's joint-failure characterisation is the decisive check**, and it
+   now has a concrete prior: geometric coupling of 4–9× over independence. It
+   should measure failure correlation, not obstruction correlation, and report
+   both.
 
 **These per-bin values are not yet converged.** Pair-instants are strongly
 clustered within episodes, so the effective sample size is closer to the number
@@ -1103,7 +1146,13 @@ to detect.
 - Always-DUP and oracle reliability characterized before training;
 - joint failure neither silently forced independent nor always identical;
 - a nonempty \(10^{-4}\) feasible region exists;
-- failure mechanisms explainable from saved traces.
+- failure mechanisms explainable from saved traces;
+- **joint-failure correlation reported against the measured obstruction
+  coupling of §4.6.2.** Obstruction geometry is already 4–9× more coupled than
+  independence, so this gate must separate the two: coincident *obstruction* is
+  expected and benign, coincident *failure* is what the contribution cannot
+  survive. Report both, and the §14.1 floor recomputed with the measured
+  correlation rather than under independence.
 
 If the oracle cannot meet \(10^{-4}\) anywhere, PPO does not start. That
 outcome is finding #1, not failure — see `research/HYPOTHESES.md` H1.

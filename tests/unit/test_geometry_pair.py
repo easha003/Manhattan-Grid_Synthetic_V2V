@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import math
 from dataclasses import dataclass
 
@@ -213,7 +214,10 @@ def test_pair_geometry_reports_angles_and_not_optical_power() -> None:
     the same separation section 5.3 draws for blockage.
     """
 
-    import grail_v.geometry.pair_geometry as module
+    # ``importlib`` rather than ``import ... as``: a package attribute can
+    # shadow a submodule of the same name, and this test must fail only on a
+    # real boundary violation.
+    module = importlib.import_module("grail_v.geometry.pair_geometry")
 
     source = module.__file__
     assert source is not None

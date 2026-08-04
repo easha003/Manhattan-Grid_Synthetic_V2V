@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import math
 from dataclasses import dataclass
 
@@ -230,7 +231,7 @@ def test_occlusion_does_not_depend_on_any_path_loss_model() -> None:
     imports is what makes that structural.
     """
 
-    import grail_v.geometry.vehicle_occlusion as module
+    module = importlib.import_module("grail_v.geometry.vehicle_occlusion")
 
     source = module.__file__
     assert source is not None
