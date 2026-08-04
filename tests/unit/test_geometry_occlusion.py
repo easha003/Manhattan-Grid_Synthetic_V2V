@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from grail_v.geometry.link_endpoints import (
+from grail_v.core.link_endpoints import (
     DEFAULT_HEADLAMP_HEIGHT_M,
     DEFAULT_RF_ANTENNA_HEIGHT_M,
     antenna_position,

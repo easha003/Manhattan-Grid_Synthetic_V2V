@@ -883,6 +883,27 @@ current consecutive-miss count.
 There is no head-of-line slack because packets do not queue across their
 deadlines in this model.
 
+Nineteen named features; two of them carry eight-packet histories, so the
+policy receives **33 columns**. Order follows the configured `features` list,
+so it is fixed by the frozen configuration rather than by construction order —
+a silent reordering would leave a checkpoint reading the wrong columns with
+every shape check still passing.
+
+**Open — this list has no junction feature.** It was written before §4.6.1
+established junction spanning as the strongest predictor available, a 65–121×
+lift against a separation signal that is non-monotonic and weak. The policy is
+currently handed `pair_distance` and asked to infer from it while the feature
+that carries the signal is absent, even though junction context is lawful
+(own pose plus a map) and is already the barrier's one deliberate exception.
+Two things must be settled before adding it: `intersection_context` lives in
+`grail_v.geometry`, which the observation layer cannot import, and it reaches
+`grid_network` so it cannot simply move to `core` without inverting the
+layering; and adding a feature changes the configuration hash and therefore
+re-stamps traces, even though `observation.features` cannot alter a generated
+mobility byte. That is §11.2's exclusion question on a field where the answer
+is not obviously the same, because the field *does* determine training
+artifacts.
+
 ### 6.2 Sensor and track abstraction
 
 20 Hz track updates; 50 ms nominal observation latency; zero-mean position
@@ -894,6 +915,25 @@ Noise and latency sensitivities use half and twice the baseline values.
 
 The predictor propagates track uncertainty and produces a blockage
 **probability**, not a perfect future binary state.
+
+**Three quantities this section does not declare, found while implementing it.**
+Each is left un-noised in the code rather than given an invented default, and
+each is wired so a sensitivity can be run without touching the modules:
+
+1. **No heading noise.** Only position and speed carry error, so heading is
+   observed exactly and the forecast's cross-track uncertainty never grows
+   (`SensorModel.heading_noise_std_rad`, default 0). This is optimistic in a
+   pointed way: a real tracker infers heading from successive positions and is
+   worst at low speed, which is exactly where a leader turning at a junction
+   breaks the optical link — §4.6.1's dominant failure mechanism.
+2. **No track lifetime.** Nothing says when a vehicle stops being tracked, so
+   `TrackStore` forgets nothing unless a caller chooses a bound and owns it.
+3. **Vehicle dimensions are exact.** Building a blocker footprint needs length,
+   width and height, and none of the three carries noise, so the policy knows
+   every body's size perfectly.
+
+All three make the policy's world cleaner than a real one. They belong with
+§4.7's declared limitations and must be sourced or bounded before Gate 4.
 
 ### 6.3 Action-dependent information
 

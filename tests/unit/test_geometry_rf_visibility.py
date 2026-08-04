@@ -8,8 +8,8 @@ import pytest
 
 from grail_v.core.enums import RFPropagationState
 from grail_v.core.geometry import Point, Segment
+from grail_v.core.link_endpoints import rf_link_path
 from grail_v.geometry.building_geometry import LANE_WIDTH_M, BuildingLayout
-from grail_v.geometry.link_endpoints import rf_link_path
 from grail_v.geometry.rf_visibility import (
     building_obstructs,
     classify_pair,

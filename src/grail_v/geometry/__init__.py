@@ -11,19 +11,20 @@ while forcing the blockage predictor either to duplicate tested code or to have
 an exception carved into the guard.  Moving them fixed the package boundary
 rather than weakening the rule.
 
-This package must **not** re-export them.  A re-export would let observation
-reach ``Segment`` through ``grail_v.geometry`` and turn the guard into theatre.
+The same reasoning moved :mod:`grail_v.core.link_endpoints`.  Where a headlamp,
+photodiode or antenna sits on a vehicle is a *mounting convention*, not
+simulator state, and the blockage predictor must build the optical path from
+predicted endpoints using the same follower-front-to-leader-rear rule the
+occlusion engine uses.  Two copies of that rule could drift apart silently and
+mis-state the forecast, which is the failure the move exists to prevent.
+
+This package does **not** re-export either module.  Nothing is hidden by that
+-- the observation guard already forbids importing this package at all -- but
+one obvious import path per symbol keeps it clear which layer owns what, and
+stops a future guard relaxation from quietly widening its own reach.
 """
 
 from grail_v.geometry.building_geometry import LANE_WIDTH_M, BuildingLayout
-from grail_v.geometry.link_endpoints import LinkPath, optical_link_path, rf_link_path
-
-# ``pair_geometry`` the function is deliberately not re-exported here: it would
-# bind as an attribute of this package under the same name as the
-# ``pair_geometry`` submodule and shadow it, so ``import
-# grail_v.geometry.pair_geometry`` would return the function.  Import it from
-# its module directly.
-from grail_v.geometry.pair_geometry import PairGeometry
 from grail_v.geometry.rf_visibility import RFVisibility, classify_pair, classify_path
 from grail_v.geometry.spatial_index import SpatialIndex
 from grail_v.geometry.vehicle_occlusion import Occlusion, is_obstructed, occluding_vehicles
@@ -31,15 +32,11 @@ from grail_v.geometry.vehicle_occlusion import Occlusion, is_obstructed, occludi
 __all__ = [
     "LANE_WIDTH_M",
     "BuildingLayout",
-    "LinkPath",
     "Occlusion",
-    "PairGeometry",
     "RFVisibility",
     "SpatialIndex",
     "classify_pair",
     "classify_path",
     "is_obstructed",
     "occluding_vehicles",
-    "optical_link_path",
-    "rf_link_path",
 ]

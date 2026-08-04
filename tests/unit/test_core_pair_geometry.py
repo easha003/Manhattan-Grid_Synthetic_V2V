@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from grail_v.geometry.pair_geometry import (
+from grail_v.core.pair_geometry import (
     DEFAULT_FOV_HALF_ANGLE_RAD,
     pair_geometry,
     wrap_to_pi,
@@ -217,7 +217,7 @@ def test_pair_geometry_reports_angles_and_not_optical_power() -> None:
     # ``importlib`` rather than ``import ... as``: a package attribute can
     # shadow a submodule of the same name, and this test must fail only on a
     # real boundary violation.
-    module = importlib.import_module("grail_v.geometry.pair_geometry")
+    module = importlib.import_module("grail_v.core.pair_geometry")
 
     source = module.__file__
     assert source is not None

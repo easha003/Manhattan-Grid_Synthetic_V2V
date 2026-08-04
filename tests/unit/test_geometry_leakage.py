@@ -179,22 +179,44 @@ def test_core_geometry_depends_on_nothing_in_the_project() -> None:
     )
 
 
-def test_the_geometry_package_does_not_re_export_the_primitives() -> None:
-    """A re-export would route ``Segment`` back through the forbidden package.
+def test_the_geometry_package_does_not_re_export_what_moved_to_core() -> None:
+    """One obvious import path per symbol.
 
-    The observation guard tests imports of ``grail_v.geometry``; if that
-    package handed out the primitives too, the layer could reach them by
-    importing it and the guard would be theatre.
+    This hides nothing on its own -- the guard above already forbids importing
+    this package at all -- but a symbol reachable from two layers invites code
+    that is unclear about which one it belongs to, and it would let a future
+    relaxation of the guard quietly widen its own reach.
     """
 
-    smuggled = [
-        name
-        for name in ("Point", "Segment", "OrientedRectangle", "segment_intersects_rectangle")
-        if hasattr(grail_v.geometry, name)
-    ]
-    assert not smuggled, (
-        f"grail_v.geometry must not re-export core primitives; found {smuggled}"
+    moved = (
+        "Point",
+        "Segment",
+        "OrientedRectangle",
+        "segment_intersects_rectangle",
+        "LinkPath",
+        "optical_link_path",
+        "rf_link_path",
     )
+    smuggled = [name for name in moved if hasattr(grail_v.geometry, name)]
+    assert not smuggled, (
+        f"grail_v.geometry must not re-export what now lives in core; found {smuggled}"
+    )
+
+
+def test_core_link_endpoints_depends_on_nothing_stateful() -> None:
+    """The mounting convention travels with the primitives, for the same reason.
+
+    Where a headlamp or photodiode sits on a body is hardware geometry.  The
+    predictor needs the identical follower-front-to-leader-rear rule the
+    occlusion engine uses, and two copies of it could drift apart without any
+    test noticing.
+    """
+
+    imported = imported_names("grail_v.core.link_endpoints")
+    offenders = sorted(
+        name for name in imported if name.startswith("grail_v") and "core." not in name
+    )
+    assert not offenders, f"core link endpoints reached outside core: {offenders}"
 
 
 def test_intersection_context_is_the_only_geometry_a_policy_may_see() -> None:

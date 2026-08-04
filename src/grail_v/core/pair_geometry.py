@@ -34,7 +34,7 @@ import math
 from dataclasses import dataclass
 
 from grail_v.core.geometry import Point, VehicleFootprintSource
-from grail_v.geometry.link_endpoints import (
+from grail_v.core.link_endpoints import (
     headlamp_position,
     optical_link_path,
     photodiode_position,
