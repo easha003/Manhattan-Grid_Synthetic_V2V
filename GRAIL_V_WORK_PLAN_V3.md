@@ -400,6 +400,14 @@ engine per timestep, not by the pair extractor.
 
 ### 4.6.1 The complementarity evidence
 
+> **⚠ SUPERSEDED PENDING A MOBILITY FIX — see §4.6.3.** Every blockage figure in
+> §4.6.1 and §4.6.2 is dominated by an artefact: opposing travel directions
+> share one street centreline with no lateral separation, so oncoming vehicles
+> sit exactly on the optical path and physically overlap one another. Removing
+> oncoming blockers drops V-VLC unavailability from 27.1% to 1.8% at
+> \(\rho_L=20\). **Do not cite these tables.** They are retained only so the
+> correction can be audited.
+
 This is the measurement the whole contribution depends on, so it is recorded
 here rather than left to be rediscovered.
 
@@ -527,6 +535,66 @@ because a vehicle crossing perpendicular presents its length to the path and
 not its width. Aggregate availability moved by at most 7 points and the
 non-monotonic density pattern reproduced under both methods, which is a useful
 independent check; the separation profile changed materially.
+
+### 4.6.3 Opposing carriageways are not separated — a blocking defect
+
+Found by the M2 geometry engine during phase 5, on 2026-08-04. This is the
+engine working as intended: it was built to measure the phenomenon, and the
+first thing it measured was that the phenomenon was not real.
+
+**The defect.** `mobility/grid_network.py` gives each street segment two
+directed edges that share a single centreline. `GridEdge.position_at` returns
+the same points for both, so northbound and southbound traffic occupy exactly
+the same line. Confirmed on `synthetic-d20-train-000` at \(t=0\):
+
+```
+veh_0000050  edge=E7F7  heading=  0°  spans x 1003.45 → 1007.95  at y=427.00
+veh_0003814  edge=F7E7  heading=180°  spans x 1005.02 → 1009.52  at y=427.00
+```
+
+Two vehicles sharing 2.93 m of road, head to head. Roughly **74 such overlaps
+per frame** at \(\rho_L=20\). The existing invariant
+`test_no_two_vehicles_overlap_on_the_same_edge` compares vehicles on the same
+`edge_id` only, so an opposing pair was never a candidate.
+
+**What it does to the measurements.** Classified by relative heading, blockers
+of the optical path are:
+
+| Blocker | Share |
+|---|---:|
+| Oncoming, 180° | **93.9%** |
+| Cross-traffic, 90° | 5.1% |
+| Same direction | 1.0% |
+
+Every oncoming blocker sits at a lateral offset of **0.000 m** from the pair's
+own axis. A real opposing lane is about 3.5 m off axis and would not intersect
+a headlamp-to-photodiode path running along the transmitter's own lane.
+
+**Corrected magnitude**, \(\rho_L=20\), oncoming blockers excluded:
+
+| | As modelled | Corrected |
+|---|---:|---:|
+| Optical path blocked | 27.1% | **1.8%** |
+| Out of field of view | 1.3% | 1.3% |
+| **V-VLC available** | 72.9% | **≈98.2%** |
+
+**Consequences.**
+
+1. §4.6.1, §4.6.2 and §14.1's worked numbers are all built on the artefact.
+2. The fix — offsetting each direction by half a lane width — changes
+   trajectories, so all 21 traces regenerate and the config hash changes. This
+   is the third mobility retune, and exactly the case risk R4b anticipated.
+3. **The research question needs re-examination before the fix is worth
+   making.** At ≈98% availability V-VLC is no longer intermittent, and the
+   selective-duplication trade-off RQ2 rests on becomes thin. Note the two
+   regimes already observed: non-adjacent pairs blocked 97–100% of the time,
+   adjacent pairs with correct geometry blocked ≈2%. Neither is the
+   intermittent middle the contribution assumes, and no amount of fixing
+   produces one from a straight single-lane grid. That is a scope question, not
+   a bug.
+4. Not all bad: at 98% availability the hybrid relaxes the RF requirement by
+   ≈33× rather than the 4.5–8.4× of §14.1, which makes the \(10^{-5}\) frontier
+   substantially more reachable.
 
 ### 4.7 Declared assumptions and known limitations
 
