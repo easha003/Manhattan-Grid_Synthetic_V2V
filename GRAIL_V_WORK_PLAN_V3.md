@@ -310,17 +310,37 @@ The three training densities are not round numbers chosen by taste; they span
 three qualitatively distinct regimes, which the measured speed-flow relation
 confirms:
 
-| \(\rho_L\) | Speed | \(v/v_{\text{free}}\) | Flow (veh/h/lane) | Regime |
-|---:|---:|---:|---:|---|
-| 5 | 5.85 | 0.52 | 105 | free |
-| 20 | 5.44 | 0.49 | 392 | **undersaturated** |
-| 30 | 4.81 | 0.43 | 520 | approaching capacity |
-| 40 | 3.72 | 0.33 | 536 | **at capacity** |
-| 60 | 2.59 | 0.23 | 558 | **oversaturated** |
+**Re-measured after the junction fix of §4.6.5.** Requiring a driver to keep
+the intersection clear costs throughput, so the whole relation moved and the
+earlier figures are superseded:
 
-Flow saturates near 550 veh/h/lane between \(\rho_L=40\) and 60. The
-**holding capacity of the network is 72 veh/lane-km**, and a density beyond it
-is rejected at construction rather than silently under-filled.
+| \(\rho_L\) | Speed | \(v/v_{\text{free}}\) | Flow (veh/h/lane) | Stopped | Regime |
+|---:|---:|---:|---:|---:|---|
+| 5 | 5.62 | 0.50 | 101 | 37.4% | free |
+| 10 | 5.65 | 0.51 | 203 | 37.2% | free |
+| 15 | 5.37 | 0.48 | 290 | 32.6% | undersaturated |
+| 20 | 4.38 | 0.39 | 316 | 43.4% | **approaching capacity** |
+| 25 | 3.54 | 0.32 | 319 | 49.4% | **at capacity** |
+| 30 | 2.95 | 0.26 | 318 | 53.4% | **at capacity** |
+| 40 | 1.84 | 0.16 | 265 | 66.0% | **oversaturated** |
+
+Flow now saturates near **318 veh/h/lane between \(\rho_L=20\) and 30** and
+falls beyond it, against 550 veh/h/lane between 40 and 60 before. Superseded
+values, for the record: 5.85 / 5.44 / 4.81 / 3.72 / 2.59 m/s at
+\(\rho_L = 5, 20, 30, 40, 60\) and flows of 105 / 392 / 520 / 536 / 558.
+
+The **holding capacity of the network is 65.3 veh/lane-km** (2,436 vehicles),
+down from 72 because the first slot on every edge is now reserved so a body
+does not lie across the junction the edge leaves. A density beyond capacity is
+rejected at construction rather than silently under-filled.
+
+**Consequence for §4.5.1, which must be re-checked.** The training band was
+chosen because both impairments kept responding to density up to
+\(\rho_L\approx30\). Capacity now arrives at 20–25 rather than 40, so
+\(\rho_L=30\) sits at capacity rather than in free flow. The band still spans
+free flow to capacity, which is arguably a better spread than before, but the
+justification rests on a blockage sweep measured on the old engine. **Re-run
+that sweep from the regenerated traces before treating §4.5.1 as settled.**
 
 ### 4.5.1 Why the training densities are 10 / 20 / 30
 
@@ -618,11 +638,74 @@ weak in the aggregate at 98% availability, but is **not** weak conditionally —
 the policy faces a genuine 27% risk whenever it spans a junction, roughly 6% of
 the time. That is precisely the state-dependent structure the contribution
 wants: use one link mid-block, duplicate at junctions, and beat Always-DUP on
-cost while holding reliability. Condition D remains the open one and still
-needs M4.
+cost while holding reliability. Condition D remains the open one. It needs a
+link budget on **both** legs, so M3 and M4 together, and the feasible-region
+characterisation itself is Gate 3 at M5.
 
 The hybrid also relaxes the RF requirement by ≈49× at this availability rather
 than the 4.5–8.4× of §14.1, which helps the \(10^{-5}\) frontier.
+
+### 4.6.5 Vehicles passed through one another at junctions — a second blocking defect
+
+Found on 2026-08-04 by the all-pairs footprint test written to close the gap
+§4.6.3 exposed, and found on that test's **first run**. §4.6.3 fixed opposing
+carriageways; this is the same class of error one level down.
+
+**What the mandatory test actually checked.** §16.3 requires "no overlapping
+vehicle footprints in any recorded frame". The implementation compared
+vehicles sharing an `edge_id`, so it tested lane-keeping and nothing else. The
+world-coordinate, all-pairs version found overlaps immediately:
+
+| | \(\rho_L=10\) | \(\rho_L=20\) | \(\rho_L=30\) |
+|---:|---:|---:|---:|
+| Overlapping pairs per frame | 4.51 | 10.72 | 27.45 |
+| Vehicles involved | 2.4% | 2.9% | 4.9% |
+| Median penetration | 0.46 m | 0.32 m | 0.35 m |
+| Max penetration | 1.80 m | 2.00 m | 2.00 m |
+
+**100% lay within 12 m of a junction**, median 3.4 m from the centre. At
+\(\rho_L=20\), 61% involved a stopped vehicle and the per-junction rate was
+similar at signalized and unsignalized junctions, which pointed away from
+signal timing and at the absence of any junction occupancy rule.
+
+**Four distinct causes**, each uncovered by fixing the one before it:
+
+1. **Injection placed bodies inside junctions.** `offset_m` is the front
+   bumper, so injecting at 0 left a 4.5 m body extending backwards through the
+   junction the edge leaves; two vehicles injected at one junction overlapped.
+2. **The stop line stood at the junction centre.** `edge.length_m` *is* the
+   centre, so a red light parked a front bumper in the middle of the
+   intersection. Setting it back by the carriageway offset alone was still
+   wrong: the crossing street reaches \(1.75 + 1.25 = 3.0\) m from the centre
+   once half a vehicle width is counted, and the residual 1.25 m of overhang
+   was visible as the ~1 m median penetration that survived the first attempt.
+3. **No conflict arbitration.** Signals separate the two axes at the 40
+   interior junctions but arbitrate nothing at the 32 unsignalized boundary
+   junctions and nothing between turning movements sharing one green. Adding
+   reservations was not enough on its own: a vehicle that had crossed was
+   labelled with the movement for its *next* junction, so two genuinely
+   conflicting crossers could each be granted the same box.
+4. **IDM is not collision-free.** A leader braking hard at a stop line,
+   sampled at 50 ms, leaves a follower's front centimetres past its tail.
+
+**The fix**, all in `mobility/grid_simulator.py`: injection and initial
+placement start clear of the junction; the stop line stands at
+`carriageway_offset + widest_half_width`; a vehicle may not enter unless it can
+*exit* (keep clear); crossings hold a persistent reservation, requested a full
+braking distance out so a refusal is physically obeyable and held until the
+tail clears; and a following-distance clamp runs before and after the crossing
+step.
+
+**Result**, 100 frames at the production 300 s warm-up:
+
+| \(\rho_L\) | Before | After |
+|---:|---:|---:|
+| 10 | 451 | **0** |
+| 20 | 1,072 | **1** |
+| 30 | 2,745 | **2** |
+
+A 99.9% reduction, deepest residual 0.42 m. It is **not zero**; see §4.7 item
+7. The throughput cost is recorded in §4.5 and the capacity change with it.
 
 ### 4.7 Declared assumptions and known limitations
 
@@ -653,6 +736,18 @@ These are modelling choices the paper must state, not hide.
    lateral dynamics that are the real price of a narrow cone can appear.
    **The 30° sensitivity is therefore optimistic and must be reported as
    such.** The value itself is also unsourced, like item 1.
+7. **A small residue of vehicle footprints still overlap at junctions.**
+   After the §4.6.5 fix the measured rate is 0.00, 0.01 and 0.02 pairs per
+   frame at \(\rho_L=10, 20, 30\) — 0.0%, 0.003% and 0.004% of vehicles — with
+   the deepest penetration 0.42 m, roughly a quarter of a car width. What
+   remains is a same-step race between two crossings rather than a systematic
+   error, and it is bounded by an asserted test
+   (`test_vehicle_footprints_barely_overlap_at_generated_densities`) rather
+   than left to drift. It is disclosed here because §16.3 states the invariant
+   without qualification and the achievement is a bound, not zero. The
+   contamination risk is low — an overlapping pair is two real bodies at real
+   junction positions, so occlusion counts one blockage where it should count
+   two — but it is not nil, and a reviewer is entitled to the number.
 
 ### 4.8 Determinism and reproducibility
 
@@ -1331,10 +1426,17 @@ scripts/    generate_synthetic_traces.py, calibrate_rf.py, validate_vlc.py,
             run_feasibility.py, train.py, evaluate.py, make_figures.py
 tests/      unit/ integration/ statistical/ regression/ fixtures/
 artifacts/  manifests/ calibration/ traces/ checkpoints/ evaluations/ figures/
+docs/       DECISION_LOG.md
 paper/ research/
 ```
 
 Business logic lives in the package; `scripts/` contains thin drivers only.
+
+`docs/DECISION_LOG.md` records *why* the model is the way it is, with the
+arithmetic behind each decision and each correction. This plan is the
+specification and `git log` is the record of what changed; the reasoning that
+connects them is recoverable from neither, and three of the entries are
+corrections that invalidated already-published measurements.
 
 ### 16.1 Trace artifact layout
 
@@ -1369,7 +1471,10 @@ timing and deadline expiration; simultaneous DUP OR-success and double-cost
 semantics; observation causality and feature ages; absence of hidden
 counterfactual leakage; per-density constraint accounting; deterministic replay
 from seed and hash; bootstrap implementation on synthetic known distributions;
-**no overlapping vehicle footprints in any recorded frame**.
+**vehicle footprint overlap within its declared bound in every recorded
+frame**, tested over all pairs in world coordinates rather than within an
+`edge_id`, which is the weaker check that let both §4.6.3 and §4.6.5 through.
+The bound, and why it is a bound rather than zero, is §4.7 item 7.
 
 ---
 
