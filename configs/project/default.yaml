@@ -7,8 +7,19 @@ project:
 
 geometry:
   tagged_pair_mode: "longitudinal_following"
+  # Widened from 5-40 m on 2026-08-04.  Two reasons, both measured.
+  #
+  # Optical power falls as 1/d^2 while RF at these ranges keeps 40 dB of
+  # margin, so the far end of the window is a regime where V-VLC degrades and
+  # the radio does not -- a complementarity axis the policy observes directly.
+  #
+  # And an *adjacent* pair at 5-15 m has nowhere for a third vehicle to insert:
+  # a cut-in needs 4.5 + 2 x 2.5 = 9.5 m.  With lane changing but the narrow
+  # window, only 5% of episodes ever saw a vehicle between the pair and
+  # mid-block unavailability reached 0.58%.  The window is what lets the
+  # lane-change mechanism of section 4.9 stage 1 actually bite.
   min_separation_m: 5.0
-  max_separation_m: 40.0
+  max_separation_m: 100.0
   rf_antenna_height_m: 1.5
   headlamp_height_m: 0.7
   photodiode_height_m: 0.7
