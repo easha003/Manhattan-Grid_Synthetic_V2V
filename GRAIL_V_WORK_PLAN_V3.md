@@ -895,6 +895,44 @@ with a *non-map-derivable* component — that is, when mid-block unavailability
 is materially above the 0.25–0.50% the single-lane model produces — and Gate 1
 still passes at the re-derived densities.
 
+**Measured checkpoint, \(\rho_L=20\), after steps 1B–1E and stage 2's window.**
+In-memory probe, 40 s, so indicative rather than settled:
+
+| | 1 lane, 5–40 m | 1 lane, 5–100 m | 2 lanes, 5–100 m |
+|---|---:|---:|---:|
+| Episodes with a blocker | 0.00% | 1.12% | **6.15%** |
+| Mid-block unavailable | 0.00% | 1.16% | **1.97%** |
+| Spanning unavailable | 30.51% | 33.33% | 33.61% |
+| Aggregate available | 98.35% | 98.03% | **95.85%** |
+
+The non-map-derivable component now exists: a cut-in reaches 6.15% of episodes
+against 0% when adjacency made one impossible, and mid-block unavailability is
+no longer zero. Note that even one lane gains a blocker mechanism once the
+window widens, because a vehicle *turning in* from a side street can land
+between a pair separated by more than a block.
+
+**But the target was wrong, and this is what corrects it.** Availability moved
+only 98.35% → 95.85%. Reaching 75–90% through geometry would need blockage five
+to ten times higher than any plausible Manhattan layout produces for an
+*adjacent* pair, because two vehicles following one another on a straight
+street mostly can see each other. That is a fact about the corridor, not a
+shortfall in the model.
+
+The remaining impairment belongs to the link budget, which §14.1 already
+separates:
+
+\[
+P(\text{VLC fails}) = \underbrace{P_\text{out}}_{\approx 4\%,\ \text{geometry}}
++ (1 - P_\text{out})\,\underbrace{\text{PER}_\text{clear}}_{\text{link budget}}
+\]
+
+At 100 m the optical path carries \((100/20)^2 = 25\times\) less power than at
+the old window's far end — 14 dB — and fog and daylight ambient act on
+\(\text{PER}_\text{clear}\) alone. **Mobility supplies
+\(P_\text{out}\approx4\%\); M4 supplies the rest.** Widening the window was
+worth doing precisely because it puts pairs at ranges where the link budget
+bites, not because it adds bodies to the path.
+
 **The tripwire.** The hybrid gain is capped at \(1/P_\text{out}\): 49× at
 today's 2%, 6.7× at 15%, 2.9× at 35%. Overshooting the pessimism makes
 \(10^{-4}\) unreachable and turns the result into H1's "infeasible" branch.
