@@ -147,3 +147,75 @@ __all__ = [
     "integrate",
     "stop_line_gap",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class MOBILParameters:
+    """Lane-change decision parameters (Kesting, Treiber and Helbing).
+
+    Lane changing is what gives V-VLC a blockage that is **not derivable from
+    a map**.  Junction cross-traffic is predictable from own pose plus a road
+    layout; a vehicle deciding to overtake is not, and work plan §4.9 records
+    that distinction as the reason RQ3 and H7 survive.
+    """
+
+    #: Weight given to the vehicles a change inconveniences.  Zero is purely
+    #: selfish, one weights others equally with oneself.
+    politeness: float = 0.3
+    #: Advantage a change must yield before it is worth making, in m/s^2.
+    threshold_mps2: float = 0.1
+    #: A change is refused outright if it would force the new follower to brake
+    #: harder than this.  Safety is a veto, never traded against incentive.
+    safe_deceleration_mps2: float = 4.0
+    #: Keep-right bias: added when moving towards the kerb and subtracted when
+    #: moving inward, so the inside lane is vacated when it is not needed.
+    keep_right_bias_mps2: float = 0.3
+    #: A manoeuvre occupies the vehicle for this long, and it cannot begin
+    #: another until it completes.  Without it the criterion is re-evaluated
+    #: every 50 ms and vehicles oscillate between lanes at 20 Hz, which
+    #: produced 937 changes per vehicle-hour against a plausible few dozen.
+    manoeuvre_duration_s: float = 3.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.politeness <= 1.0:
+            raise ValueError("politeness must lie in [0, 1]")
+        for name in ("threshold_mps2", "safe_deceleration_mps2", "keep_right_bias_mps2"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        if not math.isfinite(self.manoeuvre_duration_s) or self.manoeuvre_duration_s <= 0.0:
+            raise ValueError("manoeuvre_duration_s must be finite and positive")
+
+
+def mobil_accepts(
+    *,
+    own_before: float,
+    own_after: float,
+    new_follower_before: float,
+    new_follower_after: float,
+    old_follower_before: float,
+    old_follower_after: float,
+    parameters: MOBILParameters,
+    bias_mps2: float = 0.0,
+) -> bool:
+    """Whether MOBIL sanctions a lane change, given accelerations either side.
+
+    The caller supplies the six accelerations because only it knows the lane
+    neighbourhood; keeping the criterion free of that lookup is what makes it
+    testable without a simulator.
+
+    Two clauses, and the order matters.  **Safety is a veto**: if the vehicle
+    that would end up behind must brake harder than
+    ``safe_deceleration_mps2``, the change is refused whatever it gains.  Only
+    then is the incentive weighed, and the politeness term is what stops a
+    vehicle from buying its own small gain with a large loss imposed on
+    someone else.
+    """
+
+    if new_follower_after < -parameters.safe_deceleration_mps2:
+        return False
+
+    gain = (own_after - own_before) + parameters.politeness * (
+        (new_follower_after - new_follower_before) + (old_follower_after - old_follower_before)
+    )
+    return gain + bias_mps2 > parameters.threshold_mps2

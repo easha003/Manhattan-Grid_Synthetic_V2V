@@ -28,8 +28,10 @@ import numpy as np
 from grail_v.core.errors import GrailVError
 from grail_v.mobility.car_following import (
     IDMParameters,
+    MOBILParameters,
     acceleration_mps2,
     integrate,
+    mobil_accepts,
     stop_line_gap,
 )
 from grail_v.mobility.grid_network import _TURNS, Direction, GridEdge, GridNetwork
@@ -61,7 +63,7 @@ _OPPOSITE: dict[Direction, Direction] = {
 }
 
 
-def _movements_conflict(a: _Movement, b: _Movement) -> bool:
+def _movements_conflict(a: _Movement, b: _Movement, lane_a: int, lane_b: int) -> bool:
     """Do two paths through a junction box cross one another?
 
     Deliberately conservative, because a false "compatible" produces
@@ -72,19 +74,33 @@ def _movements_conflict(a: _Movement, b: _Movement) -> bool:
     * opposing straight traffic runs on separate carriageways and never meets;
     * an unprotected left turn crosses the opposing lane;
     * anything perpendicular crosses by construction;
-    * two vehicles from the *same* approach share one lane, so the follower
-      must wait for the leader's tail to clear the box even though their paths
-      never cross.
+    * two vehicles from the *same* approach and the *same* lane are a queue,
+      so the follower waits for the leader's tail even though their paths
+      never cross; different lanes of one approach run parallel and do not.
     """
 
     (from_a, to_a), (from_b, to_b) = a, b
+    if from_a is from_b:
+        # Same approach: two lanes run parallel through the box and never
+        # meet, but two vehicles in *one* lane are a queue, and the follower
+        # must wait for the leader's tail to clear.
+        return lane_a == lane_b
     if from_a is not _OPPOSITE[from_b]:
         return True
+    # Any left turn across an opposing movement conflicts, including against
+    # another left turn.  Real junctions permit opposing lefts together
+    # because both swing wide and pass left-to-left, but this model moves a
+    # vehicle from entry to exit along a straight line with no swept path, so
+    # the two genuinely cross here.  Permitting them produced measurable
+    # footprint overlap, which is how this was found: **the conflict rule must
+    # match what the geometry can represent, not what drivers can do.**  The
+    # throughput this costs is a junction-capacity effect and belongs to signal
+    # progression (§4.9 stage 1.3), not to loosening a safety rule.
     return _TURNS[from_a]["left"] is to_a or _TURNS[from_b]["left"] is to_b
 
 
 def _release_reservation(
-    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, _Movement]]]
+    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, _Movement, int]]]
 ) -> None:
     """Drop this vehicle's junction claim, if it holds one."""
 
@@ -157,7 +173,12 @@ class _Vehicle:
     route_index: int
     offset_m: float
     speed_mps: float
+    #: Travel lane on the current edge; 0 is nearest the street centreline.
+    lane_index: int = 0
     acceleration_mps2: float = 0.0
+    #: Wall-clock time before which no further lane change may begin,
+    #: because the previous manoeuvre is still in progress.
+    lane_change_ready_s: float = -math.inf
     #: Junction this vehicle currently holds the right to cross, if any.  Held
     #: from before the braking point until the tail clears the box, so the
     #: decision cannot flip while the vehicle is too close to stop.
@@ -166,6 +187,23 @@ class _Vehicle:
     @property
     def edge(self) -> GridEdge:
         return self.route[self.route_index]
+
+    @property
+    def lane_key(self) -> tuple[str, int]:
+        """Queue this vehicle belongs to: one lane of one directed edge."""
+
+        return (self.edge.edge_id, self.lane_index)
+
+    def lane_on(self, edge: GridEdge) -> int:
+        """Lane this vehicle would occupy on ``edge``.
+
+        Keeps its index where the target has one, and clamps otherwise.  Turn
+        preference is deliberately absent until lane changing exists: without
+        it, forcing a right-turner into the kerb lane here would teleport it
+        sideways at the junction.
+        """
+
+        return min(self.lane_index, edge.lanes - 1)
 
     @property
     def route_id(self) -> str:
@@ -204,11 +242,13 @@ class GridMobilitySimulator:
         signals: SignalController | None = None,
         idm: IDMParameters | None = None,
         vehicle_distribution: VehicleTypeDistribution | None = None,
+        mobil: MOBILParameters | None = None,
     ) -> None:
         self.network = network or GridNetwork()
         self.signals = signals or SignalController(self.network)
         self.idm = idm or IDMParameters(desired_speed_mps=self.network.spec.speed_limit_mps)
         self.distribution = vehicle_distribution or headline_vehicle_distribution()
+        self.mobil = mobil or MOBILParameters()
         self.spec_turns: dict[str, float] = TurnProbabilities().as_mapping()
 
         # Reach of the junction box along an approach, measured from the
@@ -257,7 +297,7 @@ class GridMobilitySimulator:
         self,
         index: int,
         rng: np.random.Generator,
-        occupancy: dict[str, tuple[float, float]] | None = None,
+        occupancy: dict[tuple[str, int], tuple[float, float]] | None = None,
     ) -> _Vehicle | None:
         """Inject one vehicle at a boundary entry that has room for it.
 
@@ -277,14 +317,25 @@ class GridMobilitySimulator:
         entry_offset_m = self._junction_half_box_m + vehicle_type.length_m
 
         start: GridEdge | None = None
+        start_lane = 0
         for position in rng.permutation(len(entries)):
             candidate = entries[int(position)]
-            rear = None if occupancy is None else occupancy.get(candidate.edge_id)
-            if (
-                rear is None
-                or (rear[0] - rear[1]) - entry_offset_m >= self.idm.minimum_gap_m
-            ):
-                start = candidate
+            # Try the candidate's lanes in random order too, so injection does
+            # not systematically fill the inside lane first.
+            for lane in rng.permutation(candidate.lanes):
+                lane_index = int(lane)
+                rear = (
+                    None
+                    if occupancy is None
+                    else occupancy.get((candidate.edge_id, lane_index))
+                )
+                if (
+                    rear is None
+                    or (rear[0] - rear[1]) - entry_offset_m >= self.idm.minimum_gap_m
+                ):
+                    start, start_lane = candidate, lane_index
+                    break
+            if start is not None:
                 break
         if start is None:
             # Every boundary entry is occupied. Injecting anyway would place
@@ -298,10 +349,128 @@ class GridMobilitySimulator:
             route=self._sample_route(start, rng),
             route_index=0,
             offset_m=entry_offset_m,
+            lane_index=start_lane,
             speed_mps=0.0,
         )
 
     # -- the step loop ----------------------------------------------------
+
+    def _lane_changes(self, vehicles: list[_Vehicle], *, time_s: float) -> int:
+        """Apply one round of MOBIL lane changes; return how many happened.
+
+        Decisions are taken against a single snapshot so that no vehicle's
+        choice depends on how many others were considered first, then applied
+        in a deterministic order with the physical room re-checked against the
+        state as it evolves.  Deciding and applying in one pass would make the
+        outcome depend on iteration order, and a replay would stop reproducing
+        the run it replays.
+        """
+
+        by_lane: dict[tuple[str, int], list[_Vehicle]] = {}
+        for vehicle in vehicles:
+            by_lane.setdefault(vehicle.lane_key, []).append(vehicle)
+        for group in by_lane.values():
+            group.sort(key=lambda item: item.offset_m)
+
+        def neighbours(
+            edge_id: str, lane: int, offset_m: float, exclude: str | None
+        ) -> tuple[_Vehicle | None, _Vehicle | None]:
+            leader: _Vehicle | None = None
+            follower: _Vehicle | None = None
+            for other in by_lane.get((edge_id, lane), ()):
+                if other.vehicle_id == exclude:
+                    continue
+                if other.offset_m > offset_m:
+                    leader = other
+                    break
+                follower = other
+            return leader, follower
+
+        def gap_to(offset_m: float, leader: _Vehicle | None) -> float | None:
+            if leader is None:
+                return None
+            return leader.offset_m - offset_m - leader.vehicle_type.length_m
+
+        def accel(follower: _Vehicle | None, leader: _Vehicle | None) -> float:
+            if follower is None:
+                return 0.0
+            return acceleration_mps2(
+                follower.speed_mps,
+                gap_to(follower.offset_m, leader),
+                None if leader is None else leader.speed_mps,
+                self.idm,
+            )
+
+        decisions: list[tuple[_Vehicle, int]] = []
+        for vehicle in vehicles:
+            edge = vehicle.edge
+            if edge.lanes < 2 or time_s < vehicle.lane_change_ready_s:
+                continue
+            own_leader, own_follower = neighbours(
+                edge.edge_id, vehicle.lane_index, vehicle.offset_m, vehicle.vehicle_id
+            )
+            own_before = accel(vehicle, own_leader)
+
+            for target_lane in (vehicle.lane_index - 1, vehicle.lane_index + 1):
+                if not 0 <= target_lane < edge.lanes:
+                    continue
+                new_leader, new_follower = neighbours(
+                    edge.edge_id, target_lane, vehicle.offset_m, vehicle.vehicle_id
+                )
+
+                # Physical room first: MOBIL's safety clause bounds braking,
+                # not overlap, and a body cannot occupy space another holds.
+                ahead = gap_to(vehicle.offset_m, new_leader)
+                behind = (
+                    None
+                    if new_follower is None
+                    else gap_to(new_follower.offset_m, vehicle)
+                )
+                if (ahead is not None and ahead < self.idm.minimum_gap_m) or (
+                    behind is not None and behind < self.idm.minimum_gap_m
+                ):
+                    continue
+
+                # Moving outward means a higher lane index, towards the kerb.
+                bias = self.mobil.keep_right_bias_mps2 * (
+                    1.0 if target_lane > vehicle.lane_index else -1.0
+                )
+                if mobil_accepts(
+                    own_before=own_before,
+                    own_after=accel(vehicle, new_leader),
+                    new_follower_before=accel(new_follower, new_leader),
+                    new_follower_after=accel(new_follower, vehicle),
+                    old_follower_before=accel(own_follower, vehicle),
+                    old_follower_after=accel(own_follower, own_leader),
+                    parameters=self.mobil,
+                    bias_mps2=bias,
+                ):
+                    decisions.append((vehicle, target_lane))
+                    break
+
+        applied = 0
+        for vehicle, target_lane in sorted(
+            decisions, key=lambda item: (item[0].edge.edge_id, item[0].vehicle_id)
+        ):
+            edge = vehicle.edge
+            leader, follower = neighbours(
+                edge.edge_id, target_lane, vehicle.offset_m, vehicle.vehicle_id
+            )
+            ahead = gap_to(vehicle.offset_m, leader)
+            behind = None if follower is None else gap_to(follower.offset_m, vehicle)
+            if (ahead is not None and ahead < self.idm.minimum_gap_m) or (
+                behind is not None and behind < self.idm.minimum_gap_m
+            ):
+                continue
+
+            by_lane[vehicle.lane_key].remove(vehicle)
+            vehicle.lane_index = target_lane
+            vehicle.lane_change_ready_s = time_s + self.mobil.manoeuvre_duration_s
+            destination = by_lane.setdefault(vehicle.lane_key, [])
+            destination.append(vehicle)
+            destination.sort(key=lambda item: item.offset_m)
+            applied += 1
+        return applied
 
     def _leader_gaps(
         self, vehicles: list[_Vehicle]
@@ -317,15 +486,15 @@ class GridMobilitySimulator:
         and land on top of a queue waiting on the far side.
         """
 
-        by_edge: dict[str, list[_Vehicle]] = {}
+        by_lane: dict[tuple[str, int], list[_Vehicle]] = {}
         for vehicle in vehicles:
-            by_edge.setdefault(vehicle.edge.edge_id, []).append(vehicle)
-        for group in by_edge.values():
+            by_lane.setdefault(vehicle.lane_key, []).append(vehicle)
+        for group in by_lane.values():
             group.sort(key=lambda item: item.offset_m)
-        rearmost = {edge_id: group[0] for edge_id, group in by_edge.items() if group}
+        rearmost = {key: group[0] for key, group in by_lane.items() if group}
 
         gaps: dict[str, tuple[float | None, float | None]] = {}
-        for group in by_edge.values():
+        for group in by_lane.values():
             for index, vehicle in enumerate(group):
                 if index + 1 < len(group):
                     leader = group[index + 1]
@@ -338,7 +507,11 @@ class GridMobilitySimulator:
                     if vehicle.route_index + 1 < len(vehicle.route)
                     else None
                 )
-                ahead = rearmost.get(following.edge_id) if following is not None else None
+                ahead = (
+                    rearmost.get((following.edge_id, vehicle.lane_on(following)))
+                    if following is not None
+                    else None
+                )
                 if ahead is None:
                     gaps[vehicle.vehicle_id] = (None, None)
                 else:
@@ -365,21 +538,25 @@ class GridMobilitySimulator:
         route and whose tail still lies in the junction.
         """
 
-        by_edge: dict[str, list[_Vehicle]] = {}
+        by_lane: dict[tuple[str, int], list[_Vehicle]] = {}
         for vehicle in vehicles:
-            by_edge.setdefault(vehicle.edge.edge_id, []).append(vehicle)
-        for group in by_edge.values():
+            by_lane.setdefault(vehicle.lane_key, []).append(vehicle)
+        for group in by_lane.values():
             group.sort(key=lambda item: item.offset_m)
-        rearmost = {edge_id: group[0] for edge_id, group in by_edge.items() if group}
+        rearmost = {key: group[0] for key, group in by_lane.items() if group}
 
-        for group in by_edge.values():
+        for group in by_lane.values():
             leading = group[-1]
             following = (
                 leading.route[leading.route_index + 1]
                 if leading.route_index + 1 < len(leading.route)
                 else None
             )
-            ahead = rearmost.get(following.edge_id) if following is not None else None
+            ahead = (
+                rearmost.get((following.edge_id, leading.lane_on(following)))
+                if following is not None
+                else None
+            )
             if ahead is not None and ahead is not leading:
                 limit = (
                     leading.edge.length_m + ahead.offset_m - ahead.vehicle_type.length_m - _CONTACT_EPS_M
@@ -408,7 +585,7 @@ class GridMobilitySimulator:
 
     def _junction_occupancy(
         self, vehicles: list[_Vehicle], half_box: float
-    ) -> dict[str, list[tuple[str, _Movement]]]:
+    ) -> dict[str, list[tuple[str, _Movement, int]]]:
         """Which vehicles' bodies currently lie inside each junction box.
 
         A vehicle occupies the box ahead once its front passes the stop line,
@@ -416,7 +593,7 @@ class GridMobilitySimulator:
         matter: a long vehicle that has crossed is still in the way.
         """
 
-        occupancy: dict[str, list[tuple[str, _Movement]]] = {}
+        occupancy: dict[str, list[tuple[str, _Movement, int]]] = {}
         for vehicle in vehicles:
             edge = vehicle.edge
             if vehicle.reserved_junction is not None:
@@ -424,15 +601,20 @@ class GridMobilitySimulator:
                     (
                         vehicle.vehicle_id,
                         self._movement_through(vehicle, vehicle.reserved_junction),
+                        vehicle.lane_index,
                     )
                 )
             elif vehicle.offset_m > edge.length_m - half_box:
                 occupancy.setdefault(edge.to_junction, []).append(
-                    (vehicle.vehicle_id, self._movement_of(vehicle))
+                    (vehicle.vehicle_id, self._movement_of(vehicle), vehicle.lane_index)
                 )
             if vehicle.offset_m - vehicle.vehicle_type.length_m < half_box:
                 occupancy.setdefault(edge.from_junction, []).append(
-                    (vehicle.vehicle_id, self._movement_through(vehicle, edge.from_junction))
+                    (
+                        vehicle.vehicle_id,
+                        self._movement_through(vehicle, edge.from_junction),
+                        vehicle.lane_index,
+                    )
                 )
         return occupancy
 
@@ -468,7 +650,7 @@ class GridMobilitySimulator:
     def _reserve_junction(
         self,
         vehicle: _Vehicle,
-        reservations: dict[str, list[tuple[str, _Movement]]],
+        reservations: dict[str, list[tuple[str, _Movement, int]]],
         half_box: float,
         step_s: float,
     ) -> bool:
@@ -501,20 +683,22 @@ class GridMobilitySimulator:
             return True  # far enough out that nothing needs deciding yet
 
         mine = self._movement_of(vehicle)
-        for other_id, theirs in reservations.get(junction, ()):
+        for other_id, theirs, their_lane in reservations.get(junction, ()):
             if other_id == vehicle.vehicle_id:
                 continue
-            if _movements_conflict(mine, theirs):
+            if _movements_conflict(mine, theirs, vehicle.lane_index, their_lane):
                 return False
 
-        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine))
+        reservations.setdefault(junction, []).append(
+            (vehicle.vehicle_id, mine, vehicle.lane_index)
+        )
         vehicle.reserved_junction = junction
         return True
 
     def _can_clear_junction(
         self,
         vehicle: _Vehicle,
-        occupancy: dict[str, tuple[float, float]],
+        occupancy: dict[tuple[str, int], tuple[float, float]],
         half_box: float,
     ) -> bool:
         """Is there room beyond the junction for this vehicle's whole body?
@@ -538,7 +722,7 @@ class GridMobilitySimulator:
         if following is None:
             return True  # leaving the grid; nothing to block
 
-        occupied = occupancy.get(following.edge_id)
+        occupied = occupancy.get((following.edge_id, vehicle.lane_on(following)))
         if occupied is None:
             return True
 
@@ -555,6 +739,10 @@ class GridMobilitySimulator:
         counter: list[int],
         target_count: int,
     ) -> None:
+        # Lateral first, on the pre-motion state, so the longitudinal
+        # update below already sees whatever lane each vehicle chose.
+        self._lane_changes(vehicles, time_s=time_s)
+
         leader_gaps = self._leader_gaps(vehicles)
         half_box = self._junction_half_box_m
         occupancy = self._rearmost_offsets(vehicles)
@@ -648,8 +836,9 @@ class GridMobilitySimulator:
                     break
 
                 target = vehicle.route[vehicle.route_index + 1]
+                target_lane = vehicle.lane_on(target)
                 landing = vehicle.offset_m - vehicle.edge.length_m
-                occupied = rearmost.get(target.edge_id)
+                occupied = rearmost.get((target.edge_id, target_lane))
                 if (
                     occupied is not None
                     and (occupied[0] - occupied[1]) - landing < self.idm.minimum_gap_m
@@ -665,7 +854,11 @@ class GridMobilitySimulator:
 
                 vehicle.offset_m = landing
                 vehicle.route_index += 1
-                rearmost[target.edge_id] = (landing, vehicle.vehicle_type.length_m)
+                vehicle.lane_index = target_lane
+                rearmost[(target.edge_id, target_lane)] = (
+                    landing,
+                    vehicle.vehicle_type.length_m,
+                )
 
         # A claim is surrendered only once the tail is clear of the box, so a
         # long body still lying across the junction keeps holding it.
@@ -698,7 +891,10 @@ class GridMobilitySimulator:
             if replacement is None:
                 break
             survivors.append(replacement)
-            occupancy[replacement.edge.edge_id] = (0.0, replacement.vehicle_type.length_m)
+            occupancy[replacement.lane_key] = (
+                replacement.offset_m,
+                replacement.vehicle_type.length_m,
+            )
         vehicles[:] = survivors
 
     @staticmethod
@@ -706,19 +902,19 @@ class GridMobilitySimulator:
         vehicles: list[_Vehicle],
         *,
         skip: set[int] | None = None,
-    ) -> dict[str, tuple[float, float]]:
-        """Return ``{edge_id: (front_offset, length)}`` for the rearmost vehicle.
+    ) -> dict[tuple[str, int], tuple[float, float]]:
+        """Return ``{(edge_id, lane): (front_offset, length)}`` for the rearmost vehicle.
 
         ``offset_m`` is the vehicle *front*, so its tail sits at
         ``offset_m - length_m``.  Clearance tests need both numbers.
         """
 
         skip = skip or set()
-        rearmost: dict[str, tuple[float, float]] = {}
+        rearmost: dict[tuple[str, int], tuple[float, float]] = {}
         for index, vehicle in enumerate(vehicles):
             if index in skip:
                 continue
-            key = vehicle.edge.edge_id
+            key = vehicle.lane_key
             current = rearmost.get(key)
             if current is None or vehicle.offset_m < current[0]:
                 rearmost[key] = (vehicle.offset_m, vehicle.vehicle_type.length_m)
@@ -746,7 +942,8 @@ class GridMobilitySimulator:
         # for the same reason injection does, so that much of every edge is not
         # available for placement.
         head_room_m = self._junction_half_box_m + largest
-        capacity = np.floor(
+        lane_counts = np.array([edge.lanes for edge in edges], dtype=int)
+        capacity = lane_counts * np.floor(
             np.maximum(lengths - head_room_m, 0.0) / (largest + self.idm.minimum_gap_m)
         ).astype(int)
         if int(capacity.sum()) < count:
@@ -766,19 +963,29 @@ class GridMobilitySimulator:
         for edge, quota in zip(edges, allocation, strict=True):
             if quota <= 0:
                 continue
-            spacing = (edge.length_m - head_room_m) / float(quota)
-            for slot in range(int(quota)):
-                vehicles.append(
-                    _Vehicle(
-                        vehicle_id=f"veh_{index:07d}",
-                        vehicle_type=self._sample_type(rng),
-                        route=self._sample_route(edge, rng),
-                        route_index=0,
-                        offset_m=head_room_m + (slot + 0.5) * spacing,
-                        speed_mps=float(rng.uniform(0.0, self.idm.desired_speed_mps)),
-                    )
+            # Split the edge's allocation as evenly as its lanes allow, then
+            # space each lane independently: sharing one ladder across lanes
+            # would stagger them and hide same-lane spacing errors.
+            for lane_index in range(edge.lanes):
+                in_lane = int(quota) // edge.lanes + (
+                    1 if lane_index < int(quota) % edge.lanes else 0
                 )
-                index += 1
+                if in_lane <= 0:
+                    continue
+                spacing = (edge.length_m - head_room_m) / float(in_lane)
+                for slot in range(in_lane):
+                    vehicles.append(
+                        _Vehicle(
+                            vehicle_id=f"veh_{index:07d}",
+                            vehicle_type=self._sample_type(rng),
+                            route=self._sample_route(edge, rng),
+                            route_index=0,
+                            offset_m=head_room_m + (slot + 0.5) * spacing,
+                            speed_mps=float(rng.uniform(0.0, self.idm.desired_speed_mps)),
+                            lane_index=lane_index,
+                        )
+                    )
+                    index += 1
 
         while len(vehicles) < count:
             extra = self._spawn(index, rng, self._rearmost_offsets(vehicles))
@@ -823,7 +1030,7 @@ class GridMobilitySimulator:
 
         for vehicle in vehicles:
             edge = vehicle.edge
-            x_m, y_m = edge.position_at(vehicle.offset_m)
+            x_m, y_m = edge.position_at(vehicle.offset_m, vehicle.lane_index)
             yield VehicleTraceRecord(
                 trace_id=spec.trace_id,
                 time_s=time_s,
@@ -836,7 +1043,7 @@ class GridMobilitySimulator:
                 length_m=vehicle.vehicle_type.length_m,
                 width_m=vehicle.vehicle_type.width_m,
                 height_m=vehicle.vehicle_type.height_m,
-                lane_id=edge.lane_id(),
+                lane_id=edge.lane_id(vehicle.lane_index),
                 edge_id=edge.edge_id,
                 route_id=vehicle.route_id,
                 vehicle_type=vehicle.vehicle_type.type_id,

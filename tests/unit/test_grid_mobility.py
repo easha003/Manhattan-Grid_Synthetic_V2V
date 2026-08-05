@@ -20,8 +20,10 @@ from grail_v.core.geometry import (
 from grail_v.geometry.spatial_index import SpatialIndex
 from grail_v.mobility.car_following import (
     IDMParameters,
+    MOBILParameters,
     acceleration_mps2,
     integrate,
+    mobil_accepts,
     stop_line_gap,
 )
 from grail_v.mobility.grid_network import Direction, GridNetwork, GridNetworkSpec
@@ -616,3 +618,139 @@ def test_a_lane_index_outside_the_carriageway_is_rejected() -> None:
             spec.lane_centre_offset_m(bad)
         with pytest.raises(ValueError, match="lane_index"):
             edge.position_at(10.0, lane_index=bad)
+
+
+# --------------------------------------------------------------------------
+# lane changing (work plan §4.9 stage 1)
+# --------------------------------------------------------------------------
+
+
+def test_safety_vetoes_a_change_however_much_it_gains() -> None:
+    """Braking harder than the safe bound refuses the change outright.
+
+    Safety is never traded against incentive: it is checked first and returns.
+    """
+
+    parameters = MOBILParameters(safe_deceleration_mps2=4.0)
+    assert not mobil_accepts(
+        own_before=0.0, own_after=10.0,          # enormous gain
+        new_follower_before=0.0, new_follower_after=-9.0,   # unacceptable braking
+        old_follower_before=0.0, old_follower_after=0.0,
+        parameters=parameters,
+    )
+
+
+def test_a_change_needs_to_clear_the_threshold() -> None:
+    parameters = MOBILParameters(politeness=0.0, threshold_mps2=0.2)
+    common = dict(
+        new_follower_before=0.0, new_follower_after=0.0,
+        old_follower_before=0.0, old_follower_after=0.0,
+        parameters=parameters,
+    )
+
+    assert not mobil_accepts(own_before=0.0, own_after=0.1, **common)
+    assert mobil_accepts(own_before=0.0, own_after=0.5, **common)
+
+
+def test_politeness_lets_others_veto_a_selfish_gain() -> None:
+    """A vehicle must not buy a small gain with a large loss imposed on others."""
+
+    selfish = MOBILParameters(politeness=0.0, threshold_mps2=0.1)
+    polite = MOBILParameters(politeness=1.0, threshold_mps2=0.1)
+    case = dict(
+        own_before=0.0, own_after=0.5,
+        new_follower_before=0.0, new_follower_after=-2.0,
+        old_follower_before=0.0, old_follower_after=0.0,
+    )
+
+    assert mobil_accepts(**case, parameters=selfish)
+    assert not mobil_accepts(**case, parameters=polite)
+
+
+def test_the_keep_right_bias_favours_moving_towards_the_kerb() -> None:
+    parameters = MOBILParameters(politeness=0.0, threshold_mps2=0.2)
+    neutral = dict(
+        own_before=0.0, own_after=0.0,
+        new_follower_before=0.0, new_follower_after=0.0,
+        old_follower_before=0.0, old_follower_after=0.0,
+        parameters=parameters,
+    )
+
+    assert mobil_accepts(**neutral, bias_mps2=0.3), "outward: bias alone suffices"
+    assert not mobil_accepts(**neutral, bias_mps2=-0.3), "inward: bias opposes"
+
+
+@pytest.mark.parametrize("bad", [-0.1, 1.1])
+def test_an_unusable_politeness_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="politeness"):
+        MOBILParameters(politeness=bad)
+
+
+def test_a_zero_manoeuvre_duration_is_rejected() -> None:
+    """Without a duration the criterion re-fires at 20 Hz and vehicles oscillate."""
+
+    with pytest.raises(ValueError, match="manoeuvre_duration_s"):
+        MOBILParameters(manoeuvre_duration_s=0.0)
+
+
+def test_a_single_lane_road_produces_no_lane_changes() -> None:
+    simulator, spec = _run(density=20.0, duration=1.0, warmup=60.0)
+    seen: dict[tuple[str, str], int] = {}
+    changes = 0
+
+    for _, vehicles in simulator.run(spec):
+        for vehicle in vehicles:
+            key = (vehicle.vehicle_id, vehicle.edge.edge_id)
+            if key in seen and seen[key] != vehicle.lane_index:
+                changes += 1
+            seen[key] = vehicle.lane_index
+
+    assert changes == 0
+
+
+def test_two_lanes_produce_changes_at_a_plausible_rate() -> None:
+    """The blockage that is *not* derivable from a map (§4.9).
+
+    Rate matters as much as existence: without the manoeuvre duration the
+    criterion re-fires every 50 ms and yields 937 changes per vehicle-hour,
+    which is a vehicle swapping lanes every four seconds.
+    """
+
+    simulator = GridMobilitySimulator(GridNetwork(GridNetworkSpec(lanes_per_direction=2)))
+    spec = GridMobilitySpec(
+        trace_id="lanes", target_density_veh_per_lane_km=20.0,
+        seed=7, warmup_s=60.0, duration_s=5.0,
+    )
+
+    seen: dict[tuple[str, str], int] = {}
+    changes = frames = population = 0
+    for _, vehicles in simulator.run(spec):
+        for vehicle in vehicles:
+            key = (vehicle.vehicle_id, vehicle.edge.edge_id)
+            if key in seen and seen[key] != vehicle.lane_index:
+                changes += 1
+            seen[key] = vehicle.lane_index
+        frames += 1
+        population += len(vehicles)
+
+    vehicle_hours = (population / frames) * (frames * spec.step_s) / 3600.0
+    per_vehicle_hour = changes / vehicle_hours
+
+    assert changes > 0, "two lanes must produce overtaking"
+    assert 5.0 < per_vehicle_hour < 250.0, f"{per_vehicle_hour:.0f}/veh-hour is not plausible"
+
+
+def test_both_lanes_are_used() -> None:
+    simulator = GridMobilitySimulator(GridNetwork(GridNetworkSpec(lanes_per_direction=2)))
+    spec = GridMobilitySpec(
+        trace_id="lanes", target_density_veh_per_lane_km=20.0,
+        seed=7, warmup_s=60.0, duration_s=1.0,
+    )
+
+    occupancy = [0, 0]
+    for _, vehicles in simulator.run(spec):
+        for vehicle in vehicles:
+            occupancy[vehicle.lane_index] += 1
+
+    share = occupancy[0] / sum(occupancy)
+    assert 0.3 < share < 0.7, f"lane use is lopsided: {occupancy}"
