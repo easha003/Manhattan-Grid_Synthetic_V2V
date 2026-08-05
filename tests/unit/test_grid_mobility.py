@@ -47,60 +47,80 @@ def test_topology_matches_the_frozen_synthetic_grid() -> None:
 
     assert len(network.junctions) == 72
     assert len(network.signalized_junction_ids) == 40
-    assert len(network.edges) == 252
-    # No junction radius, so this equals the SUMO *nominal* length exactly.
+    # One directed edge per segment: the streets are one-way.
+    assert len(network.edges) == 126
+    reversed_ids = {f"{edge.to_junction}{edge.from_junction}" for edge in network.edges}
+    assert not reversed_ids & {edge.edge_id for edge in network.edges}
+    # Two lanes one-way is the same total as one lane each way, so lane length
+    # is unchanged and density comparisons carry across the conversion.
     assert network.total_lane_length_m == pytest.approx(37_332.0)
 
 
 def test_edge_geometry_and_headings_are_consistent() -> None:
     network = GridNetwork()
-    edge = network.edge("B5B6")
+    edge = network.edge("B6B5")
 
-    assert edge.direction is Direction.NORTH
+    assert edge.direction is Direction.SOUTH
     assert edge.length_m == pytest.approx(61.0)
-    assert edge.heading_rad == pytest.approx(0.5 * math.pi)
+    assert edge.heading_rad == pytest.approx(1.5 * math.pi)
 
-    start = edge.position_at(0.0)
-    end = edge.position_at(edge.length_m)
-    # Traffic keeps right, so a northbound lane sits east of the centreline.
-    assert start == pytest.approx((244.0 + 1.75, 305.0))
+    start = edge.position_at(0.0, lane_index=1)
+    end = edge.position_at(edge.length_m, lane_index=1)
+    # One-way lanes straddle the centreline; lane 1 is the right-hand one,
+    # and right of southbound is west, so it sits west of the axis.
+    assert start == pytest.approx((244.0 - 1.75, 366.0))
+    # The edge and the spec must report the same lane offsets: they are
+    # separate implementations, and position_at uses the edge's.
+    assert edge.lane_offset_m(1) == pytest.approx(
+        network.spec.lane_centre_offset_m(1)
+    )
     assert end[0] == pytest.approx(start[0])
-    assert end[1] - start[1] == pytest.approx(61.0)
+    assert end[1] - start[1] == pytest.approx(-61.0)
 
 
-def test_opposing_carriageways_are_laterally_separated() -> None:
-    """Regression on work plan section 4.6.3.
+def test_no_street_carries_both_directions() -> None:
+    """One-way removes the §4.6.3 defect at its root rather than separating it.
 
-    Both directions used to share one centreline, so northbound and southbound
-    vehicles occupied the same line: they passed through one another, and an
-    oncoming vehicle sat exactly on the optical path between a tagged pair.
-    That single defect produced 94% of all measured V-VLC blockage.
+    Both directions used to share one centreline, so vehicles passed through
+    one another and an oncoming vehicle sat exactly on the optical path between
+    a tagged pair -- 94% of all measured V-VLC blockage.  Lateral separation
+    fixed that; one-way means there is no oncoming traffic on a street at all.
     """
 
     network = GridNetwork()
-    northbound = network.edge("B5B6")
-    southbound = network.edge("B6B5")
+    edge_ids = {edge.edge_id for edge in network.edges}
 
-    assert northbound.direction is Direction.NORTH
-    assert southbound.direction is Direction.SOUTH
-
-    # Sample both lanes at the same point along the street.
-    north_point = northbound.position_at(30.0)
-    south_point = southbound.position_at(61.0 - 30.0)
-
-    assert north_point[1] == pytest.approx(south_point[1])
-    separation = abs(north_point[0] - south_point[0])
-    assert separation == pytest.approx(2 * 1.75)
-    assert separation > 1.8, "opposing lanes must clear a vehicle width"
+    for edge in network.edges:
+        assert f"{edge.to_junction}{edge.from_junction}" not in edge_ids
 
 
-def test_wider_lanes_push_the_carriageways_further_apart() -> None:
-    narrow = GridNetwork(GridNetworkSpec(lane_width_m=3.0))
-    wide = GridNetwork(GridNetworkSpec(lane_width_m=4.0))
+def test_adjacent_streets_run_opposite_ways() -> None:
+    """Alternating one-way is what makes a green wave possible.
 
-    assert narrow.spec.lane_centre_offset_m(0) == pytest.approx(1.5)
-    assert wide.spec.lane_centre_offset_m(0) == pytest.approx(2.0)
-    assert wide.edge("B5B6").position_at(0.0)[0] > narrow.edge("B5B6").position_at(0.0)[0]
+    A two-way street can only carry one at v = 2L/(kC), which is 1.36 m/s for
+    61 m blocks on a 90 s cycle.
+    """
+
+    network = GridNetwork()
+    avenue_dirs = {}
+    for edge in network.edges:
+        if edge.direction.is_avenue:
+            avenue = network.junction(edge.from_junction).avenue_index
+            avenue_dirs.setdefault(avenue, set()).add(edge.direction)
+
+    for avenue, directions in avenue_dirs.items():
+        assert len(directions) == 1, f"avenue {avenue} carries {directions}"
+    assert len({tuple(d) for d in avenue_dirs.values()}) == 2, "avenues must alternate"
+
+
+def test_wider_lanes_spread_the_carriageway_further() -> None:
+    narrow = GridNetworkSpec(lane_width_m=3.0)
+    wide = GridNetworkSpec(lane_width_m=4.0)
+
+    # One-way lanes straddle the centreline, so lane 0 sits left of it.
+    assert narrow.lane_centre_offset_m(0) == pytest.approx(-1.5)
+    assert wide.lane_centre_offset_m(0) == pytest.approx(-2.0)
+    assert wide.carriageway_width_m > narrow.carriageway_width_m
 
 
 def test_a_carriageway_wider_than_the_block_is_rejected() -> None:
@@ -110,22 +130,27 @@ def test_a_carriageway_wider_than_the_block_is_rejected() -> None:
         GridNetworkSpec(lanes_per_direction=20)
 
 
-def test_turns_resolve_correctly_and_exclude_u_turns() -> None:
-    network = GridNetwork()
-    options = network.turn_options(network.edge("B5B6"))
+def test_a_one_way_junction_offers_at_most_straight_and_one_turn() -> None:
+    """The crossing street decides which way you may turn, not the driver.
 
-    assert options["straight"].direction is Direction.NORTH
-    assert options["left"].direction is Direction.WEST
-    assert options["right"].direction is Direction.EAST
-    assert all(edge.direction is not Direction.SOUTH for edge in options.values())
+    That is a defining constraint of a one-way grid and it halves the turn
+    choices a two-way junction offers.
+    """
+
+    network = GridNetwork()
+    for edge in network.edges:
+        options = network.turn_options(edge)
+        assert len(options) <= 2, f"{edge.edge_id} offers {sorted(options)}"
+        assert not ({"left", "right"} <= set(options)), "cannot offer both turns"
+        for target in options.values():
+            assert target.direction is not _OPPOSITE_DIRECTION[edge.direction]
 
 
 def test_turns_that_leave_the_grid_are_unavailable() -> None:
     network = GridNetwork()
-    options = network.turn_options(network.edge("A0B0"))
-
-    assert "right" not in options, "a right turn at the south edge would leave the grid"
-    assert set(options) == {"left", "straight"}
+    for edge in network.edges:
+        for target in network.turn_options(edge).values():
+            assert target.edge_id in {other.edge_id for other in network.edges}
 
 
 def test_lane_length_scales_with_geometry() -> None:
@@ -229,8 +254,8 @@ def _run(density: float = 40.0, seed: int = 7, duration: float = 5.0, warmup: fl
 def test_density_is_exact_and_needs_no_calibration() -> None:
     """The whole closed-loop density search disappears: N is set, not searched."""
 
-    simulator, spec = _run(density=40.0)
-    expected = round(40.0 * simulator.network.total_lane_length_m / 1000.0)
+    simulator, spec = _run(density=30.0)
+    expected = round(30.0 * simulator.network.total_lane_length_m / 1000.0)
 
     for _, vehicles in simulator.run(spec):
         assert len(vehicles) == expected
@@ -271,12 +296,12 @@ def test_no_two_vehicles_overlap_on_the_same_edge() -> None:
     simulator, spec = _run(density=60.0, duration=5.0, warmup=30.0)
 
     for _, vehicles in simulator.run(spec):
-        by_edge: dict[str, list[tuple[float, float]]] = {}
+        by_lane: dict[tuple[str, int], list[tuple[float, float]]] = {}
         for vehicle in vehicles:
-            by_edge.setdefault(vehicle.edge.edge_id, []).append(
+            by_lane.setdefault(vehicle.lane_key, []).append(
                 (vehicle.offset_m, vehicle.vehicle_type.length_m)
             )
-        for occupants in by_edge.values():
+        for occupants in by_lane.values():
             occupants.sort()
             for (back, _), (front, front_length) in zip(occupants, occupants[1:], strict=False):
                 assert front - back >= front_length - 1e-6, "vehicle footprints overlap"
@@ -551,32 +576,27 @@ def test_density_beyond_holding_capacity_is_rejected() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_one_lane_per_direction_is_unchanged_by_the_lane_generalisation() -> None:
-    """The frozen grid must not move when the lane machinery arrives.
+def test_two_way_lanes_stay_to_one_side_of_the_centreline() -> None:
+    """Kept for comparison: two-way must never let directions share a line."""
 
-    Lane 0's centre is where the single carriageway always sat, so every trace
-    generated before multi-lane existed stays reproducible.
-    """
-
-    network = GridNetwork()
-    assert network.spec.lane_centre_offset_m(0) == pytest.approx(1.75)
-    assert network.edge("B5B6").position_at(0.0) == pytest.approx((245.75, 305.0))
+    spec = GridNetworkSpec(lanes_per_direction=1, one_way=False)
+    assert spec.lane_centre_offset_m(0) == pytest.approx(1.75)
 
 
-def test_lanes_are_spaced_one_width_apart_outward_from_the_centreline() -> None:
-    """Lane 0 sits nearest oncoming traffic; higher indices run to the kerb."""
+def test_one_way_lanes_straddle_the_centreline() -> None:
+    """The whole carriageway runs one way, so the lanes spread across it."""
 
     spec = GridNetworkSpec(lanes_per_direction=3)
     offsets = [spec.lane_centre_offset_m(index) for index in range(3)]
 
-    assert offsets == pytest.approx([1.75, 5.25, 8.75])
+    assert offsets == pytest.approx([-3.5, 0.0, 3.5])
     assert spec.carriageway_width_m == pytest.approx(3 * 3.5)
 
 
 def test_adjacent_lanes_clear_a_vehicle_width() -> None:
-    """Two vehicles side by side must not overlap, as opposing lanes must not."""
+    """Two vehicles side by side must not overlap."""
 
-    edge = GridNetwork(GridNetworkSpec(lanes_per_direction=2)).edge("B5B6")
+    edge = GridNetwork().edge("B6B5")
     inner = edge.position_at(30.0, lane_index=0)
     outer = edge.position_at(30.0, lane_index=1)
 
@@ -585,33 +605,19 @@ def test_adjacent_lanes_clear_a_vehicle_width() -> None:
     assert separation > 2.5, "wider than the widest configured body"
 
 
-def test_opposing_innermost_lanes_stay_separated_with_more_lanes() -> None:
-    """Adding lanes must not re-create the §4.6.3 defect on the inside."""
-
-    network = GridNetwork(GridNetworkSpec(lanes_per_direction=2))
-    north = network.edge("B5B6").position_at(30.0, lane_index=0)
-    south = network.edge("B6B5").position_at(61.0 - 30.0, lane_index=0)
-
-    assert abs(north[0] - south[0]) == pytest.approx(3.5)
-
-
 def test_the_junction_box_reaches_the_outermost_crossing_lane() -> None:
-    """A stop line must clear the kerb-side lane, not the carriageway centre.
+    """A stop line must clear the kerb-side lane, not the carriageway centre."""
 
-    With one lane the two coincide, which is why the distinction only becomes
-    visible now.
-    """
+    two_lane = GridNetworkSpec(lanes_per_direction=2)
+    four_lane = GridNetworkSpec(lanes_per_direction=4)
 
-    one = GridNetworkSpec(lanes_per_direction=1)
-    two = GridNetworkSpec(lanes_per_direction=2)
-
-    assert one.outermost_lane_centre_offset_m == pytest.approx(1.75)
-    assert two.outermost_lane_centre_offset_m == pytest.approx(5.25)
+    assert two_lane.outermost_lane_centre_offset_m == pytest.approx(1.75)
+    assert four_lane.outermost_lane_centre_offset_m == pytest.approx(5.25)
 
 
 def test_a_lane_index_outside_the_carriageway_is_rejected() -> None:
-    spec = GridNetworkSpec(lanes_per_direction=2)
-    edge = GridNetwork(spec).edge("B5B6")
+    spec = GridNetworkSpec()
+    edge = GridNetwork(spec).edge("B6B5")
 
     for bad in (-1, 2, 99):
         with pytest.raises(ValueError, match="lane_index"):
@@ -694,7 +700,11 @@ def test_a_zero_manoeuvre_duration_is_rejected() -> None:
 
 
 def test_a_single_lane_road_produces_no_lane_changes() -> None:
-    simulator, spec = _run(density=20.0, duration=1.0, warmup=60.0)
+    simulator = GridMobilitySimulator(GridNetwork(GridNetworkSpec(lanes_per_direction=1)))
+    spec = GridMobilitySpec(
+        trace_id="single", target_density_veh_per_lane_km=20.0,
+        seed=7, warmup_s=60.0, duration_s=1.0,
+    )
     seen: dict[tuple[str, str], int] = {}
     changes = 0
 
@@ -708,6 +718,14 @@ def test_a_single_lane_road_produces_no_lane_changes() -> None:
     assert changes == 0
 
 
+_OPPOSITE_DIRECTION = {
+    Direction.NORTH: Direction.SOUTH,
+    Direction.SOUTH: Direction.NORTH,
+    Direction.EAST: Direction.WEST,
+    Direction.WEST: Direction.EAST,
+}
+
+
 def test_two_lanes_produce_changes_at_a_plausible_rate() -> None:
     """The blockage that is *not* derivable from a map (§4.9).
 
@@ -716,7 +734,7 @@ def test_two_lanes_produce_changes_at_a_plausible_rate() -> None:
     which is a vehicle swapping lanes every four seconds.
     """
 
-    simulator = GridMobilitySimulator(GridNetwork(GridNetworkSpec(lanes_per_direction=2)))
+    simulator = GridMobilitySimulator(GridNetwork())
     spec = GridMobilitySpec(
         trace_id="lanes", target_density_veh_per_lane_km=20.0,
         seed=7, warmup_s=60.0, duration_s=5.0,
@@ -741,7 +759,7 @@ def test_two_lanes_produce_changes_at_a_plausible_rate() -> None:
 
 
 def test_both_lanes_are_used() -> None:
-    simulator = GridMobilitySimulator(GridNetwork(GridNetworkSpec(lanes_per_direction=2)))
+    simulator = GridMobilitySimulator(GridNetwork())
     spec = GridMobilitySpec(
         trace_id="lanes", target_density_veh_per_lane_km=20.0,
         seed=7, warmup_s=60.0, duration_s=1.0,
