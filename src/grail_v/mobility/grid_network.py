@@ -202,9 +202,11 @@ class GridEdge:
     start_x_m: float
     start_y_m: float
     lanes: int = 1
-    """Travel lanes in this direction; lane 0 is nearest the centreline."""
+    """Travel lanes in this direction; higher indices lie further right."""
 
     lane_width_m: float = LANE_WIDTH_M
+    one_way: bool = True
+    """One-way lanes straddle the centreline; two-way keep to one side of it."""
 
     @property
     def heading_rad(self) -> float:
@@ -223,10 +225,18 @@ class GridEdge:
         return f"{self.edge_id}_{lane_index}"
 
     def lane_offset_m(self, lane_index: int = 0) -> float:
-        """Lateral offset of ``lane_index`` from the street centreline."""
+        """Lateral offset of ``lane_index`` from the street centreline.
+
+        Must agree with ``GridNetworkSpec.lane_centre_offset_m``.  It did not
+        when one-way arrived, and because *this* is the copy ``position_at``
+        uses, every vehicle sat at the two-way offsets while the spec reported
+        the one-way ones.
+        """
 
         if not 0 <= lane_index < self.lanes:
             raise ValueError(f"lane_index {lane_index} outside 0..{self.lanes - 1}")
+        if self.one_way:
+            return (lane_index + 0.5 - 0.5 * self.lanes) * self.lane_width_m
         return (lane_index + 0.5) * self.lane_width_m
 
     def position_at(self, offset_m: float, lane_index: int = 0) -> tuple[float, float]:
@@ -315,6 +325,7 @@ class GridNetwork:
                     start_y_m=node.y_m,
                     lanes=spec.lanes_per_direction,
                     lane_width_m=spec.lane_width_m,
+                    one_way=spec.one_way,
                 )
                 self._edges[edge.edge_id] = edge
                 self._outgoing[node.junction_id].append(edge)
