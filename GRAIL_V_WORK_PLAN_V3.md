@@ -821,6 +821,85 @@ and what makes the two-pass artifact writer of §16.2 safe.
 
 ---
 
+### 4.9 Making the environment answer the research question
+
+Decided 2026-08-04, after §4.6.1 was restated on corrected traces.
+
+**The problem.** The measured environment is more benign than the questions
+asked of it. V-VLC is available 96.6–99.0%, RF has 41.7 dB of thermal margin at
+5–40 m and is 98–99% line of sight, and the residual optical risk concentrates
+at junctions — a condition derivable from own pose plus a road map. Three
+consequences follow, and two of them are fatal to the framing rather than to
+the result:
+
+- **RQ3 is at risk.** The forecast's information content is very nearly
+  `path_spans_junction`, which is a *current* observable rather than a
+  prediction. A policy with junction context and no forecast would do nearly as
+  well.
+- **H7 is at risk.** With risk that predictable and availability that high,
+  history and feature age buy little, and §6.3's fallback — describe the problem
+  as contextual — becomes the likely outcome.
+- **A third of the action space is dead.** V-VLC alone fails at
+  \(2\times10^{-2}\), 200× the budget, so VLC-only is never feasible and the
+  live decision is RF versus DUP.
+
+Together these are risk **R2** — "PPO provides no advantage over a contextual
+rule" — close to firing. The environment, not the algorithm, is what would
+cause it.
+
+**The goal is decorrelated impairment, not pessimism.** An environment where
+both links fail together is worse than a benign one: it destroys the hybrid
+argument instead of supporting it. Every change below adds an axis on which
+*one* link suffers. The target landing zone is **V-VLC available 75–90%**, with
+blockage split between predictable junctions and unpredictable cut-ins, leaving
+4–7× of relaxation for §14.1.
+
+**Stage 1 — mobility, one regeneration.**
+
+1. Two lanes per direction with MOBIL lane changing. Cut-ins are the blockage
+   the current model excludes *by construction*, and unlike junctions they are
+   not derivable from a map — which is what gives the forecast information
+   beyond current observables.
+2. Adjacency becomes a formation rule, not a permanent one. A pair stays
+   together when a vehicle cuts between them; `has_intervening_vehicle` stops
+   being vestigial.
+3. Green-wave signal offsets. Free-flow speed is 52% of the limit, the largest
+   declared realism gap (§4.7 item 2), and progression also raises capacity,
+   which re-opens the higher densities as a meaningful band.
+4. Pedestrian and cyclist crossings at junctions: Poisson arrivals, crossing
+   only where they would matter, tall enough to cut a 0.7 m beam.
+5. Re-derive the density band from a fresh sweep. §4.5.1's justification is
+   already withdrawn.
+
+**Stage 2 — link envelope.** Separation window 5–40 m becomes 5–100 m. Optical
+power falls as \(1/d^2\) while RF barely notices at these ranges, so the far
+end becomes a clean VLC-bad / RF-fine regime on an axis the policy observes
+directly. Then restate §4.6.1.
+
+**Stage 3 — channels (M3, M4).** NR-V2X Mode 2 with sensing-based SPS, resource
+reselection, **half-duplex loss** and in-band emissions; §7.2's bands chosen
+from literature before any value is seen to help. Ambient becomes a first-class
+condition: clear night as headline, **bright day** and **fog** as regimes that
+impair V-VLC and leave RF untouched.
+
+**Stage 4 — feasibility (M5, Gate 3).** Condition D and joint-failure
+correlation, on the environment as rebuilt.
+
+**Out of scope, and why.** Road grade and curvature need three-dimensional
+geometry the planar model does not carry. Calibration against measured NYC
+counts was removed from scope, not deferred. Exact-zero footprint overlap is
+bounded and declared in §4.7 item 7.
+
+**Acceptance.** Stage 1 is complete when a fresh sweep shows V-VLC blockage
+with a *non-map-derivable* component — that is, when mid-block unavailability
+is materially above the 0.25–0.50% the single-lane model produces — and Gate 1
+still passes at the re-derived densities.
+
+**The tripwire.** The hybrid gain is capped at \(1/P_\text{out}\): 49× at
+today's 2%, 6.7× at 15%, 2.9× at 35%. Overshooting the pessimism makes
+\(10^{-4}\) unreachable and turns the result into H1's "infeasible" branch.
+Realistic, not maximal.
+
 ## 5. Shared geometry and hidden simulator state
 
 The exact model state contains all vehicle positions, dimensions, headings,

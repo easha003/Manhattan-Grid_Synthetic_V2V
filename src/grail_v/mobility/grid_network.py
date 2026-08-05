@@ -111,24 +111,44 @@ class GridNetworkSpec:
             raise ValueError("lane_width_m must be positive")
         if self.speed_limit_mps <= 0.0:
             raise ValueError("speed_limit_mps must be positive")
-        if self.carriageway_offset_m >= 0.5 * min(
+        if self.carriageway_width_m >= 0.5 * min(
             self.avenue_spacing_m, self.cross_street_spacing_m
         ):
             raise ValueError("carriageways are wider than the block they separate")
 
     @property
-    def carriageway_offset_m(self) -> float:
-        """Lateral distance from a street centreline to a travel lane's centre.
+    def carriageway_width_m(self) -> float:
+        """Total paved width of one direction of travel."""
 
-        Traffic keeps right, so each direction runs this far to the right of
-        the centreline and the two opposing lanes are ``2 *
-        carriageway_offset_m`` apart.  Without this offset both directions
-        would share one line: vehicles would pass through one another, and an
-        oncoming vehicle would sit exactly on the optical path between a tagged
-        pair, which is the defect recorded in work plan section 4.6.3.
+        return self.lanes_per_direction * self.lane_width_m
+
+    def lane_centre_offset_m(self, lane_index: int = 0) -> float:
+        """Lateral distance from the street centreline to lane ``lane_index``.
+
+        Traffic keeps right, so lane 0 is the one nearest the centreline (and
+        therefore nearest oncoming traffic) and higher indices run outward
+        towards the kerb.  Without this offset both directions would share one
+        line: vehicles would pass through one another and an oncoming vehicle
+        would sit exactly on the optical path between a tagged pair, which is
+        the defect recorded in work plan section 4.6.3.
         """
 
-        return 0.5 * self.lanes_per_direction * self.lane_width_m
+        if not 0 <= lane_index < self.lanes_per_direction:
+            raise ValueError(
+                f"lane_index {lane_index} outside 0..{self.lanes_per_direction - 1}"
+            )
+        return (lane_index + 0.5) * self.lane_width_m
+
+    @property
+    def outermost_lane_centre_offset_m(self) -> float:
+        """Offset of the kerb-side lane, which sets how far a crossing body reaches.
+
+        A stop line must stand clear of *this* plus half a vehicle width, not
+        of the carriageway centre: it is the outermost crossing lane whose
+        traffic a waiting vehicle must not intrude upon.
+        """
+
+        return self.lane_centre_offset_m(self.lanes_per_direction - 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,8 +174,10 @@ class GridEdge:
     length_m: float
     start_x_m: float
     start_y_m: float
-    carriageway_offset_m: float = 0.0
-    """Lateral shift to the right of the street centreline; see the spec."""
+    lanes: int = 1
+    """Travel lanes in this direction; lane 0 is nearest the centreline."""
+
+    lane_width_m: float = LANE_WIDTH_M
 
     @property
     def heading_rad(self) -> float:
@@ -173,19 +195,27 @@ class GridEdge:
 
         return f"{self.edge_id}_{lane_index}"
 
-    def position_at(self, offset_m: float) -> tuple[float, float]:
-        """Cartesian position ``offset_m`` along this edge from its start.
+    def lane_offset_m(self, lane_index: int = 0) -> float:
+        """Lateral offset of ``lane_index`` from the street centreline."""
 
-        The returned point is on this direction's travel lane, offset to the
-        right of the street centreline, not on the centreline itself.  Opposing
-        edges therefore never overlap.
+        if not 0 <= lane_index < self.lanes:
+            raise ValueError(f"lane_index {lane_index} outside 0..{self.lanes - 1}")
+        return (lane_index + 0.5) * self.lane_width_m
+
+    def position_at(self, offset_m: float, lane_index: int = 0) -> tuple[float, float]:
+        """Cartesian position ``offset_m`` along this edge, in ``lane_index``.
+
+        The returned point is on a travel lane, offset to the right of the
+        street centreline, never on the centreline itself.  Opposing edges
+        therefore never overlap, and neither do adjacent lanes.
         """
 
         heading = self.heading_rad
         right_x, right_y = self.right_unit
+        lateral = self.lane_offset_m(lane_index)
         return (
-            self.start_x_m + offset_m * math.cos(heading) + self.carriageway_offset_m * right_x,
-            self.start_y_m + offset_m * math.sin(heading) + self.carriageway_offset_m * right_y,
+            self.start_x_m + offset_m * math.cos(heading) + lateral * right_x,
+            self.start_y_m + offset_m * math.sin(heading) + lateral * right_y,
         )
 
 
@@ -236,7 +266,8 @@ class GridNetwork:
                     length_m=length,
                     start_x_m=node.x_m,
                     start_y_m=node.y_m,
-                    carriageway_offset_m=spec.carriageway_offset_m,
+                    lanes=spec.lanes_per_direction,
+                    lane_width_m=spec.lane_width_m,
                 )
                 self._edges[edge.edge_id] = edge
                 self._outgoing[node.junction_id].append(edge)

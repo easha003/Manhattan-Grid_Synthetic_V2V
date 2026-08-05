@@ -220,7 +220,9 @@ class GridMobilitySimulator:
         widest_half_width_m = 0.5 * max(
             vehicle.width_m for vehicle in self.distribution.vehicle_types
         )
-        self._junction_half_box_m = self.network.spec.carriageway_offset_m + widest_half_width_m
+        self._junction_half_box_m = (
+            self.network.spec.outermost_lane_centre_offset_m + widest_half_width_m
+        )
 
     # -- vehicle creation -------------------------------------------------
 
