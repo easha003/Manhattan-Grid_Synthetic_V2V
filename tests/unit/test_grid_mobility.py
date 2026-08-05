@@ -96,8 +96,8 @@ def test_wider_lanes_push_the_carriageways_further_apart() -> None:
     narrow = GridNetwork(GridNetworkSpec(lane_width_m=3.0))
     wide = GridNetwork(GridNetworkSpec(lane_width_m=4.0))
 
-    assert narrow.spec.carriageway_offset_m == pytest.approx(1.5)
-    assert wide.spec.carriageway_offset_m == pytest.approx(2.0)
+    assert narrow.spec.lane_centre_offset_m(0) == pytest.approx(1.5)
+    assert wide.spec.lane_centre_offset_m(0) == pytest.approx(2.0)
     assert wide.edge("B5B6").position_at(0.0)[0] > narrow.edge("B5B6").position_at(0.0)[0]
 
 
@@ -542,3 +542,77 @@ def test_density_beyond_holding_capacity_is_rejected() -> None:
     )
     with pytest.raises(MobilityModelError, match="holding capacity"):
         next(iter(simulator.run(spec)))
+
+
+# --------------------------------------------------------------------------
+# multi-lane geometry (work plan §4.9 stage 1)
+# --------------------------------------------------------------------------
+
+
+def test_one_lane_per_direction_is_unchanged_by_the_lane_generalisation() -> None:
+    """The frozen grid must not move when the lane machinery arrives.
+
+    Lane 0's centre is where the single carriageway always sat, so every trace
+    generated before multi-lane existed stays reproducible.
+    """
+
+    network = GridNetwork()
+    assert network.spec.lane_centre_offset_m(0) == pytest.approx(1.75)
+    assert network.edge("B5B6").position_at(0.0) == pytest.approx((245.75, 305.0))
+
+
+def test_lanes_are_spaced_one_width_apart_outward_from_the_centreline() -> None:
+    """Lane 0 sits nearest oncoming traffic; higher indices run to the kerb."""
+
+    spec = GridNetworkSpec(lanes_per_direction=3)
+    offsets = [spec.lane_centre_offset_m(index) for index in range(3)]
+
+    assert offsets == pytest.approx([1.75, 5.25, 8.75])
+    assert spec.carriageway_width_m == pytest.approx(3 * 3.5)
+
+
+def test_adjacent_lanes_clear_a_vehicle_width() -> None:
+    """Two vehicles side by side must not overlap, as opposing lanes must not."""
+
+    edge = GridNetwork(GridNetworkSpec(lanes_per_direction=2)).edge("B5B6")
+    inner = edge.position_at(30.0, lane_index=0)
+    outer = edge.position_at(30.0, lane_index=1)
+
+    separation = math.hypot(outer[0] - inner[0], outer[1] - inner[1])
+    assert separation == pytest.approx(3.5)
+    assert separation > 2.5, "wider than the widest configured body"
+
+
+def test_opposing_innermost_lanes_stay_separated_with_more_lanes() -> None:
+    """Adding lanes must not re-create the §4.6.3 defect on the inside."""
+
+    network = GridNetwork(GridNetworkSpec(lanes_per_direction=2))
+    north = network.edge("B5B6").position_at(30.0, lane_index=0)
+    south = network.edge("B6B5").position_at(61.0 - 30.0, lane_index=0)
+
+    assert abs(north[0] - south[0]) == pytest.approx(3.5)
+
+
+def test_the_junction_box_reaches_the_outermost_crossing_lane() -> None:
+    """A stop line must clear the kerb-side lane, not the carriageway centre.
+
+    With one lane the two coincide, which is why the distinction only becomes
+    visible now.
+    """
+
+    one = GridNetworkSpec(lanes_per_direction=1)
+    two = GridNetworkSpec(lanes_per_direction=2)
+
+    assert one.outermost_lane_centre_offset_m == pytest.approx(1.75)
+    assert two.outermost_lane_centre_offset_m == pytest.approx(5.25)
+
+
+def test_a_lane_index_outside_the_carriageway_is_rejected() -> None:
+    spec = GridNetworkSpec(lanes_per_direction=2)
+    edge = GridNetwork(spec).edge("B5B6")
+
+    for bad in (-1, 2, 99):
+        with pytest.raises(ValueError, match="lane_index"):
+            spec.lane_centre_offset_m(bad)
+        with pytest.raises(ValueError, match="lane_index"):
+            edge.position_at(10.0, lane_index=bad)
