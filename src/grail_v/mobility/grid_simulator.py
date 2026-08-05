@@ -466,6 +466,15 @@ class GridMobilitySimulator:
             edge = vehicle.edge
             if edge.lanes < 2 or time_s < vehicle.lane_change_ready_s:
                 continue
+            # A held junction reservation was granted against this
+            # vehicle's swept path through the box.  Changing lane after
+            # that silently invalidates the path the grant was based on,
+            # and the grant is never re-tested -- which is how two vehicles
+            # from the same approach ended up holding one junction on
+            # crossing paths.  Reservations are taken a braking distance
+            # out, about 17 m at the speed limit, so this window is wide.
+            if vehicle.reserved_junction is not None:
+                continue
             # Never change lanes inside a junction.  The room check below
             # only sees vehicles on this edge and lane, so it cannot see
             # crossing traffic, and a lateral move in the box would put a
