@@ -18,6 +18,22 @@ artifacts/calibration/*
 artifacts/checkpoints/*
 artifacts/evaluations/*
 artifacts/figures/*
+
+# Generated mobility traces. Roughly 280 MB per trace and 21 traces to a
+# campaign, so versioning them would put gigabytes of parquet in history for
+# artifacts that are reproducible from a config hash and a code commit.
+# artifacts/archive/ is deliberately *not* ignored: it keeps manifests, routes
+# and pairs for superseded campaigns with the vehicle stream stripped out, a
+# few megabytes that record what was run.
+#
+# This rule also fixes provenance. The writer's output directory used to be
+# untracked and unignored, so `git status --porcelain` was non-empty while a
+# campaign was being written and every manifest was stamped `-dirty` by the
+# traces themselves. An artifact that dirties the tree it is stamping can never
+# record a clean commit.
+artifacts/traces/*
+!artifacts/traces/.gitkeep
+artifacts/traces-*/
 artifacts/traces/*
 
 !artifacts/calibration/.gitkeep
