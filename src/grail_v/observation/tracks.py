@@ -21,8 +21,17 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
+from typing import Protocol, runtime_checkable
 
 from grail_v.observation.sensing import TrackSample
+
+
+@runtime_checkable
+class TrackConfigSource(Protocol):
+    """The subset of ``ObservationConfig`` this module needs."""
+
+    @property
+    def track_lifetime_s(self) -> float: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,12 +79,16 @@ class Track:
 class TrackStore:
     """Newest track per vehicle, with optional forgetting.
 
-    ``forget_after_s`` exists because §6.2 declares no track lifetime.  The
-    default keeps every track forever, which is the honest behaviour for a
-    quantity the plan does not specify: a caller that wants a bounded store
-    must choose the bound and own it.  Over a 60 s episode the difference is
-    small; over a 900 s trace it is the difference between a bounded store and
-    one that accumulates every vehicle the grid ever held.
+    ``forget_after_s`` is the awareness-message timeout: a neighbour unheard
+    for that long is dropped.  Under cooperative awareness that is what losing
+    a neighbour actually means -- its broadcasts stopped -- rather than its
+    leaving some sensor's field of view.
+
+    It matters because ``neighbour_count`` is the RF-load proxy.  Unbounded, a
+    vehicle that drives away is counted for the rest of the episode and the
+    proxy only ever rises.  The default here is still ``None``, so a caller
+    that has no configuration cannot silently inherit a number nobody chose;
+    :meth:`from_config` supplies the declared one.
     """
 
     forget_after_s: float | None = None
@@ -86,6 +99,12 @@ class TrackStore:
             not math.isfinite(self.forget_after_s) or self.forget_after_s <= 0.0
         ):
             raise ValueError("forget_after_s must be finite and positive when set")
+
+    @classmethod
+    def from_config(cls, observation: TrackConfigSource) -> TrackStore:
+        """Build with the declared awareness-message timeout."""
+
+        return cls(forget_after_s=float(observation.track_lifetime_s))
 
     def __len__(self) -> int:
         return len(self._tracks)
@@ -187,5 +206,6 @@ class TrackStore:
 
 __all__ = [
     "Track",
+    "TrackConfigSource",
     "TrackStore",
 ]

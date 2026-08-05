@@ -111,15 +111,16 @@ def test_the_predicted_time_is_reported() -> None:
 # -- uncertainty --------------------------------------------------------------
 
 
-def test_along_track_error_grows_with_elapsed_time_and_cross_track_does_not() -> None:
-    """The declared sensor has speed noise but no heading noise.
+def test_without_heading_error_only_the_along_track_axis_grows() -> None:
+    """Speed error displaces along the heading and nothing else.
 
-    The resulting anisotropy is the model being honest about what it knows, and
-    it is optimistic: a real tracker's heading error would widen the
-    cross-track term too, worst at low speed.
+    Isolated here with heading noise switched off, so the two contributions can
+    be seen apart; the headline configuration declares both.
     """
 
-    engine = forecaster(position_noise_std_m=0.5, speed_noise_std_mps=0.2)
+    engine = forecaster(
+        position_noise_std_m=0.5, speed_noise_std_mps=0.2, heading_noise_std_rad=0.0
+    )
     short = engine.predict(track(), now_s=1.05)
     long = engine.predict(track(), now_s=3.05)
 
@@ -233,3 +234,54 @@ def test_predict_all_preserves_order() -> None:
     assert [round(state.x_m, 6) for state in states] == [
         round(float(i) + 2.5, 6) for i in range(5)
     ]
+
+
+# -- heading error widens the ellipse across the track ------------------------
+
+
+def test_cross_track_error_now_grows_with_distance_travelled() -> None:
+    """Pointing error displaces a prediction sideways, further the faster you go.
+
+    Leaving it at zero would make the forecast perfectly certain about the
+    direction a leader is turning, which §4.6.1 identified as the dominant
+    cause of junction unavailability.
+    """
+
+    engine = forecaster(heading_noise_std_rad=math.radians(2.0))
+    near = engine.predict(track(measured_at_s=1.0, speed_mps=10.0), now_s=1.05)
+    far = engine.predict(track(measured_at_s=1.0, speed_mps=10.0), now_s=3.05)
+
+    assert far.cross_track_std_m > near.cross_track_std_m
+    assert near.cross_track_std_m > engine.position_noise_std_m
+
+
+def test_a_stationary_vehicle_keeps_the_sensor_uncertainty_sideways() -> None:
+    """Not knowing where a stopped car points cannot move it."""
+
+    engine = forecaster(heading_noise_std_rad=math.radians(10.0))
+    stopped = engine.predict(track(speed_mps=0.0, measured_at_s=1.0), now_s=5.0)
+
+    assert stopped.cross_track_std_m == pytest.approx(engine.position_noise_std_m)
+
+
+def test_cross_track_error_matches_the_declared_combination() -> None:
+    heading_std = math.radians(2.0)
+    engine = forecaster(heading_noise_std_rad=heading_std)
+    state = engine.predict(track(measured_at_s=1.0, speed_mps=10.0), now_s=1.30, horizon_s=0.2)
+
+    elapsed = 0.30 + 0.2
+    assert state.cross_track_std_m == pytest.approx(
+        math.hypot(0.5, 10.0 * elapsed * heading_std)
+    )
+
+
+def test_the_headline_forecaster_carries_the_declared_heading_error() -> None:
+    config = load_headline_config(PROJECT_ROOT)
+    engine = ConstantVelocityForecaster.from_config(config.observation)
+
+    assert engine.heading_noise_std_rad == pytest.approx(math.radians(2.0))
+
+
+def test_a_negative_heading_noise_is_rejected() -> None:
+    with pytest.raises(ValueError, match="heading_noise_std_rad"):
+        forecaster(heading_noise_std_rad=-0.1)

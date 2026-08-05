@@ -181,29 +181,58 @@ def test_speed_never_goes_negative() -> None:
         assert sample.speed_mps >= 0.0
 
 
-def test_heading_is_exact_because_no_heading_noise_is_declared() -> None:
-    """Work plan §6.2 declares position and speed noise only.
+def test_the_headline_sensor_does_not_hand_over_exact_heading() -> None:
+    """Zero heading noise would decide the result.
 
-    Pinned so the optimism is visible: a real tracker infers heading from
-    successive positions and is worst at low speed, which is exactly where a
-    turning leader breaks the optical link.
+    §4.6.1 measured a leader turning out of the acceptance cone as the dominant
+    cause of junction unavailability.  A policy given exact heading would see
+    every turn perfectly at exactly the moment that matters, so the model would
+    be cleanest precisely where it is load-bearing.
     """
 
+    config = load_headline_config(PROJECT_ROOT)
+    sensor = SensorModel.from_config(config.observation)
+
+    assert sensor.heading_noise_std_rad > 0.0
     vehicle = FakeVehicle("v1", heading_rad=1.234)
-    assert measure(vehicle, 1.0).heading_rad == pytest.approx(1.234)
-    assert model().heading_noise_std_rad == 0.0
+    observed = sense_vehicle(
+        vehicle, now_s=1.0, sensor=sensor, root_seed=ROOT_SEED, trace_id=TRACE
+    ).heading_rad
+    assert observed != pytest.approx(1.234)
 
 
-def test_heading_noise_is_wired_for_a_sensitivity_run() -> None:
-    vehicle = FakeVehicle("v1", heading_rad=1.234)
-    noisy = sense_vehicle(
-        vehicle,
-        now_s=1.0,
-        sensor=model(heading_noise_std_rad=0.1),
-        root_seed=ROOT_SEED,
-        trace_id=TRACE,
-    )
-    assert noisy.heading_rad != pytest.approx(1.234)
+def test_heading_error_is_broadcast_scale_not_tracker_scale() -> None:
+    """Cooperative awareness: heading is a broadcast field, not an inference.
+
+    Its error is the sending vehicle's own attitude error, degrees rather than
+    the tens of degrees a tracker would incur inferring heading from successive
+    positions at the low speeds of a turn.
+    """
+
+    config = load_headline_config(PROJECT_ROOT)
+    sensor = SensorModel.from_config(config.observation)
+
+    assert sensor.heading_noise_std_rad == pytest.approx(math.radians(2.0))
+    assert sensor.heading_noise_std_rad < math.radians(5.0)
+
+
+def test_heading_noise_is_zero_mean_with_the_declared_spread() -> None:
+    config = load_headline_config(PROJECT_ROOT)
+    sensor = SensorModel.from_config(config.observation)
+    truth = FakeVehicle("v", heading_rad=0.0)
+
+    errors = [
+        sense_vehicle(
+            truth, now_s=0.0, sensor=sensor, root_seed=ROOT_SEED,
+            trace_id=TRACE, measured_at_s=tick * sensor.update_s,
+        ).heading_rad
+        for tick in range(3000)
+    ]
+    mean = sum(errors) / len(errors)
+    spread = math.sqrt(sum(e**2 for e in errors) / len(errors) - mean**2)
+
+    assert abs(mean) < math.radians(0.2)
+    assert spread == pytest.approx(sensor.heading_noise_std_rad, rel=0.1)
 
 
 # -- configuration ------------------------------------------------------------
@@ -217,6 +246,7 @@ def test_the_headline_configuration_builds_the_declared_sensor() -> None:
     assert sensor.latency_s == pytest.approx(0.05)
     assert sensor.position_noise_std_m == pytest.approx(0.5)
     assert sensor.speed_noise_std_mps == pytest.approx(0.2)
+    assert sensor.heading_noise_std_rad == pytest.approx(math.radians(2.0))
 
 
 @pytest.mark.parametrize(

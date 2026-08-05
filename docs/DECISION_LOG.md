@@ -764,6 +764,64 @@ surfaced it — M3 would have hit the same wall with no feature involved.
 
 ---
 
+## D15 — Name the sensing model, and three gaps close at once
+
+4 Aug · work plan §6.2
+
+Three quantities were undeclared after week 7: no heading noise, no track
+lifetime, exact vehicle dimensions. They looked like three parameter choices.
+They were one missing sentence.
+
+**§6.2 never said what kind of sensing this is**, and the answer decides all
+three:
+
+| | Cooperative awareness | Onboard sensing of non-cooperative vehicles |
+|---|---|---|
+| Heading | broadcast, GNSS/IMU, degrees | inferred from positions — terrible at low speed |
+| Dimensions | broadcast, standard fields | classifier output, coarse |
+| Track lifetime | message timeout | sensor field of view |
+
+The natural answer is **cooperative**: the vehicles are already exchanging NR
+sidelink messages, which is the entire system. Under that framing heading and
+dimensions being well known is *correct* rather than a shortcut, and the
+lifetime is a timeout rather than an invention.
+
+**Heading noise: 2.0°, and it must not be zero.** §4.6.1 measured a leader
+turning out of the acceptance cone as the cause of 22.8–29.4% of
+junction-spanning unavailability against 3.3–8.1% for occlusion. Exact heading
+would let the policy see every turn perfectly at exactly the moment that
+decides the result — the model would be cleanest where it is load-bearing.
+Because heading is broadcast rather than inferred the honest value is *small*,
+degrees rather than the tens of degrees a tracker would incur, but small is not
+zero.
+
+It had to propagate to be worth anything. The forecast's cross-track
+uncertainty now grows as `speed × elapsed × heading_sd`, which is the
+physically right shape: not knowing where a *stopped* car points cannot
+displace it, while a fast one is displaced in proportion to how far it went.
+Before this, `cross_track_std_m` was a constant.
+
+**Track lifetime: 1.0 s.** `neighbour_count` is the RF-load proxy; unbounded, a
+vehicle that drives away is counted for the rest of the episode and the proxy
+only ever rises. `TrackStore.from_config` supplies the declared value while the
+bare constructor stays inert, so a caller with no configuration sees unbounded
+growth rather than inheriting a plausible-looking number nobody chose.
+
+**Dimensions: declared, not modelled.** Length and width are standard awareness
+fields. The residual risk is class confusion — a bus read as a car understates
+the blocking band by 11.0 / 4.5 = 2.4× — but there are three well-separated
+classes. Noise here is complexity for negligible effect.
+
+**One value the framing makes optimistic**, now stated: 0.5 m position noise is
+better than unaugmented GNSS and implies an augmented or RTK solution.
+
+**Why now rather than at writing time.** These are training *inputs*. A
+reporting choice can be revised while drafting; an observation feature is baked
+into every checkpoint, so revising one after M7 means retraining. That, not
+reviewer risk, is what made two of the three worth an hour today.
+
+---
+
 ## Known stale, as of 4 August 2026
 
 1. **The 21 published traces** carry `5e42a2ba` and pre-D9 physics. Archived

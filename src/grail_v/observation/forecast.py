@@ -12,19 +12,20 @@ turning that into a blockage probability is
 stale track look exactly as trustworthy as a fresh one, which is the single
 easiest way to accidentally hand the policy a clean future.
 
-**The error ellipse is anisotropic, and deliberately so.**  §6.2 declares speed
-noise but no heading noise, so velocity error lies along the track's own
-heading:
+**The error ellipse is anisotropic, and both axes grow.**  Speed error
+displaces a prediction along the track's heading; heading error displaces it
+across:
 
     along-track  sd = sqrt(position_sd^2 + (speed_sd * elapsed)^2)
-    cross-track  sd = position_sd                      -- does not grow
+    cross-track  sd = sqrt(position_sd^2 + (speed * elapsed * heading_sd)^2)
 
-That asymmetry is not a modelling convenience, it is the declared sensor being
-honest about what it does and does not know.  It is also optimistic: a real
-tracker's heading error would widen the cross-track term with time, and it is
-worst at low speed, which is exactly where a turning leader breaks the optical
-link (§4.6.1).  Recorded here and in
-:class:`~grail_v.observation.sensing.SensorModel` rather than smoothed over.
+The cross-track term is *speed-dependent*, which is the physically right shape:
+a stationary vehicle cannot be displaced sideways by not knowing where it
+points, while a fast one can be displaced a long way.  Under cooperative
+awareness heading is broadcast rather than inferred, so its error is small --
+but it is not zero, and leaving it at zero would have made the forecast
+perfectly certain about the direction a leader is turning, which §4.6.1
+identified as the dominant cause of junction unavailability.
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ class ForecastConfigSource(Protocol):
     def position_noise_std_m(self) -> float: ...
     @property
     def speed_noise_std_mps(self) -> float: ...
+    @property
+    def heading_noise_std_deg(self) -> float: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,11 +107,12 @@ class ConstantVelocityForecaster:
     horizon_s: float
     position_noise_std_m: float
     speed_noise_std_mps: float
+    heading_noise_std_rad: float = 0.0
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.horizon_s) or self.horizon_s < 0.0:
             raise ValueError("horizon_s must be finite and non-negative")
-        for name in ("position_noise_std_m", "speed_noise_std_mps"):
+        for name in ("position_noise_std_m", "speed_noise_std_mps", "heading_noise_std_rad"):
             value = getattr(self, name)
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} must be finite and non-negative")
@@ -126,6 +130,7 @@ class ConstantVelocityForecaster:
             horizon_s=float(observation.forecast_horizon_s),
             position_noise_std_m=float(observation.position_noise_std_m),
             speed_noise_std_mps=float(observation.speed_noise_std_mps),
+            heading_noise_std_rad=math.radians(float(observation.heading_noise_std_deg)),
         )
 
     def predict(
@@ -152,6 +157,12 @@ class ConstantVelocityForecaster:
         sample = track.sample
 
         along = math.hypot(self.position_noise_std_m, self.speed_noise_std_mps * elapsed)
+        # Sideways displacement from pointing error grows with distance
+        # travelled, so a stopped vehicle keeps the sensor's own uncertainty.
+        cross = math.hypot(
+            self.position_noise_std_m,
+            sample.speed_mps * elapsed * self.heading_noise_std_rad,
+        )
         return PredictedState(
             vehicle_id=track.vehicle_id,
             at_s=now_s + reach,
@@ -161,7 +172,7 @@ class ConstantVelocityForecaster:
             speed_mps=sample.speed_mps,
             propagated_s=elapsed,
             along_track_std_m=along,
-            cross_track_std_m=self.position_noise_std_m,
+            cross_track_std_m=cross,
             base_std_m=self.position_noise_std_m,
         )
 
