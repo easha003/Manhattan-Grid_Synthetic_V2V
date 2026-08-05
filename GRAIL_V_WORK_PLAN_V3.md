@@ -768,13 +768,18 @@ These are modelling choices the paper must state, not hide.
 1. **IDM desired time headway \(T = 1.2\) s** is a free parameter that sets the
    speed-density relation and therefore the capacity in §4.5. It requires a
    source or a declared sensitivity band before Gate 2.
-2. **Signals are staggered but not progressed.** Free-flow speed tops out at
-   52% of the limit even at \(\rho_L=5\), with 38% of vehicles stopped in
-   near-empty traffic. Real Manhattan avenues run green waves and are faster.
-   This is the largest realism gap in the model and must be disclosed.
-3. **No lane changing or overtaking.** With one lane per direction a stopped
-   heavy vehicle blocks everything behind it.
-4. **No multi-lane roads, no actuated signals, no pedestrians, no parking.**
+2. **Signals are staggered but not progressed.** On the single-lane two-way
+   90 s model this held free-flow speed to 52% of the limit at \(\rho_L=5\)
+   with 38% of vehicles stopped. The one-way 45 s layout now in force measures
+   **63.4% and 17.3%**, and 51.6% / 31.8% if the cycle is put back to 90 s, so
+   most of the gap was cycle time rather than the absence of progression. Real
+   Manhattan avenues run green waves and are faster still. This remains the
+   largest realism gap and must be disclosed; §4.9 records why progression was
+   built, measured, and not adopted.
+3. **Lane changing exists** (MOBIL, §4.6.5) and this item no longer applies.
+   Retained only so the numbering of items cited elsewhere does not shift.
+4. **No actuated signals, no pedestrians, no parking.** Multi-lane roads exist
+   as of the one-way conversion; two lanes per direction are in force.
 5. **No calibration against measured NYC traffic counts.** The real-map
    robustness test of v2 §4.5 is **removed from scope**, not deferred: it
    required a SUMO network import that no longer exists.
@@ -863,9 +868,10 @@ blockage split between predictable junctions and unpredictable cut-ins, leaving
 2. Adjacency becomes a formation rule, not a permanent one. A pair stays
    together when a vehicle cuts between them; `has_intervening_vehicle` stops
    being vestigial.
-3. Green-wave signal offsets. Free-flow speed is 52% of the limit, the largest
-   declared realism gap (§4.7 item 2), and progression also raises capacity,
-   which re-opens the higher densities as a meaningful band.
+3. Green-wave signal offsets. Free-flow speed is 63.4% of the limit at the
+   45 s cycle now in force, still the largest declared realism gap (§4.7
+   item 2). Progression was built and measured; §4.9 records why the staggered
+   short cycle beat it and why this stays open rather than done.
 4. Pedestrian and cyclist crossings at junctions: Poisson arrivals, crossing
    only where they would matter, tall enough to cut a 0.7 m beam.
 5. Re-derive the density band from a fresh sweep. §4.5.1's justification is
@@ -949,18 +955,51 @@ per-junction offset is 27% of the cycle and the band walks around it, so the
 staggered short cycle wins on its own arithmetic:
 \(\mathbb{E}[\text{wait}] = C/8\) matched to a 5.5 s block traversal.
 
-**Open — junction admission is too conservative.** A turning vehicle reserves
-half its width *plus half its length*, because a body pivoting through the box
-sweeps outside the corridor its centreline traces; without it, a car 0.48 m past
-a junction still had 4.02 m of tail lying across the adjacent lane. But that
-makes the reach 4.05 m against a 3.5 m lane spacing, so adjacent lanes serialise
-whenever either vehicle turns — and half of them do. Free-flow speed falls to
-38% of the limit with 52% of vehicles stopped at \(\rho_L=5\), which is worse
-than the 52% §4.7 item 2 already records as the largest realism gap, and the
-speed-density relation is non-monotonic. The model is safe but pays more at
-junctions than a real one does. The fix is a curved turn path rather than a
-straight chord with a pivoting body; it is deferred, declared, and must be
-settled before the fundamental diagram of §4.5 is quoted.
+**Closed — junction admission was never too conservative, and the gap recorded
+here did not exist.** This paragraph previously reported that reserving half a
+width *plus half a length* for a turning body made the reach 4.05 m against a
+3.5 m lane spacing, serialising adjacent lanes and holding free-flow speed to
+38% of the limit with 52% stopped at \(\rho_L=5\), with a non-monotonic
+speed-density relation. Every part of that is now measured and none of it
+holds.
+
+The two figures were §4.7 item 2's, transposed — that item says 52% of the
+limit with 38% stopped — and they describe the *single-lane two-way 90 s* model,
+not this one. Measured on `oneway-grid` at the configured 45 s cycle:
+
+| \(\rho_L\) | 2 | 5 | 10 | 20 | 30 | 45 |
+|---|---:|---:|---:|---:|---:|---:|
+| Speed (m/s) | 7.70 | 7.09 | 6.37 | 4.51 | 3.15 | 2.23 |
+| \(v/v_{\text{free}}\) | 0.69 | 0.63 | 0.57 | 0.40 | 0.28 | 0.20 |
+| Stopped | 14.4% | 17.3% | 20.0% | 30.9% | 37.4% | 41.8% |
+| Flow (veh/h/lane) | 55 | 128 | 229 | 325 | 341 | 361 |
+
+Speed falls monotonically and flow rises monotonically to a plateau near
+**340–360 veh/h/lane**, which is the textbook shape. \(\rho_L\) is therefore a
+valid conditioning variable and the per-density constraint groups \(J_{c,k}\)
+stand. At a 90 s cycle the same code gives 51.6% and 31.8% stopped at
+\(\rho_L=5\) — so the residual gap belongs to **cycle time**, which §4.7 item 2
+already owns, and not to junction admission.
+
+The turning reach costs nothing because the geometry it approximated is real:
+at this box size a turn out of the outer lane has a radius near 1.25 m, and a
+rigid 4.5 m body genuinely cannot take that without its tail swinging into the
+adjacent lane. The inflated margin and the true swept footprint return the same
+verdict on every movement pair a one-way two-approach junction can present.
+
+**What was changed anyway, and why.** The rule now samples the real body along
+the curve it follows and calls
+`grail_v.core.geometry.rectangles_overlap` — the same function the acceptance
+invariant in §16.3 applies to generated traces. This is behaviour-preserving:
+over 1,408,468 admission decisions at \(\rho_L=20\), old and new refuse the
+same 58,893 (4.18%) and produce a bit-identical trajectory hash. The reason to
+keep it is structural rather than numerical. Every junction defect so far came
+from an admission rule that was a *proxy* for the invariant — a movement
+matrix, then a centreline inflated by a margin — and each proxy held until the
+layout changed and then disagreed with the invariant about a case neither had
+been tested on. Sharing one implementation makes that disagreement impossible
+rather than unlikely, and the identical hash is the strongest available
+evidence that the swap itself introduced nothing.
 
 **The tripwire.** The hybrid gain is capped at \(1/P_\text{out}\): 49× at
 today's 2%, 6.7× at 15%, 2.9× at 35%. Overshooting the pessimism makes

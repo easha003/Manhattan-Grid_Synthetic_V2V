@@ -12,9 +12,9 @@ import math
 import pytest
 
 from grail_v.core.geometry import (
-    OrientedRectangle,
     Segment,
-    segment_intersects_rectangle,
+    rectangle_penetration_m,
+    rectangles_overlap,
     vehicle_rectangle,
 )
 from grail_v.geometry.spatial_index import SpatialIndex
@@ -290,7 +290,7 @@ def test_no_two_vehicles_overlap_on_the_same_edge() -> None:
     recorded overlapping vehicles. This is the *in-lane* half of the invariant,
     checked in edge-local coordinates because that is the arithmetic
     `car_following.py` actually performs. The general statement lives in
-    :func:`test_no_two_vehicle_footprints_overlap_anywhere`.
+    :func:`test_vehicle_footprints_barely_overlap_at_generated_densities`.
     """
 
     simulator, spec = _run(density=60.0, duration=5.0, warmup=30.0)
@@ -305,29 +305,6 @@ def test_no_two_vehicles_overlap_on_the_same_edge() -> None:
             occupants.sort()
             for (back, _), (front, front_length) in zip(occupants, occupants[1:], strict=False):
                 assert front - back >= front_length - 1e-6, "vehicle footprints overlap"
-
-
-def _rectangle_edges(rectangle: OrientedRectangle) -> tuple[Segment, ...]:
-    corners = rectangle.corners()
-    return tuple(
-        Segment(corners[index], corners[(index + 1) % len(corners)])
-        for index in range(len(corners))
-    )
-
-
-def _footprints_overlap(a: OrientedRectangle, b: OrientedRectangle) -> bool:
-    """Exact overlap test for two convex rectangles.
-
-    Two convex bodies overlap iff an edge of one meets the other. Both
-    directions are checked so that full containment — a short body sitting
-    wholly inside a bus, where no edges cross — is caught as well.
-    """
-
-    return any(
-        segment_intersects_rectangle(edge, other)
-        for first, other in ((a, b), (b, a))
-        for edge in _rectangle_edges(first)
-    )
 
 
 #: Declared residual tolerance for footprint overlap; work plan section 4.7
@@ -348,25 +325,6 @@ def _footprints_overlap(a: OrientedRectangle, b: OrientedRectangle) -> bool:
 #: the collision rather than of the sample.
 MAX_OVERLAPS_PER_FRAME = 0.30
 MAX_PENETRATION_M = 0.5
-
-
-def _penetration_depth_m(a: OrientedRectangle, b: OrientedRectangle) -> float:
-    """Minimum translation distance separating two overlapping rectangles."""
-
-    deepest = math.inf
-    for rectangle in (a, b):
-        for axis_rad in (rectangle.heading_rad, rectangle.heading_rad + 0.5 * math.pi):
-            unit_x, unit_y = math.cos(axis_rad), math.sin(axis_rad)
-            spans = []
-            for target in (a, b):
-                projected = [c.x_m * unit_x + c.y_m * unit_y for c in target.corners()]
-                spans.append((min(projected), max(projected)))
-            (low_a, high_a), (low_b, high_b) = spans
-            gap = min(high_a, high_b) - max(low_a, low_b)
-            if gap <= 0.0:
-                return 0.0
-            deepest = min(deepest, gap)
-    return deepest
 
 
 def _overlapping_pairs(simulator, spec) -> tuple[int, int, float]:
@@ -398,9 +356,9 @@ def _overlapping_pairs(simulator, spec) -> tuple[int, int, float]:
                     continue
                 seen.add(key)
                 first, second = rectangles[key[0]], rectangles[key[1]]
-                if _footprints_overlap(first, second):
+                if rectangles_overlap(first, second):
                     pairs += 1
-                    deepest = max(deepest, _penetration_depth_m(first, second))
+                    deepest = max(deepest, rectangle_penetration_m(first, second))
         frames += 1
 
     return frames, pairs, deepest
