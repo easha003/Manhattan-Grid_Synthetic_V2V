@@ -223,7 +223,13 @@ def test_alternating_junctions_are_staggered() -> None:
 
     assert even is SignalPhase.NORTH_SOUTH_GREEN
     assert odd is SignalPhase.EAST_WEST_GREEN
-    assert program.offset_s(network.junction("B6")) == pytest.approx(45.0)
+    # Half a cycle, derived rather than written out: the literal that used to
+    # stand here was 45.0, which was cycle/2 of a 90 s default and silently
+    # became the whole cycle when the default was corrected to match the
+    # configuration.
+    assert program.offset_s(network.junction("B6")) == pytest.approx(
+        0.5 * program.cycle_s
+    )
 
 
 def test_boundary_junctions_are_unsignalized() -> None:
