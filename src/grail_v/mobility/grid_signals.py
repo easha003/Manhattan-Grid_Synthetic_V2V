@@ -48,7 +48,23 @@ class SignalPhase(Enum):
 class SignalProgram:
     """Two-phase fixed-time program shared by every signalized junction."""
 
-    cycle_s: float = 90.0
+    #: Matched to block traversal rather than inherited, and matched to
+    #: ``configs/mobility/synthetic_manhattan.yaml`` so that a bare
+    #: ``SignalProgram()`` measures the *configured* model.  It did not: the
+    #: default was 90 s while the configuration said 45 s, nothing wires the
+    #: two together, and only ``GridTracePipeline`` reads the configured value.
+    #: Every probe and unit test that constructs a simulator directly was
+    #: therefore measuring a different model from the one the traces come from,
+    #: which produced one wrong version of the §4.5 fundamental diagram before
+    #: it was caught.  A default that disagrees with the shipped configuration
+    #: is a trap whatever its value.
+    #:
+    #: The value itself: a vehicle arriving at random waits
+    #: ``E[wait] = (1-g)^2 C/2``, about ``C/8`` at a two-phase signal.  That is
+    #: 11.3 s at 90 s against a 5.5 s free-flow block traversal, a mismatch
+    #: that left vehicles stopped two-thirds of the time; at 45 s the wait is
+    #: comparable to the traversal.
+    cycle_s: float = 45.0
     yellow_s: float = 3.0
     stagger_offsets: bool = True
     #: Progression speed for green-wave offsets, in m/s.  ``None`` keeps the

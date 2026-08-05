@@ -310,28 +310,54 @@ The three training densities are not round numbers chosen by taste; they span
 three qualitatively distinct regimes, which the measured speed-flow relation
 confirms:
 
-**Re-measured after the junction fix of §4.6.5.** Requiring a driver to keep
-the intersection clear costs throughput, so the whole relation moved and the
-earlier figures are superseded:
+**Re-measured on the one-way two-lane layout at the configured 45 s cycle**,
+300 s warm-up, 120 s window, seed 7. This supersedes the single-lane two-way
+table:
 
 | \(\rho_L\) | Speed | \(v/v_{\text{free}}\) | Flow (veh/h/lane) | Stopped | Regime |
 |---:|---:|---:|---:|---:|---|
-| 5 | 5.62 | 0.50 | 101 | 37.4% | free |
-| 10 | 5.65 | 0.51 | 203 | 37.2% | free |
-| 15 | 5.37 | 0.48 | 290 | 32.6% | undersaturated |
-| 20 | 4.38 | 0.39 | 316 | 43.4% | **approaching capacity** |
-| 25 | 3.54 | 0.32 | 319 | 49.4% | **at capacity** |
-| 30 | 2.95 | 0.26 | 318 | 53.4% | **at capacity** |
-| 40 | 1.84 | 0.16 | 265 | 66.0% | **oversaturated** |
+| 5 | 7.15 | 0.64 | 129 | 16.2% | free |
+| 10 | 6.30 | 0.56 | 227 | 20.2% | free |
+| 15 | 5.25 | 0.47 | 283 | 26.2% | undersaturated |
+| 20 | 4.08 | 0.37 | 294 | 34.0% | **approaching capacity** |
+| 25 | 3.31 | 0.30 | 298 | 39.2% | **at capacity** |
+| 30 | 2.77 | 0.25 | 300 | 40.1% | **at capacity** |
+| 40 | 2.24 | 0.20 | 323 | 40.9% | **at capacity** |
 
-Flow now saturates near **318 veh/h/lane between \(\rho_L=20\) and 30** and
-falls beyond it, against 550 veh/h/lane between 40 and 60 before. Superseded
-values, for the record: 5.85 / 5.44 / 4.81 / 3.72 / 2.59 m/s at
-\(\rho_L = 5, 20, 30, 40, 60\) and flows of 105 / 392 / 520 / 536 / 558.
+Speed falls monotonically across the whole range and flow rises monotonically
+to a plateau of **294–323 veh/h/lane from \(\rho_L=20\) upward**. Note what is
+*not* here: no oversaturated branch appears by \(\rho_L=40\), where the earlier
+table showed flow falling to 265. Jam density is 65.2, so \(\rho_L=40\) is 61%
+of it and the falling branch lies beyond the tested range. Do not quote a
+capacity-drop result from this table.
 
-The **holding capacity of the network is 65.3 veh/lane-km** (2,436 vehicles),
-down from 72 because the first slot on every edge is now reserved so a body
-does not lie across the junction the edge leaves. A density beyond capacity is
+Superseded, for the record — single-lane two-way, 90 s cycle: 5.62 / 5.65 /
+5.37 / 4.38 / 3.54 / 2.95 / 1.84 m/s and flows 101 / 203 / 290 / 316 / 319 /
+318 / 265 at the same densities.
+
+**The warm-up is adequate and this was checked rather than assumed.** From a
+cold start at the 45 s cycle, mean speed settles by \(t\approx120\) s at
+\(\rho_L=10\) and \(t\approx240\) s at \(\rho_L=30\), then holds flat to
+\(t=1200\) s with no drift: 6.1–6.7 m/s and 2.6–3.0 m/s respectively. The
+300 s warm-up clears both. An earlier 180 s probe did not, which is why its
+\(\rho_L=30\) reading of 3.15 m/s was biased high against the 2.77 here.
+
+**Fixed — the default cycle disagreed with the configuration.**
+`SignalProgram.cycle_s` defaulted to **90 s** while
+`configs/mobility/synthetic_manhattan.yaml` said 45 s, nothing wired the two
+together, and only `GridTracePipeline` read the configured value. Every probe
+and unit test that builds a simulator directly was therefore measuring a
+different model from the one the traces come from. It cost one wrong version of
+this table before it was caught, and it meant the overlap invariant of §16.3
+had only ever been asserted against the 90 s model. The default is now 45 s, so
+bare construction and the pipeline agree; the invariant passes at 45 s
+unchanged. A default that disagrees with the shipped configuration is a trap
+whatever its value, and this one is the same class of defect as the two lane
+offsets of §4.6.4: one quantity with two sources that were free to drift.
+
+The **holding capacity of the network is 65.2 veh/lane-km** (2,434 vehicles),
+down from 72 because the first slot on every edge is reserved so a body does
+not lie across the junction the edge leaves. A density beyond capacity is
 rejected at construction rather than silently under-filled.
 
 **Consequence for §4.5.1, which must be re-checked.** The training band was
@@ -965,21 +991,13 @@ holds.
 
 The two figures were §4.7 item 2's, transposed — that item says 52% of the
 limit with 38% stopped — and they describe the *single-lane two-way 90 s* model,
-not this one. Measured on `oneway-grid` at the configured 45 s cycle:
-
-| \(\rho_L\) | 2 | 5 | 10 | 20 | 30 | 45 |
-|---|---:|---:|---:|---:|---:|---:|
-| Speed (m/s) | 7.70 | 7.09 | 6.37 | 4.51 | 3.15 | 2.23 |
-| \(v/v_{\text{free}}\) | 0.69 | 0.63 | 0.57 | 0.40 | 0.28 | 0.20 |
-| Stopped | 14.4% | 17.3% | 20.0% | 30.9% | 37.4% | 41.8% |
-| Flow (veh/h/lane) | 55 | 128 | 229 | 325 | 341 | 361 |
-
-Speed falls monotonically and flow rises monotonically to a plateau near
-**340–360 veh/h/lane**, which is the textbook shape. \(\rho_L\) is therefore a
-valid conditioning variable and the per-density constraint groups \(J_{c,k}\)
-stand. At a 90 s cycle the same code gives 51.6% and 31.8% stopped at
-\(\rho_L=5\) — so the residual gap belongs to **cycle time**, which §4.7 item 2
-already owns, and not to junction admission.
+not this one. The corrected relation is the §4.5 table, measured at the
+configured 45 s cycle after the 300 s warm-up: speed falls monotonically and
+flow rises monotonically to a plateau, which is the textbook shape.
+\(\rho_L\) is therefore a valid conditioning variable and the per-density
+constraint groups \(J_{c,k}\) stand. At a 90 s cycle the same code gives 51.6%
+of the limit with 31.8% stopped at \(\rho_L=5\), so the residual gap belongs to
+**cycle time**, which §4.7 item 2 already owns, and not to junction admission.
 
 The turning reach costs nothing because the geometry it approximated is real:
 at this box size a turn out of the outer lane has a radius near 1.25 m, and a
