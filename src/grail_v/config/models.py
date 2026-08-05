@@ -312,6 +312,17 @@ class ObservationConfig(ConfigModel):
     track_latency_s: NonNegativeFloat
     position_noise_std_m: NonNegativeFloat
     speed_noise_std_mps: NonNegativeFloat
+    #: Heading is *broadcast* rather than inferred, so its error is the
+    #: transmitting vehicle's own GNSS/IMU attitude error rather than anything a
+    #: tracker derives from successive positions.  Non-zero matters: work plan
+    #: §4.6.1 found that a leader turning out of the acceptance cone causes most
+    #: junction unavailability, and a policy given exact heading would see every
+    #: turn perfectly at exactly the moment that decides the result.
+    heading_noise_std_deg: NonNegativeFloat = 2.0
+    #: How long a neighbour is retained after its last awareness message.
+    #: Without a bound the RF-load proxy only ever rises, since a vehicle that
+    #: drives away is counted for the rest of the episode.
+    track_lifetime_s: PositiveFloat = 1.0
     forecast_horizon_s: PositiveFloat
     interpolate_tracks: bool = False
     action_dependent_link_feedback: bool = True

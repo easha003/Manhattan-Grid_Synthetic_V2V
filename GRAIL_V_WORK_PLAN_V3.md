@@ -906,34 +906,59 @@ a mobility campaign that cannot depend on it — see §11.2.
 
 ### 6.2 Sensor and track abstraction
 
-20 Hz track updates; 50 ms nominal observation latency; zero-mean position
-noise with 0.5 m standard deviation; zero-mean speed noise with 0.2 m/s
-standard deviation; 200 ms constant-velocity prediction horizon.
+**Sensing represents cooperative awareness.** Neighbours are known from the
+periodic status messages they broadcast over the same sidelink the tagged pair
+uses, not from onboard radar or camera tracking of uncooperative vehicles. That
+one sentence decides every value below, and it was missing until 2026-08-04 —
+which is why three quantities had gone undeclared rather than merely unsourced.
+
+| Quantity | Value | Under cooperative awareness |
+|---|---:|---|
+| Track update rate | 20 Hz | message rate |
+| Observation latency | 50 ms | nominal end-to-end |
+| Position noise | 0.5 m | sender's own positioning error |
+| Speed noise | 0.2 m/s | sender's own |
+| **Heading noise** | **2.0°** | **broadcast field: sender's GNSS/IMU attitude error** |
+| **Track lifetime** | **1.0 s** | **awareness-message timeout** |
+| Forecast horizon | 200 ms | constant velocity |
 
 These are declared simulation assumptions, not claimed sensor measurements.
 Noise and latency sensitivities use half and twice the baseline values.
 
+**Why heading noise must not be zero.** §4.6.1 measured a leader turning out of
+the acceptance cone as the cause of 22.8–29.4% of junction-spanning
+unavailability, against 3.3–8.1% for occlusion. A policy handed exact heading
+would see every turn perfectly at exactly the moment that decides the result,
+so the model would be cleanest precisely where it is load-bearing. Because
+heading is *broadcast* rather than inferred, the honest value is small — degrees
+rather than the tens of degrees a tracker would incur estimating heading from
+successive positions at the low speeds of a turn — but it is not zero. It
+propagates: the forecast's cross-track uncertainty now grows as
+`speed × elapsed × heading_sd`, so a stationary vehicle keeps only the sensor's
+own error while a fast one is displaced sideways in proportion to how far it
+travelled.
+
+**Why a track lifetime must exist.** `neighbour_count` is the RF-load proxy.
+Unbounded, a vehicle that drives away is counted for the rest of the episode
+and the proxy only ever rises.
+
+**Vehicle dimensions are exact, and that is a declared assumption rather than a
+gap.** Length, width and height are standard fields of an awareness message, so
+a cooperative neighbour's size is known rather than estimated. The residual
+risk is class confusion — mistaking a bus for a car understates the blocking
+band by 11.0 / 4.5 = 2.4× — but the mixture has three well-separated classes.
+Modelling dimension noise would add real complexity for negligible effect.
+
+**Position noise is the one value this framing makes optimistic.** 0.5 m is
+better than unaugmented GNSS, which is metre-class; it implies an augmented or
+RTK-corrected solution. Declared, with 0.25 and 1.0 m as the sensitivity
+points, and unsourced pending the §20 literature check alongside the IDM
+headway and the receiver semi-angle.
+
 The predictor propagates track uncertainty and produces a blockage
 **probability**, not a perfect future binary state.
 
-**Three quantities this section does not declare, found while implementing it.**
-Each is left un-noised in the code rather than given an invented default, and
-each is wired so a sensitivity can be run without touching the modules:
-
-1. **No heading noise.** Only position and speed carry error, so heading is
-   observed exactly and the forecast's cross-track uncertainty never grows
-   (`SensorModel.heading_noise_std_rad`, default 0). This is optimistic in a
-   pointed way: a real tracker infers heading from successive positions and is
-   worst at low speed, which is exactly where a leader turning at a junction
-   breaks the optical link — §4.6.1's dominant failure mechanism.
-2. **No track lifetime.** Nothing says when a vehicle stops being tracked, so
-   `TrackStore` forgets nothing unless a caller chooses a bound and owns it.
-3. **Vehicle dimensions are exact.** Building a blocker footprint needs length,
-   width and height, and none of the three carries noise, so the policy knows
-   every body's size perfectly.
-
-All three make the policy's world cleaner than a real one. They belong with
-§4.7's declared limitations and must be sourced or bounded before Gate 4.
+**Resolved 2026-08-04.** Heading noise and the track lifetime were undeclared until the cooperative-awareness framing above was written down; both are now configured, propagated and tested, and vehicle dimensions are recorded as a declared assumption rather than an omission. See `docs/DECISION_LOG.md` D15.
 
 ### 6.3 Action-dependent information
 
@@ -1762,15 +1787,18 @@ no shared lineage.
 
 ## 20. Immediate next actions
 
-1. **Continue M2 geometry** against the frozen traces in `artifacts/traces/`
-   (config hash `5e42a2ba`). Phases 1–3 are complete: primitives and the
-   front-bumper footprint convention, link endpoints and occlusion, pair
-   geometry and the acceptance cone. Remaining: buildings and RF visibility,
-   intersection context, the spatial index and definitive validation, and the
-   leakage tests. Buildings are derivable from `GridNetwork`; intersection
-   distance is `edge.length_m - offset_m`.
+1. **M2 is complete** — geometry and observations both. Next is M3 (RF) and
+   M4 (V-VLC), weeks 8–9, ending at Gate 2. §7.2's collision model must stop
+   being undefined there: RF carries roughly 41.7 dB of thermal margin at 40 m,
+   so RF failure is collision-dominated and §7.2 alone decides whether
+   Condition D can be answered.
 2. **Source or bound the IDM time headway** (§4.7 item 1). It sets the capacity
    in §4.5 and is currently undeclared.
+2b. **Source the cooperative-awareness sensing values** (§6.2): heading noise
+   2.0°, position noise 0.5 m, and the 1.0 s message timeout. All three are
+   declared and defensible under that framing but none is yet cited, and they
+   are training *inputs* — revising one after M7 means retraining, unlike a
+   reporting choice.
 3. **Source the receiver field of view** (§4.7 item 6), and confirm the
    semi-angle reading of `receiver_fov_deg`. W18 may settle both this and the
    headlamp pattern. Until then the headline holds the pessimistic 60° and the

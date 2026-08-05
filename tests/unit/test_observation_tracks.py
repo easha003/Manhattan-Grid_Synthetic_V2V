@@ -101,8 +101,13 @@ def test_re_appearing_after_a_gap_keeps_the_original_first_seen() -> None:
 # -- forgetting ---------------------------------------------------------------
 
 
-def test_by_default_nothing_is_forgotten() -> None:
-    """§6.2 declares no track lifetime, so none is invented."""
+def test_a_store_built_without_configuration_forgets_nothing() -> None:
+    """A caller with no configuration cannot inherit a number nobody chose.
+
+    The declared timeout arrives through :meth:`TrackStore.from_config`; the
+    bare constructor stays inert so a missing configuration is visible as
+    unbounded growth rather than as a silently plausible default.
+    """
 
     store = TrackStore()
     store.update([sample("v1", 1.0)], now_s=1.05)
@@ -213,3 +218,39 @@ def test_a_missing_track_raises_rather_than_returning_a_default() -> None:
     assert store.get("absent") is None
     with pytest.raises(KeyError, match="absent"):
         store.require("absent")
+
+
+# -- the configured awareness-message timeout ---------------------------------
+
+
+def test_the_headline_configuration_supplies_a_track_lifetime() -> None:
+    """Unbounded, the RF-load proxy only ever rises: a vehicle that drives
+    away is counted for the rest of the episode."""
+
+    from pathlib import Path
+
+    from grail_v.config import load_headline_config
+
+    config = load_headline_config(Path(__file__).resolve().parents[2])
+    store = TrackStore.from_config(config.observation)
+
+    assert store.forget_after_s == pytest.approx(1.0)
+
+
+def test_a_neighbour_that_stops_broadcasting_leaves_the_count() -> None:
+    from pathlib import Path
+
+    from grail_v.config import load_headline_config
+
+    config = load_headline_config(Path(__file__).resolve().parents[2])
+    store = TrackStore.from_config(config.observation)
+
+    store.update([sample("ego", 0.0, x_m=0.0), sample("gone", 0.0, x_m=50.0)], now_s=0.05)
+    assert store.neighbour_count(store.require("ego"), radius_m=200.0, now_s=0.05) == 1
+
+    # Only the ego keeps being heard from.
+    for step in range(1, 40):
+        store.update([sample("ego", step * 0.05, x_m=0.0)], now_s=step * 0.05)
+
+    assert "gone" not in store
+    assert store.neighbour_count(store.require("ego"), radius_m=200.0, now_s=2.0) == 0

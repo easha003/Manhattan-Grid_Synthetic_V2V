@@ -72,6 +72,8 @@ class SensorConfigSource(Protocol):
     def position_noise_std_m(self) -> float: ...
     @property
     def speed_noise_std_mps(self) -> float: ...
+    @property
+    def heading_noise_std_deg(self) -> float: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,12 +104,17 @@ class TrackSample:
 class SensorModel:
     """Work plan §6.2's declared sensing assumptions.
 
-    ``heading_noise_std_rad`` is zero because §6.2 declares position and speed
-    noise only.  Heading is therefore observed exactly, which is optimistic:
-    a real tracker estimates it from successive positions and is worst at low
-    speed, precisely where a turning leader breaks the optical link (§4.6.1).
-    Recorded as a declared gap rather than silently invented; the field exists
-    so a sensitivity can be run without changing this module.
+    Sensing represents **cooperative awareness**: neighbours are known from the
+    status messages they broadcast, not from onboard tracking of uncooperative
+    vehicles.  Heading is therefore a *broadcast field* and its error is the
+    sender's own GNSS/IMU attitude error, which is small -- rather than the far
+    larger error a tracker would incur inferring heading from successive
+    positions, worst exactly at the low speeds of a turn.
+
+    It is deliberately not zero.  §4.6.1 measured a leader turning out of the
+    acceptance cone as the dominant cause of junction unavailability, so a
+    policy handed exact heading would see every turn perfectly at precisely the
+    moment that decides the result.
     """
 
     update_s: float
@@ -130,9 +137,8 @@ class SensorModel:
     def from_config(cls, observation: SensorConfigSource) -> SensorModel:
         """Build from a loaded ``ObservationConfig``, structurally.
 
-        Heading noise is deliberately not read from configuration: no such
-        field is declared in §6.2, and inventing a default here would bury the
-        gap this class's docstring records.
+        Heading noise is declared in degrees, because that is the unit its
+        source is quoted in, and converted here so the model stays in radians.
         """
 
         return cls(
@@ -140,6 +146,7 @@ class SensorModel:
             latency_s=float(observation.track_latency_s),
             position_noise_std_m=float(observation.position_noise_std_m),
             speed_noise_std_mps=float(observation.speed_noise_std_mps),
+            heading_noise_std_rad=math.radians(float(observation.heading_noise_std_deg)),
         )
 
     def tick_of(self, time_s: float) -> int:
