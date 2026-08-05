@@ -294,7 +294,7 @@ class GridTracePipeline:
             )
             for vehicle in vehicles:
                 edge = vehicle.edge
-                x_m, y_m = edge.position_at(vehicle.offset_m)
+                x_m, y_m = edge.position_at(vehicle.offset_m, vehicle.lane_index)
                 pair_inputs.append(
                     VehicleRecord(
                         trace_id=trace_id,
@@ -304,7 +304,7 @@ class GridTracePipeline:
                         y_m=y_m,
                         heading_rad=edge.heading_rad,
                         route_id=vehicle.route_id,
-                        lane_id=edge.lane_id(),
+                        lane_id=edge.lane_id(vehicle.lane_index),
                         planned_route=vehicle.planned_route_ids,
                     )
                 )
