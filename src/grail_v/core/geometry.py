@@ -44,6 +44,7 @@ ever needed, belongs in the spatial index rather than here.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -266,12 +267,73 @@ def segment_intersects_rectangle(segment: Segment, rectangle: OrientedRectangle)
     return True
 
 
+def _projection_gaps(
+    a: OrientedRectangle, b: OrientedRectangle
+) -> Iterator[float]:
+    """Overlap of both bodies' shadows on each of the four face normals.
+
+    A separating axis between two convex polygons is always normal to an edge
+    of one of them, and a rectangle has two distinct edge normals, so these
+    four axes decide the question exactly.  A negative gap on any one of them
+    proves the bodies are apart; the smallest positive gap is how far one would
+    have to be pushed to separate them.
+    """
+
+    for rectangle in (a, b):
+        for axis_rad in (rectangle.heading_rad, rectangle.heading_rad + 0.5 * math.pi):
+            unit_x, unit_y = math.cos(axis_rad), math.sin(axis_rad)
+            spans = []
+            for target in (a, b):
+                projected = [c.x_m * unit_x + c.y_m * unit_y for c in target.corners()]
+                spans.append((min(projected), max(projected)))
+            (low_a, high_a), (low_b, high_b) = spans
+            yield min(high_a, high_b) - max(low_a, low_b)
+
+
+def rectangles_overlap(a: OrientedRectangle, b: OrientedRectangle) -> bool:
+    """Do two bodies occupy the same ground?
+
+    This is the question the mobility acceptance invariant asks of generated
+    traces, and it is deliberately the same function junction admission asks of
+    a crossing it is about to permit.  Those two were previously separate: the
+    invariant compared footprints while admission compared centreline paths
+    inflated by a margin.  Every junction defect so far came from that gap --
+    the margin is a *proxy* for body overlap, and each time the layout changed,
+    the proxy and the invariant disagreed about a case neither had been tested
+    on.  Sharing one implementation makes disagreement impossible rather than
+    unlikely.
+
+    Boundary contact counts as overlap, matching
+    :func:`segment_intersects_rectangle`.
+    """
+
+    return all(gap >= 0.0 for gap in _projection_gaps(a, b))
+
+
+def rectangle_penetration_m(a: OrientedRectangle, b: OrientedRectangle) -> float:
+    """Minimum translation distance separating two overlapping bodies.
+
+    Zero when they are apart or merely touching.  Depth is a property of the
+    collision rather than of the sampling, so it is the more stable of the two
+    quantities the overlap invariant bounds.
+    """
+
+    deepest = math.inf
+    for gap in _projection_gaps(a, b):
+        if gap <= 0.0:
+            return 0.0
+        deepest = min(deepest, gap)
+    return deepest
+
+
 __all__ = [
     "OrientedRectangle",
     "Point",
     "Segment",
     "VehicleFootprintSource",
     "rectangle_from_front",
+    "rectangle_penetration_m",
+    "rectangles_overlap",
     "segment_intersects_rectangle",
     "vehicle_rear",
     "vehicle_rectangle",

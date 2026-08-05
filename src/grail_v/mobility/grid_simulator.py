@@ -26,7 +26,12 @@ from dataclasses import dataclass
 import numpy as np
 
 from grail_v.core.errors import GrailVError
-from grail_v.core.geometry import Point, Segment
+from grail_v.core.geometry import (
+    OrientedRectangle,
+    Point,
+    rectangle_from_front,
+    rectangles_overlap,
+)
 from grail_v.mobility.car_following import (
     IDMParameters,
     MOBILParameters,
@@ -35,7 +40,7 @@ from grail_v.mobility.car_following import (
     mobil_accepts,
     stop_line_gap,
 )
-from grail_v.mobility.grid_network import _TURNS, Direction, GridEdge, GridNetwork
+from grail_v.mobility.grid_network import Direction, GridEdge, GridNetwork
 from grail_v.mobility.grid_signals import SignalController
 from grail_v.mobility.trace_io import SignalStateRecord, VehicleTraceRecord
 from grail_v.mobility.vehicle_types import (
@@ -53,112 +58,242 @@ MAX_ROUTE_EDGES = 200
 #: counts as an intersection.
 _CONTACT_EPS_M = 1e-6
 
-#: One junction movement, as the ``(approach, exit)`` direction pair it traces.
-_Movement = tuple[Direction, Direction]
+#: Extra clearance carried on every side of a body while it crosses a junction,
+#: in metres.  Admission is decided from where a vehicle *will* be, and it then
+#: follows IDM there over 50-ms steps, so granting on exact non-overlap would
+#: admit two bodies that pass with a centimetre to spare.  0.25 m per body is
+#: 0.5 m between two, which adjacent lanes clear comfortably: two cars in lanes
+#: 3.5 m apart leave 1.7 m between their flanks.
+_JUNCTION_CLEARANCE_M = 0.25
 
-_OPPOSITE: dict[Direction, Direction] = {
-    Direction.NORTH: Direction.SOUTH,
-    Direction.SOUTH: Direction.NORTH,
-    Direction.EAST: Direction.WEST,
-    Direction.WEST: Direction.EAST,
-}
+#: Arc-length spacing between sampled body poses along a swept path.  A turn
+#: rotates the body about 90 degrees over roughly 6 m, so 0.75 m keeps the
+#: heading step near 11 degrees; a car's outer corner then moves 0.46 m between
+#: samples, far less than the 4.5 m of body length that consecutive poses
+#: share.  The sampled union is therefore continuous in practice.
+_SWEPT_SAMPLE_SPACING_M = 0.75
 
+#: Below this determinant the approach and exit tangents are parallel and the
+#: movement is a straight run, not a turn.
+_TANGENT_PARALLEL_EPS = 1e-9
 
-
-
-def _point_to_segment_m(px: float, py: float, segment: Segment) -> float:
-    ax, ay = segment.start.x_m, segment.start.y_m
-    bx, by = segment.end.x_m, segment.end.y_m
-    dx, dy = bx - ax, by - ay
-    span = dx * dx + dy * dy
-    if span <= 0.0:
-        return math.hypot(px - ax, py - ay)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / span))
-    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
-
-
-def _segments_cross(a: Segment, b: Segment) -> bool:
-    def side(ox: float, oy: float, px: float, py: float, qx: float, qy: float) -> float:
-        return (px - ox) * (qy - oy) - (py - oy) * (qx - ox)
-
-    d1 = side(a.start.x_m, a.start.y_m, a.end.x_m, a.end.y_m, b.start.x_m, b.start.y_m)
-    d2 = side(a.start.x_m, a.start.y_m, a.end.x_m, a.end.y_m, b.end.x_m, b.end.y_m)
-    d3 = side(b.start.x_m, b.start.y_m, b.end.x_m, b.end.y_m, a.start.x_m, a.start.y_m)
-    d4 = side(b.start.x_m, b.start.y_m, b.end.x_m, b.end.y_m, a.end.x_m, a.end.y_m)
-    return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+#: Identifies a crossing by the geometry that determines it: which lane of
+#: which edge a body enters the box from, which lane of which edge it leaves
+#: by, and how big the body is.  An empty edge id on either side marks a
+#: vehicle that spawned inside the box or is about to leave the grid; real edge
+#: ids are never empty.  Everything else -- junction, headings, turn direction
+#: -- follows from the edges, so two crossings sharing a key sweep exactly the
+#: same ground and their conflict needs deciding only once.  The key is kept
+#: sortable so the conflict cache can be looked up under one canonical order.
+_SweptKey = tuple[str, int, str, int, str]
 
 
-def _segment_distance_m(a: Segment, b: Segment) -> float:
-    """Closest approach of two segments, zero when they cross."""
+def _swept_bodies(
+    approach: GridEdge | None,
+    approach_lane: int,
+    following: GridEdge | None,
+    following_lane: int,
+    vehicle_type: VehicleType,
+    half_box: float,
+) -> tuple[OrientedRectangle, ...]:
+    """The poses a body passes through while crossing a junction box.
 
-    if _segments_cross(a, b):
-        return 0.0
-    return min(
-        _point_to_segment_m(a.start.x_m, a.start.y_m, b),
-        _point_to_segment_m(a.end.x_m, a.end.y_m, b),
-        _point_to_segment_m(b.start.x_m, b.start.y_m, a),
-        _point_to_segment_m(b.end.x_m, b.end.y_m, a),
+    A turning vehicle does not travel along the chord between where it enters
+    the box and where it leaves.  It follows a curve, and its body stays
+    roughly tangent to that curve.  Modelling the path as a straight chord and
+    then inflating the body to cover the difference conflated two separate
+    quantities and cost far more room than a turn actually takes: a car needed
+    3.15 m of half-width against a 3.5 m lane spacing, so any pair of adjacent
+    lanes serialised whenever either vehicle turned.  Measured, that held
+    free-flow speed to 38% of the limit and made the speed-density relation
+    non-monotonic.
+
+    Following the curve instead removes the need for the inflation.  The
+    tangents at entry and exit are known exactly -- they are the two edge
+    headings -- so a quadratic Bezier through their intersection meets both,
+    and sampling the real body along it asks the question the acceptance
+    invariant asks, in the same units, with no margin standing in for geometry.
+    """
+
+    if approach is None:
+        if following is None:
+            return ()
+        # Spawned at this junction rather than having crossed it: the swept
+        # ground is just the stretch of this edge still inside the box.
+        start = following.position_at(-half_box, following_lane)
+        finish = following.position_at(min(half_box, following.length_m), following_lane)
+        return _sample_bodies(
+            start, following.heading_rad, finish, following.heading_rad, vehicle_type
+        )
+
+    entry = approach.position_at(
+        max(0.0, approach.length_m - half_box), min(approach_lane, approach.lanes - 1)
+    )
+    if following is None:
+        # Leaving the grid: it keeps its heading straight through the box.
+        exit_point = approach.position_at(approach.length_m + half_box, approach_lane)
+        exit_heading = approach.heading_rad
+    else:
+        exit_point = following.position_at(
+            min(half_box, following.length_m), following_lane
+        )
+        exit_heading = following.heading_rad
+    return _sample_bodies(
+        entry, approach.heading_rad, exit_point, exit_heading, vehicle_type
     )
 
 
-def _paths_conflict(a: Segment, b: Segment, clearance_m: float) -> bool:
-    """Do two swept paths through a junction come within ``clearance_m``?
+def _sample_bodies(
+    entry: tuple[float, float],
+    entry_heading: float,
+    exit_point: tuple[float, float],
+    exit_heading: float,
+    vehicle_type: VehicleType,
+) -> tuple[OrientedRectangle, ...]:
+    """Lay bodies along the curve from ``entry`` to ``exit_point``.
 
-    This replaces a hand-written movement matrix that classified pairs of
-    ``(approach, exit)`` directions as compatible or not.  Three rounds of
-    tightening that matrix each fixed something real and left something else --
-    two-lane turns crossing, opposing left turns, long bodies -- because it was
-    a *proxy* for the question the footprint test actually asks: do two bodies
-    occupy the same ground.  Comparing the paths themselves has no special
-    cases and no layout assumptions, so it stays correct when the layout
-    changes.
+    Each pose puts the *front bumper* on the curve, matching the trace
+    convention that :func:`vehicle_rectangle` applies, and points the body
+    along the local tangent.
     """
 
-    return _segment_distance_m(a, b) < clearance_m
+    control = _tangent_intersection(entry, entry_heading, exit_point, exit_heading)
+    if control is None:
+        span = math.hypot(exit_point[0] - entry[0], exit_point[1] - entry[1])
+        points = _straight_samples(entry, exit_point, span)
+        headings = [entry_heading] * len(points)
+    else:
+        points, headings = _bezier_samples(entry, control, exit_point)
+
+    length = vehicle_type.length_m + 2.0 * _JUNCTION_CLEARANCE_M
+    width = vehicle_type.width_m + 2.0 * _JUNCTION_CLEARANCE_M
+    bodies = []
+    for (x_m, y_m), heading in zip(points, headings, strict=True):
+        body = rectangle_from_front(
+            Point(x_m, y_m), heading, vehicle_type.length_m, vehicle_type.width_m
+        )
+        # Inflate about the true centre, so the margin is carried on every side
+        # rather than only behind the bumper.
+        bodies.append(
+            OrientedRectangle(
+                centre=body.centre, heading_rad=heading, length_m=length, width_m=width
+            )
+        )
+    return tuple(bodies)
 
 
-def _unused_movements_conflict(a: _Movement, b: _Movement, lane_a: int, lane_b: int) -> bool:
-    """Do two paths through a junction box cross one another?
+def _tangent_intersection(
+    entry: tuple[float, float],
+    entry_heading: float,
+    exit_point: tuple[float, float],
+    exit_heading: float,
+) -> tuple[float, float] | None:
+    """Where the entry and exit tangents meet, or ``None`` if they are parallel.
 
-    Deliberately conservative, because a false "compatible" produces
-    overlapping bodies while a false "conflicting" only costs throughput. Two
-    movements are compatible **only** when they approach from opposite
-    directions and neither turns left:
-
-    * opposing straight traffic runs on separate carriageways and never meets;
-    * an unprotected left turn crosses the opposing lane;
-    * anything perpendicular crosses by construction;
-    * two vehicles from the *same* approach and the *same* lane are a queue,
-      so the follower waits for the leader's tail even though their paths
-      never cross; different lanes of one approach run parallel and do not.
+    This point is the Bezier control that makes the curve leave along the
+    approach heading and arrive along the exit heading.
     """
 
-    (from_a, to_a), (from_b, to_b) = a, b
-    if from_a is from_b:
-        # Same approach.  Two vehicles in one lane are a queue and the follower
-        # waits for the leader's tail.  Different lanes run parallel only while
-        # both go *straight*: a turn out of the inner lane cuts across the
-        # outer lane's path, and calling that compatible granted one junction
-        # box to two crossing vehicles.  It was 23 of 36 measured overlaps.
-        if lane_a == lane_b:
-            return True
-        return not (to_a is from_a and to_b is from_b)
-    if from_a is not _OPPOSITE[from_b]:
-        return True
-    # Any left turn across an opposing movement conflicts, including against
-    # another left turn.  Real junctions permit opposing lefts together
-    # because both swing wide and pass left-to-left, but this model moves a
-    # vehicle from entry to exit along a straight line with no swept path, so
-    # the two genuinely cross here.  Permitting them produced measurable
-    # footprint overlap, which is how this was found: **the conflict rule must
-    # match what the geometry can represent, not what drivers can do.**  The
-    # throughput this costs is a junction-capacity effect and belongs to signal
-    # progression (§4.9 stage 1.3), not to loosening a safety rule.
-    return _TURNS[from_a]["left"] is to_a or _TURNS[from_b]["left"] is to_b
+    in_x, in_y = math.cos(entry_heading), math.sin(entry_heading)
+    out_x, out_y = math.cos(exit_heading), math.sin(exit_heading)
+    determinant = in_x * out_y - in_y * out_x
+    if abs(determinant) < _TANGENT_PARALLEL_EPS:
+        return None
+    delta_x = exit_point[0] - entry[0]
+    delta_y = exit_point[1] - entry[1]
+    along = (delta_x * out_y - delta_y * out_x) / determinant
+    return (entry[0] + along * in_x, entry[1] + along * in_y)
+
+
+def _sample_count(span_m: float) -> int:
+    return max(5, int(math.ceil(span_m / _SWEPT_SAMPLE_SPACING_M)) + 1)
+
+
+def _straight_samples(
+    entry: tuple[float, float], exit_point: tuple[float, float], span_m: float
+) -> list[tuple[float, float]]:
+    count = _sample_count(span_m)
+    return [
+        (
+            entry[0] + (exit_point[0] - entry[0]) * index / (count - 1),
+            entry[1] + (exit_point[1] - entry[1]) * index / (count - 1),
+        )
+        for index in range(count)
+    ]
+
+
+def _bezier_samples(
+    entry: tuple[float, float],
+    control: tuple[float, float],
+    exit_point: tuple[float, float],
+) -> tuple[list[tuple[float, float]], list[float]]:
+    """Sample a quadratic Bezier and its tangent direction."""
+
+    # The control polygon bounds the arc length from above, which is the safe
+    # direction to err in when it only decides how finely to sample.
+    span = math.hypot(control[0] - entry[0], control[1] - entry[1]) + math.hypot(
+        exit_point[0] - control[0], exit_point[1] - control[1]
+    )
+    count = _sample_count(span)
+    points: list[tuple[float, float]] = []
+    headings: list[float] = []
+    for index in range(count):
+        t = index / (count - 1)
+        one_minus = 1.0 - t
+        points.append(
+            (
+                one_minus * one_minus * entry[0]
+                + 2.0 * t * one_minus * control[0]
+                + t * t * exit_point[0],
+                one_minus * one_minus * entry[1]
+                + 2.0 * t * one_minus * control[1]
+                + t * t * exit_point[1],
+            )
+        )
+        tangent_x = 2.0 * one_minus * (control[0] - entry[0]) + 2.0 * t * (
+            exit_point[0] - control[0]
+        )
+        tangent_y = 2.0 * one_minus * (control[1] - entry[1]) + 2.0 * t * (
+            exit_point[1] - control[1]
+        )
+        headings.append(math.atan2(tangent_y, tangent_x))
+    return points, headings
+
+
+def _bodies_conflict(
+    a: tuple[OrientedRectangle, ...], b: tuple[OrientedRectangle, ...]
+) -> bool:
+    """Would two crossings put a body on ground another body also covers?
+
+    Asked of the footprints themselves, using the same overlap test the
+    mobility acceptance invariant applies to generated traces.  The previous
+    rule compared centrelines inflated by a margin, which is a proxy for this
+    question; every junction defect so far came from the proxy and the
+    invariant disagreeing about a case neither had been tested on.
+    """
+
+    if not a or not b:
+        return False
+    reach = 0.5 * math.hypot(a[0].length_m, a[0].width_m) + 0.5 * math.hypot(
+        b[0].length_m, b[0].width_m
+    )
+    for first in a:
+        for second in b:
+            if (
+                math.hypot(
+                    first.centre.x_m - second.centre.x_m,
+                    first.centre.y_m - second.centre.y_m,
+                )
+                > reach
+            ):
+                continue
+            if rectangles_overlap(first, second):
+                return True
+    return False
 
 
 def _release_reservation(
-    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, Segment, float]]]
+    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, _SweptKey]]]
 ) -> None:
     """Drop this vehicle's junction claim, if it holds one."""
 
@@ -321,6 +456,18 @@ class GridMobilitySimulator:
         self._junction_half_box_m = (
             self.network.spec.outermost_lane_centre_offset_m + widest_half_width_m
         )
+
+        # Junction admission compares real footprints rather than inflated
+        # centrelines, which is far more arithmetic per decision.  It stays
+        # affordable because the geometry is static: a crossing is fully
+        # determined by its entry lane, exit lane, and body size, so both the
+        # sampled bodies and the conflict answer are computed once per distinct
+        # crossing and then reused for the rest of the run.
+        self._types_by_id = {
+            vehicle.type_id: vehicle for vehicle in self.distribution.vehicle_types
+        }
+        self._swept_cache: dict[_SweptKey, tuple[OrientedRectangle, ...]] = {}
+        self._conflict_cache: dict[tuple[_SweptKey, _SweptKey], bool] = {}
 
     # -- vehicle creation -------------------------------------------------
 
@@ -665,30 +812,14 @@ class GridMobilitySimulator:
             return vehicle.route[vehicle.route_index - 1].direction is not edge.direction
         return False
 
-    def _junction_reach_m(self, vehicle: _Vehicle, junction: str) -> float:
-        """How far this vehicle's body reaches from its own swept path.
+    def _swept_key(self, vehicle: _Vehicle, junction: str) -> _SweptKey | None:
+        """Identify the ground ``vehicle`` covers crossing ``junction``.
 
-        Half a width while it runs straight.  A turning body pivots, so its
-        tail swings outside the corridor its centreline traces: measured, a car
-        0.48 m past a junction it had turned through still had 4.02 m of tail
-        inside the box, lying across the adjacent lane.  Path-against-path with
-        only a width margin models a vehicle as a line inflated sideways, which
-        is right for parallel motion and wrong for a turn.
-        """
-
-        half_width = 0.5 * vehicle.vehicle_type.width_m
-        if not self._turns_at(vehicle, junction):
-            return half_width
-        return half_width + 0.5 * vehicle.vehicle_type.length_m
-
-    def _junction_path(
-        self, vehicle: _Vehicle, junction: str, half_box: float
-    ) -> Segment | None:
-        """The line this vehicle sweeps through ``junction``'s box.
-
-        From where it enters the box on its approach to where it leaves on its
-        exit, in the lanes it actually uses.  A vehicle that will leave the
-        grid keeps its heading straight through.
+        Returns the identity rather than the geometry, because the geometry
+        depends on nothing else: two vehicles of one type entering the same
+        lane and leaving by the same lane sweep the same ground whenever they
+        do it.  Bodies and conflicts are both memoised on this key, which is
+        what makes a footprint-level admission test affordable at 20 Hz.
         """
 
         edge = vehicle.edge
@@ -700,47 +831,59 @@ class GridMobilitySimulator:
                 else None
             )
         elif edge.from_junction == junction:
-            previous = vehicle.route[vehicle.route_index - 1] if vehicle.route_index else None
-            if previous is None:
-                # Spawned at this junction rather than having crossed it, so
-                # there is no approach: the swept path is simply the stretch of
-                # this edge still inside the box.
-                start = edge.position_at(-half_box, vehicle.lane_index)
-                finish = edge.position_at(
-                    min(half_box, edge.length_m), vehicle.lane_index
-                )
-                return Segment(Point(start[0], start[1]), Point(finish[0], finish[1]))
-            approach, approach_lane = previous, vehicle.lane_index
+            approach = vehicle.route[vehicle.route_index - 1] if vehicle.route_index else None
+            approach_lane = vehicle.lane_index
             following = edge
         else:
             return None
 
-        entry = approach.position_at(
-            max(0.0, approach.length_m - half_box),
-            min(approach_lane, approach.lanes - 1),
+        following_lane = 0 if following is None else vehicle.lane_on(following)
+        return (
+            "" if approach is None else approach.edge_id,
+            approach_lane,
+            "" if following is None else following.edge_id,
+            following_lane,
+            vehicle.vehicle_type.type_id,
         )
-        if following is None:
-            exit_point = approach.position_at(approach.length_m + half_box, approach_lane)
-        else:
-            exit_point = following.position_at(
-                min(half_box, following.length_m), vehicle.lane_on(following)
+
+    def _swept_for(
+        self, key: _SweptKey, vehicle_type: VehicleType, half_box: float
+    ) -> tuple[OrientedRectangle, ...]:
+        """Bodies for ``key``, built once and reused."""
+
+        cached = self._swept_cache.get(key)
+        if cached is None:
+            approach_id, approach_lane, following_id, following_lane, _ = key
+            cached = _swept_bodies(
+                self.network.edge(approach_id) if approach_id else None,
+                approach_lane,
+                self.network.edge(following_id) if following_id else None,
+                following_lane,
+                vehicle_type,
+                half_box,
             )
-        return Segment(Point(entry[0], entry[1]), Point(exit_point[0], exit_point[1]))
+            self._swept_cache[key] = cached
+        return cached
 
-    def _movement_of(self, vehicle: _Vehicle) -> _Movement:
-        """The ``(from, to)`` direction pair this vehicle will trace through the box."""
+    def _keys_conflict(self, a: _SweptKey, b: _SweptKey, half_box: float) -> bool:
+        """Do the two crossings ``a`` and ``b`` cover common ground?"""
 
-        following = (
-            vehicle.route[vehicle.route_index + 1]
-            if vehicle.route_index + 1 < len(vehicle.route)
-            else None
-        )
-        onward = following.direction if following is not None else vehicle.edge.direction
-        return (vehicle.edge.direction, onward)
+        pair = (a, b) if a <= b else (b, a)
+        answer = self._conflict_cache.get(pair)
+        if answer is None:
+            answer = _bodies_conflict(
+                self._swept_for(pair[0], self._type_of(pair[0]), half_box),
+                self._swept_for(pair[1], self._type_of(pair[1]), half_box),
+            )
+            self._conflict_cache[pair] = answer
+        return answer
+
+    def _type_of(self, key: _SweptKey) -> VehicleType:
+        return self._types_by_id[key[4]]
 
     def _junction_occupancy(
         self, vehicles: list[_Vehicle], half_box: float
-    ) -> dict[str, list[tuple[str, Segment, float]]]:
+    ) -> dict[str, list[tuple[str, _SweptKey]]]:
         """Which vehicles' bodies currently lie inside each junction box.
 
         A vehicle occupies the box ahead once its front passes the stop line,
@@ -748,7 +891,7 @@ class GridMobilitySimulator:
         matter: a long vehicle that has crossed is still in the way.
         """
 
-        occupancy: dict[str, list[tuple[str, Segment, float]]] = {}
+        occupancy: dict[str, list[tuple[str, _SweptKey]]] = {}
         for vehicle in vehicles:
             edge = vehicle.edge
             for junction in (
@@ -760,33 +903,14 @@ class GridMobilitySimulator:
             ):
                 if junction is None:
                     continue
-                path = self._junction_path(vehicle, junction, half_box)
-                if path is None or path.is_degenerate:
+                key = self._swept_key(vehicle, junction)
+                if key is None:
                     continue
                 holders = occupancy.setdefault(junction, [])
                 if any(entry[0] == vehicle.vehicle_id for entry in holders):
                     continue
-                holders.append(
-                    (vehicle.vehicle_id, path, self._junction_reach_m(vehicle, junction))
-                )
+                holders.append((vehicle.vehicle_id, key))
         return occupancy
-
-    def _movement_through(self, vehicle: _Vehicle, junction: str) -> _Movement:
-        """The movement this vehicle makes through ``junction`` specifically.
-
-        Once a vehicle has crossed, :meth:`_movement_of` describes the turn it
-        will make at the *next* junction, not the one it is still lying in.
-        Labelling a held reservation with that future movement let two genuinely
-        conflicting crossers each be granted the same box.
-        """
-
-        edge = vehicle.edge
-        if edge.from_junction != junction:
-            return self._movement_of(vehicle)
-
-        previous = vehicle.route[vehicle.route_index - 1] if vehicle.route_index > 0 else None
-        entered_from = previous.direction if previous is not None else edge.direction
-        return (entered_from, edge.direction)
 
     def _decision_distance_m(self, vehicle: _Vehicle, step_s: float) -> float:
         """How far back the crossing must be decided for a refusal to be obeyable.
@@ -803,7 +927,7 @@ class GridMobilitySimulator:
     def _reserve_junction(
         self,
         vehicle: _Vehicle,
-        reservations: dict[str, list[tuple[str, Segment, float]]],
+        reservations: dict[str, list[tuple[str, _SweptKey]]],
         half_box: float,
         step_s: float,
     ) -> bool:
@@ -835,21 +959,20 @@ class GridMobilitySimulator:
         if entry_m - vehicle.offset_m > self._decision_distance_m(vehicle, step_s):
             return True  # far enough out that nothing needs deciding yet
 
-        mine = self._junction_path(vehicle, junction, half_box)
-        if mine is None or mine.is_degenerate:
-            # Fail closed.  A path that cannot be computed is not a licence to
+        mine = self._swept_key(vehicle, junction)
+        if mine is None:
+            # Fail closed.  Ground that cannot be computed is not a licence to
             # enter: granting on the unknown case is how the movement matrix
             # let spawned vehicles through with no check at all.
             return False
-        reach = self._junction_reach_m(vehicle, junction)
 
-        for other_id, theirs, their_reach in reservations.get(junction, ()):
+        for other_id, theirs in reservations.get(junction, ()):
             if other_id == vehicle.vehicle_id:
                 continue
-            if _paths_conflict(mine, theirs, reach + their_reach):
+            if self._keys_conflict(mine, theirs, half_box):
                 return False
 
-        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine, reach))
+        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine))
         vehicle.reserved_junction = junction
         return True
 
