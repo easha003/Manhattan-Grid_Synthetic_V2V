@@ -51,12 +51,31 @@ class SignalProgram:
     cycle_s: float = 90.0
     yellow_s: float = 3.0
     stagger_offsets: bool = True
+    #: Progression speed for green-wave offsets, in m/s.  ``None`` keeps the
+    #: half-cycle stagger, which is what work plan §4.7 item 2 records as the
+    #: largest realism gap: free-flow speed tops out at 52% of the limit and
+    #: 38% of vehicles are stopped in near-empty traffic, because a platoon
+    #: released by one junction arrives at the next during its red.
+    #:
+    #: A green wave sets each junction's offset from its distance along the
+    #: progressed axis, so a platoon travelling at this speed meets a green at
+    #: every junction.  Real Manhattan avenues are timed this way.
+    progression_speed_mps: float | None = None
+    #: Spacing between junctions along the progressed (avenue) axis, needed to
+    #: turn a progression speed into an offset.
+    progression_spacing_m: float = 61.0
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.cycle_s) or self.cycle_s <= 0.0:
             raise ValueError("cycle_s must be finite and positive")
         if not math.isfinite(self.yellow_s) or self.yellow_s < 0.0:
             raise ValueError("yellow_s must be finite and non-negative")
+        if self.progression_speed_mps is not None and (
+            not math.isfinite(self.progression_speed_mps) or self.progression_speed_mps <= 0.0
+        ):
+            raise ValueError("progression_speed_mps must be finite and positive when set")
+        if not math.isfinite(self.progression_spacing_m) or self.progression_spacing_m <= 0.0:
+            raise ValueError("progression_spacing_m must be finite and positive")
         if 2.0 * self.yellow_s >= self.cycle_s:
             raise ValueError("yellow intervals must leave positive green time")
 
@@ -67,7 +86,29 @@ class SignalProgram:
         return (self.cycle_s - 2.0 * self.yellow_s) / 2.0
 
     def offset_s(self, junction: Junction) -> float:
-        """Half-cycle stagger on alternating junctions."""
+        """When this junction's cycle begins, relative to the network clock.
+
+        With ``progression_speed_mps`` set, the offset is the travel time a
+        platoon needs to reach this junction along the progressed axis, so the
+        green arrives with it.  Otherwise the original half-cycle stagger
+        applies, which deliberately does *not* progress: it alternates, so a
+        platoon meets a red at every second junction.
+        """
+
+        if self.progression_speed_mps is not None:
+            # Progress along the avenue axis, in the direction that avenue
+            # actually runs.  Avenues alternate, so a single increasing offset
+            # would progress the northbound ones and anti-progress the
+            # southbound ones -- the same failure a two-way street has, moved
+            # from between directions to between adjacent avenues.
+            northbound = junction.avenue_index % 2 == 0
+            steps = (
+                junction.cross_street_index
+                if northbound
+                else -junction.cross_street_index
+            )
+            travel_s = steps * self.progression_spacing_m / self.progression_speed_mps
+            return travel_s % self.cycle_s
 
         if not self.stagger_offsets:
             return 0.0

@@ -94,8 +94,18 @@ class GridNetworkSpec:
     cross_streets: int = 12
     avenue_spacing_m: float = 244.0
     cross_street_spacing_m: float = 61.0
-    lanes_per_direction: int = 1
+    #: Travel lanes per street.  One-way, so the whole carriageway runs one
+    #: way and every lane is available to it: a street of a given width carries
+    #: twice the same-direction lanes it would if it were two-way.
+    lanes_per_direction: int = 2
     lane_width_m: float = LANE_WIDTH_M
+    #: Manhattan's grid is predominantly one-way, alternating street by street
+    #: and avenue by avenue.  It is not incidental: the one-way conversion is
+    #: what makes avenue progression possible, because a two-way street can
+    #: only carry a green wave at ``v = 2L/(kC)`` -- 1.36 m/s for 61 m blocks
+    #: on a 90 s cycle, which is no speed at all.  Setting this false restores
+    #: two directed edges per segment and is kept for comparison only.
+    one_way: bool = True
     speed_limit_mps: float = 11.18
 
     def __post_init__(self) -> None:
@@ -125,19 +135,34 @@ class GridNetworkSpec:
     def lane_centre_offset_m(self, lane_index: int = 0) -> float:
         """Lateral distance from the street centreline to lane ``lane_index``.
 
-        Traffic keeps right, so lane 0 is the one nearest the centreline (and
-        therefore nearest oncoming traffic) and higher indices run outward
-        towards the kerb.  Without this offset both directions would share one
-        line: vehicles would pass through one another and an oncoming vehicle
-        would sit exactly on the optical path between a tagged pair, which is
-        the defect recorded in work plan section 4.6.3.
+        Higher indices lie further right in the direction of travel, so MOBIL's
+        keep-right bias points towards higher indices either way.
+
+        One-way streets spread their lanes across the whole carriageway, so the
+        offsets straddle the centreline.  Two-way streets keep each direction
+        entirely to the right of it, which is what stops opposing traffic
+        sharing a line -- the defect recorded in work plan section 4.6.3.
         """
 
         if not 0 <= lane_index < self.lanes_per_direction:
             raise ValueError(
                 f"lane_index {lane_index} outside 0..{self.lanes_per_direction - 1}"
             )
+        if self.one_way:
+            centred = lane_index + 0.5 - 0.5 * self.lanes_per_direction
+            return centred * self.lane_width_m
         return (lane_index + 0.5) * self.lane_width_m
+
+    def travel_direction(self, direction: Direction) -> Direction:
+        """The direction a street of this orientation actually runs.
+
+        Avenues alternate northbound and southbound by avenue index, cross
+        streets eastbound and westbound by cross-street index, which is how
+        Manhattan is laid out.  Under ``one_way`` a segment offered in the
+        opposite sense simply does not exist.
+        """
+
+        return direction
 
     @property
     def outermost_lane_centre_offset_m(self) -> float:
@@ -148,7 +173,9 @@ class GridNetworkSpec:
         traffic a waiting vehicle must not intrude upon.
         """
 
-        return self.lane_centre_offset_m(self.lanes_per_direction - 1)
+        return max(
+            abs(self.lane_centre_offset_m(index)) for index in range(self.lanes_per_direction)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +246,24 @@ class GridEdge:
         )
 
 
+def _runs(direction: Direction, node: Junction) -> bool:
+    """Whether a one-way street at ``node`` carries ``direction``.
+
+    Avenues alternate by avenue index and cross streets by cross-street index,
+    so adjacent parallel streets always run opposite ways.  A vehicle therefore
+    never meets oncoming traffic on its own street, which removes the dominant
+    junction conflict -- a left turn across an opposing lane -- and is what lets
+    a green wave exist at all: a two-way street can only carry one at
+    ``v = 2L/(kC)``, which is 1.36 m/s for 61 m blocks on a 90 s cycle.
+    """
+
+    if direction.is_avenue:
+        northbound = node.avenue_index % 2 == 0
+        return direction is (Direction.NORTH if northbound else Direction.SOUTH)
+    eastbound = node.cross_street_index % 2 == 0
+    return direction is (Direction.EAST if eastbound else Direction.WEST)
+
+
 class GridNetwork:
     """Directed rectangular grid with turn resolution and boundary detection."""
 
@@ -249,6 +294,8 @@ class GridNetwork:
 
         for node in self._junctions.values():
             for direction in Direction:
+                if spec.one_way and not _runs(direction, node):
+                    continue
                 da, dc = direction.delta
                 a2 = node.avenue_index + da
                 c2 = node.cross_street_index + dc
