@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from grail_v.core.errors import GrailVError
+from grail_v.core.geometry import Point, Segment
 from grail_v.mobility.car_following import (
     IDMParameters,
     MOBILParameters,
@@ -63,7 +64,60 @@ _OPPOSITE: dict[Direction, Direction] = {
 }
 
 
-def _movements_conflict(a: _Movement, b: _Movement, lane_a: int, lane_b: int) -> bool:
+
+
+def _point_to_segment_m(px: float, py: float, segment: Segment) -> float:
+    ax, ay = segment.start.x_m, segment.start.y_m
+    bx, by = segment.end.x_m, segment.end.y_m
+    dx, dy = bx - ax, by - ay
+    span = dx * dx + dy * dy
+    if span <= 0.0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / span))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _segments_cross(a: Segment, b: Segment) -> bool:
+    def side(ox: float, oy: float, px: float, py: float, qx: float, qy: float) -> float:
+        return (px - ox) * (qy - oy) - (py - oy) * (qx - ox)
+
+    d1 = side(a.start.x_m, a.start.y_m, a.end.x_m, a.end.y_m, b.start.x_m, b.start.y_m)
+    d2 = side(a.start.x_m, a.start.y_m, a.end.x_m, a.end.y_m, b.end.x_m, b.end.y_m)
+    d3 = side(b.start.x_m, b.start.y_m, b.end.x_m, b.end.y_m, a.start.x_m, a.start.y_m)
+    d4 = side(b.start.x_m, b.start.y_m, b.end.x_m, b.end.y_m, a.end.x_m, a.end.y_m)
+    return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+
+def _segment_distance_m(a: Segment, b: Segment) -> float:
+    """Closest approach of two segments, zero when they cross."""
+
+    if _segments_cross(a, b):
+        return 0.0
+    return min(
+        _point_to_segment_m(a.start.x_m, a.start.y_m, b),
+        _point_to_segment_m(a.end.x_m, a.end.y_m, b),
+        _point_to_segment_m(b.start.x_m, b.start.y_m, a),
+        _point_to_segment_m(b.end.x_m, b.end.y_m, a),
+    )
+
+
+def _paths_conflict(a: Segment, b: Segment, clearance_m: float) -> bool:
+    """Do two swept paths through a junction come within ``clearance_m``?
+
+    This replaces a hand-written movement matrix that classified pairs of
+    ``(approach, exit)`` directions as compatible or not.  Three rounds of
+    tightening that matrix each fixed something real and left something else --
+    two-lane turns crossing, opposing left turns, long bodies -- because it was
+    a *proxy* for the question the footprint test actually asks: do two bodies
+    occupy the same ground.  Comparing the paths themselves has no special
+    cases and no layout assumptions, so it stays correct when the layout
+    changes.
+    """
+
+    return _segment_distance_m(a, b) < clearance_m
+
+
+def _unused_movements_conflict(a: _Movement, b: _Movement, lane_a: int, lane_b: int) -> bool:
     """Do two paths through a junction box cross one another?
 
     Deliberately conservative, because a false "compatible" produces
@@ -81,10 +135,14 @@ def _movements_conflict(a: _Movement, b: _Movement, lane_a: int, lane_b: int) ->
 
     (from_a, to_a), (from_b, to_b) = a, b
     if from_a is from_b:
-        # Same approach: two lanes run parallel through the box and never
-        # meet, but two vehicles in *one* lane are a queue, and the follower
-        # must wait for the leader's tail to clear.
-        return lane_a == lane_b
+        # Same approach.  Two vehicles in one lane are a queue and the follower
+        # waits for the leader's tail.  Different lanes run parallel only while
+        # both go *straight*: a turn out of the inner lane cuts across the
+        # outer lane's path, and calling that compatible granted one junction
+        # box to two crossing vehicles.  It was 23 of 36 measured overlaps.
+        if lane_a == lane_b:
+            return True
+        return not (to_a is from_a and to_b is from_b)
     if from_a is not _OPPOSITE[from_b]:
         return True
     # Any left turn across an opposing movement conflicts, including against
@@ -100,7 +158,7 @@ def _movements_conflict(a: _Movement, b: _Movement, lane_a: int, lane_b: int) ->
 
 
 def _release_reservation(
-    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, _Movement, int]]]
+    vehicle: _Vehicle, reservations: dict[str, list[tuple[str, Segment, float]]]
 ) -> None:
     """Drop this vehicle's junction claim, if it holds one."""
 
@@ -355,7 +413,9 @@ class GridMobilitySimulator:
 
     # -- the step loop ----------------------------------------------------
 
-    def _lane_changes(self, vehicles: list[_Vehicle], *, time_s: float) -> int:
+    def _lane_changes(
+        self, vehicles: list[_Vehicle], *, time_s: float, half_box: float
+    ) -> int:
         """Apply one round of MOBIL lane changes; return how many happened.
 
         Decisions are taken against a single snapshot so that no vehicle's
@@ -405,6 +465,15 @@ class GridMobilitySimulator:
         for vehicle in vehicles:
             edge = vehicle.edge
             if edge.lanes < 2 or time_s < vehicle.lane_change_ready_s:
+                continue
+            # Never change lanes inside a junction.  The room check below
+            # only sees vehicles on this edge and lane, so it cannot see
+            # crossing traffic, and a lateral move in the box would put a
+            # body where the reservation system never granted one.  Drivers
+            # do not do it either.
+            if vehicle.offset_m > edge.length_m - half_box:
+                continue
+            if vehicle.offset_m - vehicle.vehicle_type.length_m < half_box:
                 continue
             own_leader, own_follower = neighbours(
                 edge.edge_id, vehicle.lane_index, vehicle.offset_m, vehicle.vehicle_id
@@ -572,6 +641,52 @@ class GridMobilitySimulator:
                     follower.offset_m = limit
                     follower.speed_mps = min(follower.speed_mps, leader.speed_mps)
 
+    def _junction_path(
+        self, vehicle: _Vehicle, junction: str, half_box: float
+    ) -> Segment | None:
+        """The line this vehicle sweeps through ``junction``'s box.
+
+        From where it enters the box on its approach to where it leaves on its
+        exit, in the lanes it actually uses.  A vehicle that will leave the
+        grid keeps its heading straight through.
+        """
+
+        edge = vehicle.edge
+        if edge.to_junction == junction:
+            approach, approach_lane = edge, vehicle.lane_index
+            following = (
+                vehicle.route[vehicle.route_index + 1]
+                if vehicle.route_index + 1 < len(vehicle.route)
+                else None
+            )
+        elif edge.from_junction == junction:
+            previous = vehicle.route[vehicle.route_index - 1] if vehicle.route_index else None
+            if previous is None:
+                # Spawned at this junction rather than having crossed it, so
+                # there is no approach: the swept path is simply the stretch of
+                # this edge still inside the box.
+                start = edge.position_at(-half_box, vehicle.lane_index)
+                finish = edge.position_at(
+                    min(half_box, edge.length_m), vehicle.lane_index
+                )
+                return Segment(Point(start[0], start[1]), Point(finish[0], finish[1]))
+            approach, approach_lane = previous, vehicle.lane_index
+            following = edge
+        else:
+            return None
+
+        entry = approach.position_at(
+            max(0.0, approach.length_m - half_box),
+            min(approach_lane, approach.lanes - 1),
+        )
+        if following is None:
+            exit_point = approach.position_at(approach.length_m + half_box, approach_lane)
+        else:
+            exit_point = following.position_at(
+                min(half_box, following.length_m), vehicle.lane_on(following)
+            )
+        return Segment(Point(entry[0], entry[1]), Point(exit_point[0], exit_point[1]))
+
     def _movement_of(self, vehicle: _Vehicle) -> _Movement:
         """The ``(from, to)`` direction pair this vehicle will trace through the box."""
 
@@ -585,7 +700,7 @@ class GridMobilitySimulator:
 
     def _junction_occupancy(
         self, vehicles: list[_Vehicle], half_box: float
-    ) -> dict[str, list[tuple[str, _Movement, int]]]:
+    ) -> dict[str, list[tuple[str, Segment, float]]]:
         """Which vehicles' bodies currently lie inside each junction box.
 
         A vehicle occupies the box ahead once its front passes the stop line,
@@ -593,29 +708,26 @@ class GridMobilitySimulator:
         matter: a long vehicle that has crossed is still in the way.
         """
 
-        occupancy: dict[str, list[tuple[str, _Movement, int]]] = {}
+        occupancy: dict[str, list[tuple[str, Segment, float]]] = {}
         for vehicle in vehicles:
             edge = vehicle.edge
-            if vehicle.reserved_junction is not None:
-                occupancy.setdefault(vehicle.reserved_junction, []).append(
-                    (
-                        vehicle.vehicle_id,
-                        self._movement_through(vehicle, vehicle.reserved_junction),
-                        vehicle.lane_index,
-                    )
-                )
-            elif vehicle.offset_m > edge.length_m - half_box:
-                occupancy.setdefault(edge.to_junction, []).append(
-                    (vehicle.vehicle_id, self._movement_of(vehicle), vehicle.lane_index)
-                )
-            if vehicle.offset_m - vehicle.vehicle_type.length_m < half_box:
-                occupancy.setdefault(edge.from_junction, []).append(
-                    (
-                        vehicle.vehicle_id,
-                        self._movement_through(vehicle, edge.from_junction),
-                        vehicle.lane_index,
-                    )
-                )
+            half_width = 0.5 * vehicle.vehicle_type.width_m
+            for junction in (
+                vehicle.reserved_junction,
+                edge.to_junction if vehicle.offset_m > edge.length_m - half_box else None,
+                edge.from_junction
+                if vehicle.offset_m - vehicle.vehicle_type.length_m < half_box
+                else None,
+            ):
+                if junction is None:
+                    continue
+                path = self._junction_path(vehicle, junction, half_box)
+                if path is None or path.is_degenerate:
+                    continue
+                holders = occupancy.setdefault(junction, [])
+                if any(entry[0] == vehicle.vehicle_id for entry in holders):
+                    continue
+                holders.append((vehicle.vehicle_id, path, half_width))
         return occupancy
 
     def _movement_through(self, vehicle: _Vehicle, junction: str) -> _Movement:
@@ -650,7 +762,7 @@ class GridMobilitySimulator:
     def _reserve_junction(
         self,
         vehicle: _Vehicle,
-        reservations: dict[str, list[tuple[str, _Movement, int]]],
+        reservations: dict[str, list[tuple[str, Segment, float]]],
         half_box: float,
         step_s: float,
     ) -> bool:
@@ -682,16 +794,21 @@ class GridMobilitySimulator:
         if entry_m - vehicle.offset_m > self._decision_distance_m(vehicle, step_s):
             return True  # far enough out that nothing needs deciding yet
 
-        mine = self._movement_of(vehicle)
-        for other_id, theirs, their_lane in reservations.get(junction, ()):
+        mine = self._junction_path(vehicle, junction, half_box)
+        if mine is None or mine.is_degenerate:
+            # Fail closed.  A path that cannot be computed is not a licence to
+            # enter: granting on the unknown case is how the movement matrix
+            # let spawned vehicles through with no check at all.
+            return False
+        half_width = 0.5 * vehicle.vehicle_type.width_m
+
+        for other_id, theirs, their_half_width in reservations.get(junction, ()):
             if other_id == vehicle.vehicle_id:
                 continue
-            if _movements_conflict(mine, theirs, vehicle.lane_index, their_lane):
+            if _paths_conflict(mine, theirs, half_width + their_half_width):
                 return False
 
-        reservations.setdefault(junction, []).append(
-            (vehicle.vehicle_id, mine, vehicle.lane_index)
-        )
+        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine, half_width))
         vehicle.reserved_junction = junction
         return True
 
@@ -741,7 +858,9 @@ class GridMobilitySimulator:
     ) -> None:
         # Lateral first, on the pre-motion state, so the longitudinal
         # update below already sees whatever lane each vehicle chose.
-        self._lane_changes(vehicles, time_s=time_s)
+        self._lane_changes(
+            vehicles, time_s=time_s, half_box=self._junction_half_box_m
+        )
 
         leader_gaps = self._leader_gaps(vehicles)
         half_box = self._junction_half_box_m

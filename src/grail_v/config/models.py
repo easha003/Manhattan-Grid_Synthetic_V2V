@@ -96,7 +96,13 @@ class GridConfig(ConfigModel):
     cross_street_spacing_m: PositiveFloat
     evaluation_avenues: Annotated[int, Field(ge=1)]
     evaluation_cross_streets: Annotated[int, Field(ge=1)]
-    lanes_per_direction: PositiveInt = 1
+    lanes_per_direction: PositiveInt = 2
+    #: Manhattan's grid is predominantly one-way, alternating street by
+    #: street.  It is not incidental: a two-way street can only carry a
+    #: green wave at v = 2L/(kC), which is 1.36 m/s for 61 m blocks on a
+    #: 90 s cycle, so the one-way conversion is what makes progression
+    #: possible at all.  See work plan §4.1.
+    one_way: bool = True
     lane_width_m: PositiveFloat = 3.5
     """Sets how far each direction runs from the street centreline.
 
@@ -148,7 +154,7 @@ class MobilityConfig(ConfigModel):
     speed_limit_mps: PositiveFloat
     target_densities_veh_per_lane_km: tuple[PositiveFloat, ...] = Field(min_length=1)
     density_tolerance_fraction: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.05
-    signal_cycle_s: PositiveFloat = 90.0
+    signal_cycle_s: PositiveFloat = 45.0
     stagger_signal_offsets: bool = True
     turn_probabilities: TurnProbabilityConfig
     # Reserved for a future arterial-flow variant; validated but read by no
