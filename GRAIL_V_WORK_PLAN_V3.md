@@ -933,6 +933,35 @@ the old window's far end — 14 dB — and fog and daylight ambient act on
 worth doing precisely because it puts pairs at ranges where the link budget
 bites, not because it adds bodies to the path.
 
+**Stage 1 outcome, measured on branch `oneway-grid`.** One-way alternating
+streets, two lanes each, 45 s cycle, 126 directed edges, lane length unchanged
+at 37,332 m so density comparisons carry across. Holding capacity 65.3
+veh/lane-km. At \(\rho_L=20\): V-VLC available ≈95%, **mid-block
+unavailability 2.91% against 0.00%** for the original single-lane two-way
+layout, and **10.4% of episodes cut into** against 1.1%. The cut-in is the only
+blockage a map cannot predict, which is what RQ3 and H7 rest on.
+
+Green waves were built, measured and then *not* adopted, which is itself the
+finding: a two-way street can only carry one at \(v = 2L/(kC)\), 1.36 m/s for
+61 m blocks on a 90 s cycle, so every progression speed made the two-way grid
+slower. One-way makes progression possible (+31%), but at a 45 s cycle the
+per-junction offset is 27% of the cycle and the band walks around it, so the
+staggered short cycle wins on its own arithmetic:
+\(\mathbb{E}[\text{wait}] = C/8\) matched to a 5.5 s block traversal.
+
+**Open — junction admission is too conservative.** A turning vehicle reserves
+half its width *plus half its length*, because a body pivoting through the box
+sweeps outside the corridor its centreline traces; without it, a car 0.48 m past
+a junction still had 4.02 m of tail lying across the adjacent lane. But that
+makes the reach 4.05 m against a 3.5 m lane spacing, so adjacent lanes serialise
+whenever either vehicle turns — and half of them do. Free-flow speed falls to
+38% of the limit with 52% of vehicles stopped at \(\rho_L=5\), which is worse
+than the 52% §4.7 item 2 already records as the largest realism gap, and the
+speed-density relation is non-monotonic. The model is safe but pays more at
+junctions than a real one does. The fix is a curved turn path rather than a
+straight chord with a pivoting body; it is deferred, declared, and must be
+settled before the fundamental diagram of §4.5 is quoted.
+
 **The tripwire.** The hybrid gain is capped at \(1/P_\text{out}\): 49× at
 today's 2%, 6.7× at 15%, 2.9× at 35%. Overshooting the pessimism makes
 \(10^{-4}\) unreachable and turns the result into H1's "infeasible" branch.
