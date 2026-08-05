@@ -650,6 +650,37 @@ class GridMobilitySimulator:
                     follower.offset_m = limit
                     follower.speed_mps = min(follower.speed_mps, leader.speed_mps)
 
+    def _turns_at(self, vehicle: _Vehicle, junction: str) -> bool:
+        """Whether this vehicle changes heading crossing ``junction``."""
+
+        edge = vehicle.edge
+        if edge.to_junction == junction:
+            following = (
+                vehicle.route[vehicle.route_index + 1]
+                if vehicle.route_index + 1 < len(vehicle.route)
+                else None
+            )
+            return following is not None and following.direction is not edge.direction
+        if edge.from_junction == junction and vehicle.route_index:
+            return vehicle.route[vehicle.route_index - 1].direction is not edge.direction
+        return False
+
+    def _junction_reach_m(self, vehicle: _Vehicle, junction: str) -> float:
+        """How far this vehicle's body reaches from its own swept path.
+
+        Half a width while it runs straight.  A turning body pivots, so its
+        tail swings outside the corridor its centreline traces: measured, a car
+        0.48 m past a junction it had turned through still had 4.02 m of tail
+        inside the box, lying across the adjacent lane.  Path-against-path with
+        only a width margin models a vehicle as a line inflated sideways, which
+        is right for parallel motion and wrong for a turn.
+        """
+
+        half_width = 0.5 * vehicle.vehicle_type.width_m
+        if not self._turns_at(vehicle, junction):
+            return half_width
+        return half_width + 0.5 * vehicle.vehicle_type.length_m
+
     def _junction_path(
         self, vehicle: _Vehicle, junction: str, half_box: float
     ) -> Segment | None:
@@ -720,7 +751,6 @@ class GridMobilitySimulator:
         occupancy: dict[str, list[tuple[str, Segment, float]]] = {}
         for vehicle in vehicles:
             edge = vehicle.edge
-            half_width = 0.5 * vehicle.vehicle_type.width_m
             for junction in (
                 vehicle.reserved_junction,
                 edge.to_junction if vehicle.offset_m > edge.length_m - half_box else None,
@@ -736,7 +766,9 @@ class GridMobilitySimulator:
                 holders = occupancy.setdefault(junction, [])
                 if any(entry[0] == vehicle.vehicle_id for entry in holders):
                     continue
-                holders.append((vehicle.vehicle_id, path, half_width))
+                holders.append(
+                    (vehicle.vehicle_id, path, self._junction_reach_m(vehicle, junction))
+                )
         return occupancy
 
     def _movement_through(self, vehicle: _Vehicle, junction: str) -> _Movement:
@@ -809,15 +841,15 @@ class GridMobilitySimulator:
             # enter: granting on the unknown case is how the movement matrix
             # let spawned vehicles through with no check at all.
             return False
-        half_width = 0.5 * vehicle.vehicle_type.width_m
+        reach = self._junction_reach_m(vehicle, junction)
 
-        for other_id, theirs, their_half_width in reservations.get(junction, ()):
+        for other_id, theirs, their_reach in reservations.get(junction, ()):
             if other_id == vehicle.vehicle_id:
                 continue
-            if _paths_conflict(mine, theirs, half_width + their_half_width):
+            if _paths_conflict(mine, theirs, reach + their_reach):
                 return False
 
-        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine, half_width))
+        reservations.setdefault(junction, []).append((vehicle.vehicle_id, mine, reach))
         vehicle.reserved_junction = junction
         return True
 
