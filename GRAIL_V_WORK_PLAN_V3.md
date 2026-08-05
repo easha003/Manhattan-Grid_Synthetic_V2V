@@ -794,14 +794,23 @@ These are modelling choices the paper must state, not hide.
 1. **IDM desired time headway \(T = 1.2\) s** is a free parameter that sets the
    speed-density relation and therefore the capacity in §4.5. It requires a
    source or a declared sensitivity band before Gate 2.
-2. **Signals are staggered but not progressed.** On the single-lane two-way
-   90 s model this held free-flow speed to 52% of the limit at \(\rho_L=5\)
-   with 38% of vehicles stopped. The one-way 45 s layout now in force measures
-   **63.4% and 17.3%**, and 51.6% / 31.8% if the cycle is put back to 90 s, so
-   most of the gap was cycle time rather than the absence of progression. Real
-   Manhattan avenues run green waves and are faster still. This remains the
-   largest realism gap and must be disclosed; §4.9 records why progression was
-   built, measured, and not adopted.
+2. **Signals are fixed-time, staggered, and not progressed.** The one-way 45 s
+   layout measures **64.0% of the limit with 16.4% stopped** at \(\rho_L=5\),
+   against 50.2% / 33.0% at a 90 s cycle. Nearly all of the gap is **cycle
+   time**, not the absence of progression: §4.9 measures every green wave and
+   the best gains 4.8% at one density while losing at the other.
+
+   The mechanism is the grid's anisotropy. Along an avenue, junctions are 61 m
+   apart — 5.5 s of driving at the limit against a 7.2 s expected wait
+   \(\bigl((1-g)^2C/2\bigr)\), so **more time is spent stopped than moving**.
+   Along a cross street they are 244 m apart, 21.8 s against the same 7.2 s.
+   Predicted effective speeds are 43% and 75%; the measured 64% sits between
+   them, and the loss is concentrated on the short-block axis.
+
+   Real Manhattan avenues are faster because they are progressed *and* because
+   signals are actuated. This remains the largest realism gap and must be
+   disclosed. What would actually close it is a shorter cycle or actuated
+   control, not better offsets.
 3. **Lane changing exists** (MOBIL, §4.6.5) and this item no longer applies.
    Retained only so the numbering of items cited elsewhere does not shift.
 4. **No actuated signals, no pedestrians, no parking.** Multi-lane roads exist
@@ -894,10 +903,14 @@ blockage split between predictable junctions and unpredictable cut-ins, leaving
 2. Adjacency becomes a formation rule, not a permanent one. A pair stays
    together when a vehicle cuts between them; `has_intervening_vehicle` stops
    being vestigial.
-3. Green-wave signal offsets. Free-flow speed is 63.4% of the limit at the
-   45 s cycle now in force, still the largest declared realism gap (§4.7
-   item 2). Progression was built and measured; §4.9 records why the staggered
-   short cycle beat it and why this stays open rather than done.
+3. ~~Green-wave signal offsets.~~ **Settled, negatively.** Progression was
+   built and measured against the staggered 45 s cycle at matched conditions;
+   the best wave gains 4.8% at \(\rho_L=20\) and loses everywhere at
+   \(\rho_L=5\). See the table in §4.9. Free-flow speed stays at 64.0% of the
+   limit and remains the largest declared realism gap (§4.7 item 2), but
+   progression is not the lever that closes it — the 61 m avenue block with a
+   7.2 s expected wait is, and that needs a shorter cycle or actuated signals,
+   not better offsets.
 4. Pedestrian and cyclist crossings at junctions: Poisson arrivals, crossing
    only where they would matter, tall enough to cut a 0.7 m beam.
 5. Re-derive the density band from a fresh sweep. §4.5.1's justification is
@@ -974,12 +987,52 @@ layout, and **10.4% of episodes cut into** against 1.1%. The cut-in is the only
 blockage a map cannot predict, which is what RQ3 and H7 rest on.
 
 Green waves were built, measured and then *not* adopted, which is itself the
-finding: a two-way street can only carry one at \(v = 2L/(kC)\), 1.36 m/s for
+finding. A two-way street can only carry one at \(v = 2L/(kC)\), 1.36 m/s for
 61 m blocks on a 90 s cycle, so every progression speed made the two-way grid
-slower. One-way makes progression possible (+31%), but at a 45 s cycle the
-per-junction offset is 27% of the cycle and the band walks around it, so the
-staggered short cycle wins on its own arithmetic:
-\(\mathbb{E}[\text{wait}] = C/8\) matched to a 5.5 s block traversal.
+slower. One-way removes that obstruction — and progression still does not pay.
+
+**Measured at matched conditions**, one-way two-lane, 300 s warm-up, 90 s
+window, seed 7, mean speed as a fraction of the 11.18 m/s limit:
+
+| Program | \(\rho_L=5\) | \(\rho_L=20\) |
+|---|---:|---:|
+| **stagger 45 s** *(in force)* | **64.0%** | **37.1%** |
+| stagger 90 s | 50.2% | 36.8% |
+| wave 45 s @ 11.2 m/s | 63.0% | 34.7% |
+| wave 45 s @ 7.0 m/s | 61.9% | 36.1% |
+| wave 45 s @ 5.0 m/s | 56.9% | 35.3% |
+| wave 90 s @ 11.2 m/s | 53.3% | **38.9%** |
+| wave 90 s @ 7.0 m/s | 54.1% | 37.5% |
+| wave 90 s @ 5.0 m/s | 53.1% | 35.4% |
+
+The best green wave anywhere in this sweep is **+4.8%**, at \(\rho_L=20\) on a
+90 s cycle, and it costs 10.7 points at \(\rho_L=5\) to get it. At
+\(\rho_L=5\) every wave loses. **The earlier "+31%" does not reproduce** and is
+withdrawn; it was presumably measured against a different baseline, and this
+table replaces it. The conclusion it supported is unchanged — the staggered
+45 s cycle is the right choice — but it now rests on a matched comparison
+rather than on that figure.
+
+Three reasons progression cannot pay here, the third of which decides it:
+
+1. A wave serves only its design speed, and the density band spans 6.30 to
+   2.77 m/s (§4.5). No single \(v_\text{design}\) fits.
+2. Only the avenue axis is progressed. Cross-street travel gets nothing.
+3. **Vehicles turn out of the band.** With turn probabilities 25/50/25 the
+   expected run of consecutive straight moves is \(1/(1-0.5) = 2\) junctions.
+   A wave needs a platoon held together over several junctions to repay its
+   cost; a population that turns off every two never accumulates it.
+
+Note (2) is why the design speed ranking is *inverted* at \(\rho_L=20\):
+11.2 m/s beats 5.0 m/s even though traffic moves at 4.15 m/s. At 5.0 m/s the
+per-junction offset is 12.2 s, so over 12 cross streets the offsets total 134 s
+and wrap a 90 s cycle; at 11.2 m/s they total 60 s and stay coherent. The
+"wave" is acting as an offset pattern whose benefit is incidental, not as
+progression.
+
+The staggered short cycle wins on its own arithmetic instead:
+\(\mathbb{E}[\text{wait}] = (1-g)^2C/2 = 7.2\) s at \(C=45\), against a 5.5 s
+traversal of a 61 m avenue block — against 12.8 s at \(C=90\).
 
 **Closed — junction admission was never too conservative, and the gap recorded
 here did not exist.** This paragraph previously reported that reserving half a
