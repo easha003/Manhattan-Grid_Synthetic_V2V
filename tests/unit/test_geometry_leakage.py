@@ -245,3 +245,30 @@ def test_intersection_context_reasons_about_the_map_and_nothing_hidden() -> None
     assert not outside_core, f"intersection context reached outside core: {outside_core}"
     # It may still reason about the road and about the link's own endpoints.
     assert any("core.geometry" in name or "grid_naming" in name for name in imported)
+
+
+def test_no_vlc_module_imports_the_rf_block_error_model() -> None:
+    """Work plan section 7.3 forbids the transfer, so a test enforces it.
+
+    IM/DD optical detection is not a complex-AWGN channel and a generic
+    finite-blocklength expression does not apply to it. The implementation spec
+    states the rule as "VLC does not import this file"; stating it in prose is
+    how the leakage barrier was enforced before it was a test, and that did not
+    hold either.
+    """
+
+    import ast
+    from pathlib import Path
+
+    vlc_root = Path("src/grail_v/channels/vlc")
+    offenders = []
+    for module in vlc_root.rglob("*.py"):
+        tree = ast.parse(module.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if "channels.rf.bler" in node.module:
+                    offenders.append(module)
+            elif isinstance(node, ast.Import):
+                if any("channels.rf.bler" in alias.name for alias in node.names):
+                    offenders.append(module)
+    assert not offenders, f"VLC modules must not import the RF BLER model: {offenders}"
