@@ -260,6 +260,44 @@ def _bezier_samples(
     return points, headings
 
 
+def _lane_intrusion_m(
+    corners: tuple[Point, ...],
+    approach: GridEdge,
+    lane: int,
+    tolerance_m: float,
+) -> float:
+    """How far back along ``approach``'s lane a body reaches, or 0 if it misses.
+
+    Measured from the lane's end at the junction, backwards along the approach.
+    A body counts as intruding when a corner comes within ``tolerance_m`` of the
+    lane centreline, or when its corners straddle that centreline -- the second
+    case matters because a body crossing perpendicular can span a lane without
+    putting any corner near its middle.
+    """
+
+    end_x, end_y = approach.position_at(approach.length_m, lane)
+    heading = approach.heading_rad
+    forward_x, forward_y = math.cos(heading), math.sin(heading)
+
+    behind = 0.0
+    nearest = math.inf
+    left = right = False
+    for corner in corners:
+        delta_x = corner.x_m - end_x
+        delta_y = corner.y_m - end_y
+        # Positive `back` is upstream of the junction, against the heading.
+        back = -(delta_x * forward_x + delta_y * forward_y)
+        lateral = delta_x * -forward_y + delta_y * forward_x
+        nearest = min(nearest, abs(lateral))
+        left = left or lateral > 0.0
+        right = right or lateral < 0.0
+        behind = max(behind, back)
+
+    if nearest > tolerance_m and not (left and right):
+        return 0.0
+    return max(behind, 0.0)
+
+
 def _bodies_conflict(
     a: tuple[OrientedRectangle, ...], b: tuple[OrientedRectangle, ...]
 ) -> bool:
@@ -453,6 +491,7 @@ class GridMobilitySimulator:
         widest_half_width_m = 0.5 * max(
             vehicle.width_m for vehicle in self.distribution.vehicle_types
         )
+        self._widest_half_width_m = widest_half_width_m
         self._junction_half_box_m = (
             self.network.spec.outermost_lane_centre_offset_m + widest_half_width_m
         )
@@ -468,6 +507,7 @@ class GridMobilitySimulator:
         }
         self._swept_cache: dict[_SweptKey, tuple[OrientedRectangle, ...]] = {}
         self._conflict_cache: dict[tuple[_SweptKey, _SweptKey], bool] = {}
+        self._approach_cache: dict[str, tuple[tuple[str, int], ...]] = {}
 
     # -- vehicle creation -------------------------------------------------
 
@@ -697,14 +737,79 @@ class GridMobilitySimulator:
             applied += 1
         return applied
 
+    def _approach_lanes(self, junction: str) -> tuple[tuple[str, int], ...]:
+        """Every ``(edge_id, lane)`` that feeds ``junction``.  Built once."""
+
+        cached = self._approach_cache.get(junction)
+        if cached is None:
+            cached = tuple(
+                (edge.edge_id, lane)
+                for edge in self.network.edges
+                if edge.to_junction == junction
+                for lane in range(edge.lanes)
+            )
+            self._approach_cache[junction] = cached
+        return cached
+
+    def _straddling_overhang(
+        self, vehicles: list[_Vehicle]
+    ) -> dict[tuple[str, int], float]:
+        """How far back from each approach's end a body inside a junction reaches.
+
+        A vehicle whose front has passed a junction still occupies the box until
+        it has travelled its own length.  An 11 m bus clearing the 3 m box
+        leaves 8 m of body behind the junction centre, which is 5 m *past* the
+        stop line at ``length_m - half_box`` where a follower legitimately
+        waits.  Measured on the regenerated campaign, that is the whole of the
+        residue deeper than 0.5 m.
+
+        The cross-junction leader search already existed but looked only down
+        the follower's *own* route, ``rearmost[(my next edge, my lane)]``, so a
+        body that took a different exit was invisible.  Keying on the edge the
+        body came *from* fixes the straight-through case and is still too
+        narrow: a **turning** body sweeps across approaches it never travels.
+        Measured at junction C5, a bus turning from the northbound approach onto
+        the westbound exit reached a car stopped 5.5 m up the *eastern*
+        approach, which shares neither edge nor route with it.
+
+        So the reach is computed against every approach of the junction the body
+        is still inside, and applied only to the lanes the body actually covers.
+        Blanket-applying it to all approaches was tried first and measured: it
+        costs 8-10% of mean speed at \\(\\rho_L=10\\) and 15, which would move the
+        §4.5 fundamental diagram again.  Asking which lanes are covered is four
+        corner projections per lane and recovers that.
+        """
+
+        overhangs: dict[tuple[str, int], float] = {}
+        for vehicle in vehicles:
+            overhang = vehicle.vehicle_type.length_m - vehicle.offset_m
+            if overhang <= 0.0:
+                continue
+            body = rectangle_from_front(
+                Point(*vehicle.edge.position_at(vehicle.offset_m, vehicle.lane_index)),
+                vehicle.edge.heading_rad,
+                vehicle.vehicle_type.length_m,
+                vehicle.vehicle_type.width_m,
+            )
+            corners = body.corners()
+            for edge_id, lane in self._approach_lanes(vehicle.edge.from_junction):
+                approach = self.network.edge(edge_id)
+                reach = _lane_intrusion_m(
+                    corners, approach, lane, self._widest_half_width_m
+                )
+                if reach > overhangs.get((edge_id, lane), 0.0):
+                    overhangs[(edge_id, lane)] = reach
+        return overhangs
+
     def _leader_gaps(
         self, vehicles: list[_Vehicle]
     ) -> dict[str, tuple[float | None, float | None]]:
         """Map each vehicle to ``(gap, leader_speed)`` for its true leader.
 
         The leader is the next vehicle on the same edge, or -- when none is
-        ahead -- the rearmost vehicle on the next edge of this vehicle's route,
-        with the gap measured across the junction.
+        ahead -- whichever is nearer of the rearmost vehicle on the next edge of
+        this vehicle's route and the tail of a body still straddling the
+        junction, with the gap measured across the junction.
 
         Looking across the junction is what makes the model collision-free.
         Considering only same-edge leaders lets a vehicle cross an intersection
@@ -717,6 +822,7 @@ class GridMobilitySimulator:
         for group in by_lane.values():
             group.sort(key=lambda item: item.offset_m)
         rearmost = {key: group[0] for key, group in by_lane.items() if group}
+        overhangs = self._straddling_overhang(vehicles)
 
         gaps: dict[str, tuple[float | None, float | None]] = {}
         for group in by_lane.values():
@@ -737,15 +843,26 @@ class GridMobilitySimulator:
                     if following is not None
                     else None
                 )
-                if ahead is None:
-                    gaps[vehicle.vehicle_id] = (None, None)
-                else:
-                    gaps[vehicle.vehicle_id] = (
+                gap: float | None = None
+                speed: float | None = None
+                if ahead is not None:
+                    gap = (
                         (vehicle.edge.length_m - vehicle.offset_m)
                         + ahead.offset_m
-                        - ahead.vehicle_type.length_m,
-                        ahead.speed_mps,
+                        - ahead.vehicle_type.length_m
                     )
+                    speed = ahead.speed_mps
+
+                # A body still straddling this junction blocks this lane's far
+                # end whichever exit it took, so it constrains the queue even
+                # when it is not on this vehicle's own route.
+                overhang = overhangs.get(vehicle.lane_key)
+                if overhang is not None:
+                    straddled = vehicle.edge.length_m - overhang - vehicle.offset_m
+                    if gap is None or straddled < gap:
+                        gap, speed = straddled, 0.0
+
+                gaps[vehicle.vehicle_id] = (gap, speed)
         return gaps
 
     def _enforce_following_distance(self, vehicles: list[_Vehicle]) -> None:
@@ -758,9 +875,12 @@ class GridMobilitySimulator:
         follower is placed exactly at contact and takes the leader's speed, so
         the correction does not simply recur on the next step.
 
-        Both leaders matter -- the one on this edge and, for the frontmost
-        vehicle, the one that has already crossed onto the next edge of its
-        route and whose tail still lies in the junction.
+        Three leaders matter -- the one on this edge; for the frontmost vehicle,
+        the one that has already crossed onto the next edge of its *own* route;
+        and any body still straddling the junction, whichever exit it took.
+        The third was missing, and it is what the published traces caught: an
+        11 m bus clearing the 3 m box leaves 8 m of tail behind the junction
+        centre, 5 m past the stop line a follower legitimately waits at.
         """
 
         by_lane: dict[tuple[str, int], list[_Vehicle]] = {}
@@ -769,8 +889,9 @@ class GridMobilitySimulator:
         for group in by_lane.values():
             group.sort(key=lambda item: item.offset_m)
         rearmost = {key: group[0] for key, group in by_lane.items() if group}
+        overhangs = self._straddling_overhang(vehicles)
 
-        for group in by_lane.values():
+        for key, group in by_lane.items():
             leading = group[-1]
             following = (
                 leading.route[leading.route_index + 1]
@@ -789,6 +910,13 @@ class GridMobilitySimulator:
                 if leading.offset_m > limit:
                     leading.offset_m = limit
                     leading.speed_mps = min(leading.speed_mps, ahead.speed_mps)
+
+            overhang = overhangs.get(key)
+            if overhang is not None:
+                limit = leading.edge.length_m - overhang - _CONTACT_EPS_M
+                if leading.offset_m > limit:
+                    leading.offset_m = limit
+                    leading.speed_mps = 0.0
 
             for index in range(len(group) - 2, -1, -1):
                 follower, leader = group[index], group[index + 1]

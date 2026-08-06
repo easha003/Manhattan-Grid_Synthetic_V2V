@@ -12,7 +12,10 @@ import math
 import pytest
 
 from grail_v.core.geometry import (
+    OrientedRectangle,
+    Point,
     Segment,
+    rectangle_from_front,
     rectangle_penetration_m,
     rectangles_overlap,
     vehicle_rectangle,
@@ -33,6 +36,7 @@ from grail_v.mobility.grid_simulator import (
     GridMobilitySpec,
     MobilityModelError,
     TurnProbabilities,
+    _Vehicle,
 )
 
 # --------------------------------------------------------------------------
@@ -287,6 +291,74 @@ def test_different_seeds_diverge() -> None:
         return sorted(round(v.offset_m, 6) for v in snapshot)
 
     assert final(1) != final(2)
+
+
+def test_a_tail_straddling_a_junction_holds_the_queue_behind_it() -> None:
+    """Work plan section 4.7 item 7, and the defect the published traces caught.
+
+    A body whose front has crossed a junction still occupies the edge it came
+    from until it has travelled its own length. An 11 m bus clearing the 3 m
+    junction box leaves 8 m of tail behind the junction centre, which is 5 m
+    *past* the stop line at ``length_m - half_box`` where a follower waits.
+
+    The cross-junction leader search looked only down the follower's own route,
+    so a body that took a different exit from the same junction was invisible.
+    That produced every footprint overlap deeper than 0.5 m in the regenerated
+    campaign -- 1.8 to 2.5 m against a 0.5 m declared bound, always a long
+    vehicle, always same-heading, always inside a junction box.
+
+    This asserts the constraint directly rather than waiting for it to surface
+    as an overlap, because at 3% heavy vehicles it takes a 900 s trace to show
+    up and a unit-length run will not find it.
+    """
+
+    simulator = GridMobilitySimulator()
+    network = simulator.network
+    approach = network.edge("D10D9")
+    straight, turning = network.edge("D9D8"), network.edge("D9C9")
+
+    car = next(v for v in simulator.distribution.vehicle_types if v.type_id == "passenger_car")
+    bus = next(v for v in simulator.distribution.vehicle_types if v.type_id == "bus_truck")
+
+    def footprint(vehicle: _Vehicle) -> OrientedRectangle:
+        x_m, y_m = vehicle.edge.position_at(vehicle.offset_m, vehicle.lane_index)
+        return rectangle_from_front(
+            Point(x_m, y_m),
+            vehicle.edge.heading_rad,
+            vehicle.vehicle_type.length_m,
+            vehicle.vehicle_type.width_m,
+        )
+
+    # The exit the bus takes is varied deliberately.  Going straight puts its
+    # tail along the approach; turning swings the body across approaches it
+    # never travels, and the second case is the one measured at junction C5
+    # that a route-based lookup cannot see.
+    for exit_edge, label in ((straight, "straight through"), (turning, "turning")):
+        crossed = _Vehicle(
+            vehicle_id="bus",
+            vehicle_type=bus,
+            route=[approach, exit_edge],
+            route_index=1,
+            offset_m=3.0,   # front 3 m past the junction; 8 m of tail behind it
+            speed_mps=5.0,
+            lane_index=0,
+        )
+        waiting = _Vehicle(
+            vehicle_id="car",
+            vehicle_type=car,
+            route=[approach, straight],
+            route_index=0,
+            offset_m=approach.length_m - 3.0,   # exactly at the stop line
+            speed_mps=0.0,
+            lane_index=0,
+        )
+
+        simulator._enforce_following_distance([crossed, waiting])
+
+        assert not rectangles_overlap(footprint(crossed), footprint(waiting)), (
+            f"a follower at the stop line was left inside the body of a bus "
+            f"{label} at the junction"
+        )
 
 
 def test_no_two_vehicles_overlap_on_the_same_edge() -> None:

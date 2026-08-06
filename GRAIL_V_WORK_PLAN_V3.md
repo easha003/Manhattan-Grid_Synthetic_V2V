@@ -379,21 +379,55 @@ and the capacity point it relied on moved when §4.6.5 was fixed. Superseded,
 for the record: 5.3 / 12.2 / 22.5 / 30.6 / 26.2 / 30.7% blocked at
 \(\rho_L = 5, 10, 20, 30, 40, 60\).
 
-**The band survives on a different and stronger argument.** Measured on the
-corrected traces, the two impairments do not merely differ in driver — they
-move in **opposite directions**:
+**The band survives on a different and stronger argument.** Re-measured on the
+one-way two-lane campaign, 300 sampled frames of each `test-000` trace, the two
+impairments do not merely differ in driver — they move in **opposite
+directions**:
 
 | \(\rho_L\) | V-VLC unavailable | Neighbours ≤200 m | Weak link |
 |---:|---:|---:|---|
-| 10 | **3.41%** | 54 | optical |
-| 20 | 1.87% | 105 | — |
-| 30 | **1.01%** | 199 | radio |
+| 10 | **9.59%** | 44 | optical |
+| 20 | 9.17% | 100 | — |
+| 30 | **7.26%** | 159 | radio |
 
-Optical availability *improves* with density, 3.4× across the band, because
-closer spacing shortens the optical path so fewer paths reach across a
-junction. RF load *worsens*, roughly 3.7×, because neighbour count is a
-headcount. At \(\rho_L=10\) the optical link is the weaker one; at
-\(\rho_L=30\) the radio is.
+Optical availability *improves* with density, and RF load worsens **3.6×**
+because neighbour count is a headcount. At \(\rho_L=10\) the optical link is
+the weaker one; at \(\rho_L=30\) the radio is. The mechanism for the optical
+trend is junction exposure, which falls **12.86% → 8.61% → 5.76%** across the
+band: closer spacing shortens the optical path, so fewer paths reach across a
+junction.
+
+Superseded, from the single-lane two-way campaign: 3.41 / 1.87 / 1.01%
+unavailable against neighbour counts of 54 / 105 / 199.
+
+**The composition changed, and that is the point of the one-way conversion.**
+
+| \(\rho_L\) | Spanning | Mid-block | Junction lift | Out-of-FoV, mid-block |
+|---:|---:|---:|---:|---:|
+| 10 | 24.57% | **7.38%** | 3.3× | 5.37% |
+| 20 | 27.63% | **7.43%** | 3.7× | 4.54% |
+| 30 | 29.08% | **5.93%** | 4.9× | 3.22% |
+
+Mid-block unavailability was **0.38%** on the single-lane layout and is now
+**5.9–7.4%**, a 15–19× rise. That is the whole objective: mid-block blockage is
+the impairment a road map *cannot* predict, and the old layout made it
+impossible by construction.
+
+**Two earlier claims do not survive this.** The junction lift was reported at
+**71.7×**; it is now **3.3–4.9×**. Junctions did not get safer — spanning
+unavailability is 24–29% against the old 27.01% — mid-block stopped being
+clean. Junction context remains the strongest single predictor but is no longer
+near-oracle, and §5's "predictability is close to an oracle" claim must be
+restated at the measured lift. Separately, **out-of-field-of-view is now a
+first-order failure mode** at 3.2–5.4% mid-block and 8.7–12.7% spanning, which
+the 5–40 m window could not produce: at long separation a small heading
+difference walks the pair out of the 60° cone. Occlusion and FoV must be
+reported separately from here on, because they respond to different things.
+
+These figures come from the development campaign described in §4.7 item 7. The
+straddling-tail defect recorded there cannot enter a tagged pair, so these
+numbers stand; they must nonetheless be re-cut on the publication campaign
+before they are quoted in the paper.
 
 This is a better foundation than the one it replaces. The earlier band was
 chosen because both impairments responded to density, which is a weak
@@ -830,27 +864,56 @@ These are modelling choices the paper must state, not hide.
    lateral dynamics that are the real price of a narrow cone can appear.
    **The 30° sensitivity is therefore optimistic and must be reported as
    such.** The value itself is also unsourced, like item 1.
-7. **A small residue of vehicle footprints still overlap at junctions.**
-   Measured **on the generated traces**, 300 sampled frames each: 0.093, 0.130
-   and 0.097 overlapping pairs per frame at \(\rho_L=10, 20, 30\), affecting
-   0.05%, 0.03% and 0.02% of vehicles, deepest penetration 0.42 m — roughly a
-   quarter of a car width. What remains is a same-step race between two
-   crossings rather than a systematic error, and it is bounded by an asserted
-   test (`test_vehicle_footprints_barely_overlap_at_generated_densities`)
-   rather than left to drift.
+7. **A small residue of vehicle footprints still overlap at junctions, and one
+   cause of it has been found and fixed.** Measured on the *regenerated* one-way
+   campaign, 300 sampled frames of each `test-000` trace: **0.033, 0.037 and
+   0.063** overlapping pairs per frame at \(\rho_L=10, 20, 30\) — roughly a
+   third of the old rate and five times inside the 0.30 bound. But **depth
+   failed**: 1.80, 2.50 and 2.00 m against a declared 0.5 m, five times over.
 
-   These figures replace an earlier claim of 0.00 / 0.01 / 0.02 per frame,
-   which came from 100 frames of a single seed run directly against the
-   simulator. The traces use per-trace derived seeds over 900 s, and the rate
-   is roughly ten times higher; the first measurement was an unlucky
-   generalisation from a lucky sample. **The trace-measured value is the one
-   that counts**, because the traces are what every downstream stage reads.
+   Every overlap deeper than 0.5 m had the same signature. All same-heading,
+   all on *different* edges, all within 12 m of a junction, and almost all
+   involving an 11 m vehicle. The mechanism: a body whose front has crossed a
+   junction still occupies the edge it came from until it has travelled its own
+   length, and an 11 m bus clearing the 3 m box leaves **8 m of tail behind the
+   junction centre — 5 m past the stop line** at `length_m - half_box`, where a
+   follower legitimately waits.
+
+   The cross-junction leader search existed but looked only down the follower's
+   *own* route, `rearmost[(my next edge, my lane)]`, so a body that took a
+   different exit from the same junction was invisible. This is the §16.3
+   defect in a second component: that one compared `edge_id` and never saw an
+   opposing pair, this one compared route and never saw a diverging one.
+   Keying on the edge a body came *from* is exact, because a tail lies on the
+   approach it crossed from whichever exit it chose. Fixed in
+   `_straddling_overhang`, consumed by both `_leader_gaps` and
+   `_enforce_following_distance`, and pinned by
+   `test_a_tail_straddling_a_junction_holds_the_queue_behind_it` — asserted
+   directly rather than waited for, since at 3% heavy vehicles it takes a 900 s
+   trace to surface and no unit-length run will find it.
+
+   **The published campaign predates the fix and is therefore a development
+   set, not a publication set.** It is Gate-1 clean on all 21 traces with
+   uniform provenance, and it is sound for building M3 and M4 against: the
+   defect cannot enter a tagged pair, because the affected bodies sit 2.2–4.4 m
+   apart — below the 5.0 m minimum separation, so the extractor rejects them.
+   The residual exposure is that a misplaced body can still act as a
+   third-vehicle blocker for some *other* pair; that bias is second-order, since
+   both bodies are on their correct lane centrelines a few metres out of
+   longitudinal position, but it is not nil. The publication campaign must be
+   regenerated from a clean commit, which is required anyway for the `-dirty`
+   provenance stamp and for whatever densities §13.5's interpolation and
+   extrapolation metric ends up naming.
+
+   Superseded, for the record — the single-lane two-way campaign: 0.093, 0.130
+   and 0.097 per frame, deepest 0.42 m. Those in turn replaced a claim of
+   0.00 / 0.01 / 0.02 taken from 100 frames of one seed run directly against
+   the simulator. **The trace-measured value is the one that counts**, because
+   the traces are what every downstream stage reads, and a direct run has now
+   twice been the optimistic one.
 
    Disclosed because §16.3 states the invariant without qualification and the
-   achievement is a bound, not zero. The contamination risk is low — an
-   overlapping pair is two real bodies at real junction positions, so occlusion
-   counts one blockage where it should count two — but it is not nil, and a
-   reviewer is entitled to the number.
+   achievement is a bound, not zero. A reviewer is entitled to the number.
 
 ### 4.8 Determinism and reproducibility
 
