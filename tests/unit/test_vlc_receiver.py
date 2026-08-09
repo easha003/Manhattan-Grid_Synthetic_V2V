@@ -198,9 +198,15 @@ def test_the_configured_front_end_is_realizable_at_its_declared_bandwidth() -> N
     """The headline 5 MHz, a 1 cm^2 detector and 250 ohm have to coexist.
 
     This is a genuine cross-check between two configuration files and a module
-    constant, not a restatement: the RC pole of 112 pF against 250 ohm must
-    stay above the electrical bandwidth the timing feasibility check already
-    assumed when it accepted 4.5 Mbit/s.
+    constant, not a restatement: the RC pole of 70 pF against 250 ohm must stay
+    above the electrical bandwidth the timing feasibility check already assumed
+    when it accepted 4.5 Mbit/s.
+
+    Sourcing the detector to a real BPW34 *raised* this ceiling from 284 to
+    455 ohm, because the datasheet part is 7.5 mm^2 against the 100 mm^2 that
+    had been assumed. The front end got easier to build at the same time as the
+    optical budget got 11.25 dB harder -- the two move oppositely with area,
+    which is the trade the module exists to make explicit.
     """
 
     config = load_headline_config(PROJECT_ROOT)
@@ -208,21 +214,21 @@ def test_the_configured_front_end_is_realizable_at_its_declared_bandwidth() -> N
 
     receiver.check_front_end_feasible(config.vlc.electrical_bandwidth_hz)
     assert receiver.max_load_resistance_ohm(config.vlc.electrical_bandwidth_hz) == pytest.approx(
-        284.2, abs=0.5
+        454.7, abs=0.5
     )
-    assert DEFAULT_LOAD_RESISTANCE_OHM < 284.2
+    assert DEFAULT_LOAD_RESISTANCE_OHM < 454.7
 
 
 def test_a_larger_detector_forces_the_load_resistance_down() -> None:
     """Nine times the area, and the same 250 ohm becomes infeasible.
 
-    The ceiling falls to roughly 32 ohm.  This is the mechanism behind the
+    The ceiling falls to roughly 51 ohm.  This is the mechanism behind the
     module's central claim: capacitance scales with area, the RC pole must
     still pass the declared bandwidth, and thermal noise varies as ``1/R_L``.
     """
 
     big = OpticalReceiver(active_area_m2=9.0 * ACTIVE_AREA_M2)
-    assert big.max_load_resistance_ohm(5e6) == pytest.approx(31.6, abs=0.2)
+    assert big.max_load_resistance_ohm(5e6) == pytest.approx(50.5, abs=0.3)
 
     with pytest.raises(ReceiverError, match="RC ceiling"):
         big.check_front_end_feasible(5e6)

@@ -36,6 +36,21 @@ class IDMParameters:
     max_acceleration_mps2: float = 2.6
     comfortable_deceleration_mps2: float = 4.5
     minimum_gap_m: float = 2.5
+    #: Desired time headway.  CITED, and deliberately below the reference.
+    #: Treiber, Hennecke and Helbing (2000) use 1.6 s for freeway traffic, and
+    #: Treiber's own published defaults give 1.5 s for cars with the note that
+    #: city traffic should adapt the desired *speed* while the other parameters
+    #: "essentially can be left unchanged".  1.2 s is therefore more aggressive
+    #: than the reference: shorter gaps, higher capacity, and -- since the
+    #: optical budget divides by the bumper gap -- a *better* V-VLC link than a
+    #: Treiber-parameterised model would give.  Declared rather than silently
+    #: favourable.
+    #:
+    #: Measured across T in {1.0, 1.2, 1.5} s, the optical budget improves from
+    #: rho=10 to rho=30 by 10.88, 9.97 and 9.50 dB respectively.  The claim that
+    #: V-VLC strengthens with density therefore does **not** rest on this
+    #: parameter: 1.4 dB of spread across the whole band, against a 9.5 dB
+    #: effect.  The gap is set by density, not by the car-following model.
     desired_time_headway_s: float = 1.2
 
     def __post_init__(self) -> None:
