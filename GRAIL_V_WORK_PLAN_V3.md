@@ -425,8 +425,10 @@ difference walks the pair out of the 60° cone. Occlusion and FoV must be
 reported separately from here on, because they respond to different things.
 
 These figures come from the development campaign described in §4.7 item 7. The
-straddling-tail defect recorded there cannot enter a tagged pair, so these
-numbers stand; they must nonetheless be re-cut on the publication campaign
+straddling-tail defect recorded there **can** reach a tagged pair — the
+correction in that item explains why the first reading of this said otherwise —
+but it touches under 0.01% of pair-instants, so these numbers stand at the
+precision quoted. They must nonetheless be re-cut on the publication campaign
 before they are quoted in the paper.
 
 This is a better foundation than the one it replaces. The earlier band was
@@ -828,6 +830,19 @@ These are modelling choices the paper must state, not hide.
 1. **IDM desired time headway \(T = 1.2\) s** is a free parameter that sets the
    speed-density relation and therefore the capacity in §4.5. It requires a
    source or a declared sensitivity band before Gate 2.
+
+   **Its reach grew.** §12.3 established that the optical budget's distance
+   term is the *bumper gap*, not the pair separation — the headlamp is on the
+   follower's front and the photodiode on the leader's rear — so \(T\) also
+   sets the quantity the optical link divides by, squared. It was flagged when
+   it only set capacity; nothing about the channel work made the promotion
+   visible except working through the geometry. The sensitivity run must now
+   report both the fundamental diagram *and* the optical budget across
+   \(T \in \{1.0, 1.2, 1.5\}\).
+
+   Every physical constant in the model, its status, its band and what it
+   decides is now tabulated in `research/PARAMETER_PROVENANCE.md`, which is the
+   resolved parameter table implementation spec §12.2 requires.
 2. **Signals are fixed-time, staggered, and not progressed.** The one-way 45 s
    layout measures **64.0% of the limit with 16.4% stopped** at \(\rho_L=5\),
    against 50.2% / 33.0% at a 90 s cycle. Nearly all of the gap is **cycle
@@ -894,13 +909,33 @@ These are modelling choices the paper must state, not hide.
 
    **The published campaign predates the fix and is therefore a development
    set, not a publication set.** It is Gate-1 clean on all 21 traces with
-   uniform provenance, and it is sound for building M3 and M4 against: the
-   defect cannot enter a tagged pair, because the affected bodies sit 2.2–4.4 m
-   apart — below the 5.0 m minimum separation, so the extractor rejects them.
-   The residual exposure is that a misplaced body can still act as a
-   third-vehicle blocker for some *other* pair; that bias is second-order, since
-   both bodies are on their correct lane centrelines a few metres out of
-   longitudinal position, but it is not nil. The publication campaign must be
+   uniform provenance, and it remains sound for building M3 and M4 against —
+   but for a bounded-magnitude reason, not the mechanism this item first
+   claimed.
+
+   **Correction.** An earlier version of this item stated that the defect
+   *cannot* enter a tagged pair, because the affected bodies sit 2.2–4.4 m
+   apart, below the 5.0 m minimum separation. That is wrong, and the error is
+   instructive: 2.2–4.4 m is the **optical path length**, front bumper to
+   leader's rear, while tagged-pair eligibility tests `_distance`, which is
+   **front-to-front**. Measured on the three deepest cases, front-to-front is
+   8.64, 8.79 and 6.56 m — all inside the 5–100 m window. The affected pairs
+   *are* eligible. `PairGeometry` carries both quantities as separate fields,
+   `separation_m` and `optical_path_length_m`, and the claim used the wrong one.
+
+   What survives is the magnitude. The defect appears 6, 10 and 14 times per
+   300 sampled frames at \(\rho_L=10, 20, 30\), against 76,604, 204,224 and
+   325,705 pair-instants, so it touches **under 0.01%** of the measurement even
+   if every occurrence lands on a tagged pair. Both bodies sit on their correct
+   lane centrelines and are wrong only in longitudinal position, so a
+   contaminated instant carries a path length in error by metres rather than a
+   body somewhere absurd. That is second-order but not nil, and it is now known
+   to reach the pairs directly rather than only through third-vehicle blockage.
+
+   The distinction matters more than it did when it was written, because §12.3
+   later established that the optical budget divides by the **optical path
+   length**, squared. A metre of longitudinal error is not a rounding error in
+   that term. The publication campaign must be
    regenerated from a clean commit, which is required anyway for the `-dirty`
    provenance stamp and for whatever densities §13.5's interpolation and
    extrapolation metric ends up naming.
