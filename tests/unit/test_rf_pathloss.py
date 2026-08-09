@@ -40,8 +40,36 @@ def test_los_matches_the_published_urban_form() -> None:
 
 
 def test_nlos_matches_the_published_urban_form() -> None:
-    expected = 18.9 + 36.85 * math.log10(100.0) + 30.0 * math.log10(5.9)
+    """PL = 36.85 + 30 log10(d) + 18.9 log10(fc). VERIFIED against Table 6.2.1-1.
+
+    This test previously encoded a cyclic permutation of the three
+    coefficients -- intercept 18.9, distance 36.85, frequency 30.0 -- and passed,
+    because it restated the implementation rather than the document. It is the
+    reason a test that only echoes the code is worth very little: it locked the
+    error in place instead of catching it.
+
+    The physical tell was available all along. An NLOS intercept of 18.9 dB
+    against a LOS intercept of 38.77 dB is a 20 dB gap between two quantities
+    that are both "loss at one metre", and a distance exponent of 3.685 with
+    that intercept is not a shape any measurement campaign produces.
+    """
+
+    expected = 36.85 + 30.0 * math.log10(100.0) + 18.9 * math.log10(5.9)
     assert median_path_loss_db(100.0, CARRIER_HZ, RFPropagationState.NLOS) == pytest.approx(expected)
+
+
+def test_the_two_intercepts_sit_in_the_same_range() -> None:
+    """A cheap invariant that would have caught the permutation.
+
+    Both intercepts are loss at one metre, so they cannot differ by 20 dB. This
+    is not a restatement of the formula -- it is a statement about what kind of
+    quantity an intercept is, and it fails for any permutation of the three
+    coefficients.
+    """
+
+    at_one_metre_los = median_path_loss_db(1.0, CARRIER_HZ, RFPropagationState.LOS)
+    at_one_metre_nlos = median_path_loss_db(1.0, CARRIER_HZ, RFPropagationState.NLOS)
+    assert abs(at_one_metre_nlos - at_one_metre_los) < 10.0
 
 
 def test_nlosv_shares_the_los_median() -> None:

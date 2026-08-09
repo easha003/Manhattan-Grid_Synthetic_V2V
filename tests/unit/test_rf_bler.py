@@ -173,8 +173,10 @@ def rayleigh_outage(margin_db: float) -> float:
     [
         (RFPropagationState.LOS, 0.0, 100.0, 3.7e-4),
         (RFPropagationState.NLOSV, 9.0, 100.0, 3.0e-3),
-        (RFPropagationState.NLOS, 0.0, 100.0, 2.8e-1),
-        (RFPropagationState.NLOS, 0.0, 50.0, 2.6e-2),
+        # NLOS values fell when the permuted coefficients were corrected: 2.8e-1
+    # and 2.6e-2 were computed from an NLOS distance exponent of 3.685.
+    (RFPropagationState.NLOS, 0.0, 100.0, 1.17e-1),
+        (RFPropagationState.NLOS, 0.0, 50.0, 1.54e-2),
     ],
 )
 def test_deep_fade_outage_is_where_the_budget_actually_fails(

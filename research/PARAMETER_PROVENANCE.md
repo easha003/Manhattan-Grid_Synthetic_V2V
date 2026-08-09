@@ -20,10 +20,14 @@ are others. A reviewer handed the complete list assumes we know our own model.
 | **unsourced** | Order-of-magnitude engineering judgement. No document claimed. |
 | **guard** | Not physics — a validity limit that refuses extrapolation. |
 
-**Count as of this revision: 5 exact, 3 standard, 2 conservative, 18 unverified,
-8 unsourced, 4 guards.** The 18 unverified are all in one place — TR 37.885 —
-and are therefore one afternoon of document-checking rather than 18 separate
-research problems.
+**Count as of this revision: 5 exact, 3 standard, 2 conservative, 18 VERIFIED,
+8 unsourced, 4 guards.** The 18 were all TR 37.885 and have now been checked
+against the ns-3 implementation of Table 6.2.1-1 plus an independent quotation.
+
+**The check found two errors**, which is the argument for having done it. The
+three NLOS coefficients were cyclically permuted, and the NLOSv blockage spread
+was applied as one value where the document gives two. Details in the tier-2
+section below.
 
 ---
 
@@ -32,7 +36,7 @@ research problems.
 | Parameter | Value | Status | Band | What it decides |
 |---|---:|---|---|---|
 | `desired_time_headway_s` | 1.2 s | **standard, uncited** | needed: 1.0 / 1.2 / 1.5 | Traffic capacity → the density band → the constraint groups. **And**, since §12.3, the bumper gap — which the optical budget divides by, **squared**. |
-| `NLOSV_BLOCKAGE_MEAN_TALL_DB` | 9.0 dB | **unverified** | — | The entire NLOSv link margin. With antennas and car roofs both at 1.5 m, this is the *only* blockage value that ever fires. |
+| ~~`NLOSV_BLOCKAGE_MEAN_TALL_DB`~~ | 9.0 dB | **verified** | — | Confirmed against Table 6.2.1-1. Resolved out of tier 1. |
 | headlamp pattern artifact | **absent** | **missing** | — | Every optical number. M4 cannot produce a result without it. |
 | `RESPONSIVITY_A_PER_W` | 0.4 | **unsourced** | — | Scales the optical photocurrent linearly, so it moves the optical SNR one-for-one. |
 | `ACTIVE_AREA_M2` | 1.0e-4 | **unsourced** | — | Same, and it is not free to increase: capacitance forces load resistance down, so thermal-limited SNR goes as *A*, not *A*². |
@@ -50,43 +54,62 @@ improves with density" survive *T* ∈ {1.0, 1.2, 1.5}?
 
 ---
 
-## Tier 2 — TR 37.885, one document, 18 values
+## Tier 2 — TR 37.885, verified, and it found two errors
 
-All claimed from the 3GPP urban-grid family. The functional forms are standard
-and almost certainly right; the coefficients have **not been read off the
-document**.
+Checked against the ns-3 implementation of Table 6.2.1-1 (`ThreeGppV2vUrban\
+PropagationLossModel`) and an independent quotation of the same expressions.
 
-| Parameter | Value | Note |
-|---|---:|---|
-| `LOS_INTERCEPT_DB` | 38.77 | |
-| `LOS_DISTANCE_COEFFICIENT` | 16.7 | |
-| `LOS_FREQUENCY_COEFFICIENT` | 18.2 | |
-| `LOS_SHADOWING_SIGMA_DB` | 3.0 | |
-| `NLOS_INTERCEPT_DB` | 18.9 | |
-| `NLOS_DISTANCE_COEFFICIENT` | 36.85 | |
-| `NLOS_FREQUENCY_COEFFICIENT` | 30.0 | |
-| `NLOS_SHADOWING_SIGMA_DB` | 4.0 | |
-| `NLOSV_BLOCKAGE_MEAN_SHORT_DB` | 5.0 | **unreachable** — with equal antenna heights the "between the two antennas" branch cannot fire |
-| `NLOSV_BLOCKAGE_MEAN_TALL_DB` | 9.0 | Tier 1 |
-| `NLOSV_BLOCKAGE_DISTANCE_COEFFICIENT` | 15.0 | **suspect** — see below |
-| `NLOSV_BLOCKAGE_DISTANCE_OFFSET_DB` | 41.0 | **suspect** — see below |
-| `NLOSV_BLOCKAGE_SIGMA_DB` | 4.5 | |
-| `LOS_DECORRELATION_M` | 10.0 | |
-| `NLOSV_DECORRELATION_M` | 10.0 | |
-| `NLOS_DECORRELATION_M` | 13.0 | |
-| `LOS_RICIAN_K_DB` | 9.0 | Decides how much deeper NLOSv fades than LOS |
-| `URBAN_RMS_DELAY_SPREAD_S` | 200 ns | Sets coherence bandwidth → whether a subchannel hop buys diversity |
+### What was wrong
 
-**One specific reason to check rather than assume.** The blockage growth term
-`max(0, 15·log₁₀(d) − 41)` turns positive only beyond **541 m**, so across the
-entire 5–100 m pair window it contributes exactly nothing. Vehicle blockage is a
-flat offset with no distance dependence at all. That is either correct — the
-term genuinely targets ranges far beyond V2V — or one of the two coefficients is
-transcribed wrong. Both readings are live and the difference is material,
-because a distance-dependent blockage would make NLOSv severity partly
-predictable from separation, and today it is not.
+**The three NLOS coefficients were cyclically permuted.**
 
----
+| | intercept | log₁₀(d) | log₁₀(f_c) |
+|---|---:|---:|---:|
+| was | 18.9 | 36.85 | 30.0 |
+| **is** | **36.85** | **30.0** | **18.9** |
+
+The error was distance-dependent and changed sign inside the window —
+understating NLOS loss by **4.6 dB at 5 m** and overstating it by **4.3 dB at
+100 m**. Downstream, NLOS deep-fade outage at 100 m falls from 28% to **11.7%**,
+and at 50 m from 2.6% to **1.5%**.
+
+**The tell was physical, not numerical.** An NLOS intercept of 18.9 dB against a
+LOS intercept of 38.77 dB is a 20 dB gap between two quantities that are both
+"loss at one metre"; and a distance exponent of 3.685 paired with that intercept
+is not a shape any measurement campaign produces. A cheap invariant now asserts
+the two intercepts sit within 10 dB of each other, which fails for *any*
+permutation of the three.
+
+**The unit test did not catch it, because it restated the implementation.** It
+asserted `18.9 + 36.85·log₁₀(d) + 30·log₁₀(f_c)` and passed — it had locked the
+error in rather than testing against the document. A test that only echoes the
+code is worth very little, and this is the concrete cost of one.
+
+**The NLOSv blockage spread has two values, not one.** σ = 4.5 dB when both
+antennas sit below the blocker, 4.0 dB when the blocker falls between them. A
+single 4.5 was used for both, widening the mixed case by half a decibel. Minor,
+and unreachable in this profile anyway since equal antenna heights make the
+mixed branch dead.
+
+### What was right
+
+Everything else. LOS intercept, both slopes, all three shadowing spreads, both
+blockage means, both blockage distance coefficients, all three decorrelation
+distances, the Rician K-factor and the delay spread.
+
+**The 541 m question is resolved: the term is correct as written.** The
+coefficients 15 and 41 are confirmed, so `max(0, 15·log₁₀(d) − 41)` genuinely
+targets ranges this study never reaches, and vehicle blockage really is a flat
+offset across the whole pair window. NLOSv severity is not inferable from
+separation — that is the model, not a transcription slip.
+
+One new fact worth recording: **TR 37.885 uses blocker heights of 1.6 m and
+3.0 m**, chosen probabilistically, rather than the simulated vehicle's own
+height. This project passes the actual fleet height instead. That is a defensible
+divergence — we have real bodies and can use them — but it interacts with the
+"a passenger car costs the radio nothing" finding, since the document's own car
+height and its car antenna height are also close together. Worth a sentence in
+the paper rather than silence.
 
 ## Tier 3 — declared conservative, already handled correctly
 
@@ -139,8 +162,9 @@ plus the guards `MIN_BLOCKLENGTH`, `MIN_VALID_DISTANCE_M`,
 
 ## Order of work
 
-1. **Verify TR 37.885** — one document, 18 values, and it is the most
-   reviewer-facing item in the model. Resolve the 541 m question while there.
+1. ~~**Verify TR 37.885**~~ — **done.** Found the NLOS coefficients permuted and
+   the blockage spread collapsed to one value; both fixed. The 541 m term is
+   confirmed correct.
 2. **Cite and band `desired_time_headway_s`** — cheap to cite, and the
    sensitivity run answers whether the optical-improves-with-density result is
    robust.
@@ -152,3 +176,17 @@ plus the guards `MIN_BLOCKLENGTH`, `MIN_VALID_DISTANCE_M`,
    area are the two that scale the result linearly.
 
 Tier 4 can stay as it is, provided this table exists.
+
+---
+
+## What the verification taught, beyond the two fixes
+
+The unit test for the NLOS formula **restated the implementation** and therefore
+passed against a permuted formula. It could not have failed. Every value in this
+table that is checked only by a test asserting the same arithmetic the code
+performs is in that position, and the fix is not more tests but *different* ones:
+invariants about what kind of quantity a value is. Two intercepts that both mean
+"loss at one metre" cannot differ by 20 dB, whatever the coefficients are — that
+assertion catches any permutation and it does not need to know the right answer.
+
+That is now the standard the remaining tiers should be held to.
