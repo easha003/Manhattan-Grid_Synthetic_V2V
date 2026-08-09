@@ -1,0 +1,278 @@
+"""Direct-path received optical power, from a measured beam and a geometry.
+
+Implementation spec section 12.3.  One expression carries the module:
+
+    P_r = I(theta_h, theta_v) * A_eff(psi) / d^2
+
+with the beam supplied by a :class:`~grail_v.channels.vlc.headlamp_pattern.HeadlampPattern`,
+the effective area by :class:`~grail_v.channels.vlc.receiver.OpticalReceiver`, and
+``d`` the headlamp-to-photodiode distance.  Occlusion collapses it to zero, or
+to a calibrated residual floor when one exists.
+
+**This module cannot return a number today, and that is the correct state.**
+The configuration declares ``headlamp_pattern: measured_non_lambertian`` and
+names an artifact that does not exist, so ``load_pattern`` raises and nothing
+here ever runs on the headline configuration.  Nothing in this file constructs
+a Lambertian lobe to fill the gap: spec 12.1 permits Lambertian only as an
+explicitly named comparison model, and a cosine lobe standing in for a measured
+beam produces exactly the claim W17 warns against while looking identical to a
+real result in every log.  The module is built against the interface so that
+obtaining the artifact is the only remaining step.
+
+Four consequences of this project's geometry meeting this expression were
+worked out rather than assumed.  Each narrows what the optical link can mean
+here, and each is pinned in ``tests/unit/test_vlc_optical_gain.py``.
+
+**1. The distance in the inverse-square law is the bumper gap, not the pair
+separation.**  The photodiode sits one full vehicle length behind the stored
+position, so for a same-lane pair ``d`` is exactly the car-following gap.  The
+IDM holds that gap at ``s0 + v T`` with ``s0 = 2.5 m`` and ``T = 1.2 s``, so the
+optical path *shortens as traffic slows*: 10.1 m at 10 veh/lane-km, 7.4 m at
+20, 5.8 m at 30 on the desired gap, and 10.6 / 7.5 / 5.8 m once the IDM's
+free-flow correction is included.  Received power goes as ``1/d^2``, so the
+link budget **improves by 4.8 dB optical and 9.5 dB electrical** from the
+lightest to the heaviest density, 5.2 / 10.4 dB on the corrected gaps -- the
+same span as the entire 60-to-30-degree concentrator
+sensitivity, and pointing the same way as the measured geometric outage, which
+also falls with density (3.41 / 1.87 / 1.01%).  Both V-VLC mechanisms therefore
+strengthen exactly where RF congestion is worst.  Note what that makes of the
+time headway: work plan section 4.7 item 1 flags it as undeclared and treats it
+as a *capacity* parameter, and it is in fact the leading term in the optical
+link budget.  Sourcing it is no longer only a realism question.
+
+**2. Leader length is a link-budget lever the policy cannot see.**  At a fixed
+20 m separation the optical path is 15.5 m behind a passenger car and 9.0 m
+behind an 11 m bus -- 4.7 dB optical, 9.4 dB electrical, again the size of the
+whole concentrator sensitivity.  The observation vector carries
+``pair_distance`` and no vehicle class, so this variation is unobservable to
+the policy and is not represented as a source of spread in the section 14.1
+frontier tables, which read a single PER off a single separation.
+
+**3. The vertical axis of the measured pattern is never sampled.**  Headlamp
+and photodiode both sit at 0.7 m, the roads are planar, and no pitch model
+exists, so the vertical emission angle is identically zero.  The pattern is
+only ever read along its horizontal cut.  That axis carries the legally
+mandated cutoff -- the single feature that most distinguishes a real automotive
+beam from a cosine lobe -- so the non-Lambertian stress test this project
+performs is weaker than the phrase suggests: it exercises horizontal asymmetry
+and nothing else.  This is the same modelling gap section 4.7 item 6 records
+for the narrow-cone sensitivity (no grade, no braking pitch), reaching the
+optics as well as the alignment statistics.
+
+**4. The obvious geometry field is the wrong one.**  ``PairGeometry`` offers
+``emission_angle_rad``, which is an absolute value.  Feeding it to an
+asymmetric beam folds the lamp's left half onto its right and silently
+symmetrizes the pattern whose asymmetry is the reason for having it.  The
+signed quantity is ``relative_bearing_rad``, and it needs a sign flip:
+headings are measured counter-clockwise, so a positive relative bearing is a
+target to the vehicle's *left*, while the pattern's horizontal axis is positive
+to the right.  :func:`horizontal_emission_angle_rad` is that one-line
+conversion, named so it can be tested rather than inlined at call sites.
+
+**Validity has a near end, and unlike the radio's it is inside the configured
+window.**  The point-source form ``I / d^2`` assumes the far field of an
+extended source; a headlamp lens is 0.1-0.3 m across, so it holds from roughly
+1 m outward.  The tagged-pair window admits separations from 5 m, which behind
+a 4.5 m car is a 0.5 m optical path and behind a 5.2 m van is a *negative* one
+-- overlapping footprints.  The RF module's equivalent guard never fires for a
+tagged link; this one guards a region the admission window nominally permits,
+and only the IDM's 2.5 m minimum gap keeps real pairs above it, with a factor
+of 2.5 to spare.  Refusing is the right response: ``1/d^2`` at 0.5 m returns a
+large, entirely fictional number.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from grail_v.channels.vlc.headlamp_pattern import HeadlampPattern
+from grail_v.channels.vlc.receiver import OpticalReceiver
+from grail_v.core.errors import GrailVError
+from grail_v.core.pair_geometry import PairGeometry
+
+#: Below this headlamp-to-photodiode distance the point-source radiant-intensity
+#: form is outside its far-field validity and is refused rather than
+#: extrapolated.  Five times a 0.2 m lens aperture.  UNVERIFIED -- the aperture
+#: is a plausible automotive figure and the factor of five is the conventional
+#: photometric-distance rule, neither taken from a source.
+MIN_VALID_PATH_LENGTH_M = 1.0
+
+#: The vertical emission angle this configuration can produce.  Both endpoints
+#: sit at 0.7 m on a planar road with no pitch model, so it is exactly zero;
+#: see finding 3 in the module docstring.
+PLANAR_VERTICAL_EMISSION_RAD = 0.0
+
+
+class OpticalGainError(GrailVError):
+    """Received optical power was requested outside the model's validity."""
+
+
+@dataclass(frozen=True, slots=True)
+class BlockageModel:
+    """What an occluded optical path delivers.
+
+    The headline configuration sets ``complete_blockage_main: true`` and
+    ``residual_optical_floor_enabled: false``, which is this class's default: a
+    blocked path delivers nothing.  That is the physically defensible position
+    for a 0.7 m beam cut by a vehicle body, and it is what makes the
+    RF/V-VLC asymmetry the contribution rests on real -- the same body that
+    costs the radio a few decibels costs the optical link everything.
+
+    The residual floor is a *sensitivity*, and work plan section 8.1 calls it a
+    **calibrated** residual floor.  Enabling it without a calibrated value is
+    therefore refused: an uncalibrated floor is a free parameter that converts
+    every geometric outage into a survivable link, which is the one direction
+    the result must not be nudged by an invented number.
+    """
+
+    complete: bool = True
+    residual_floor_w: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.complete and self.residual_floor_w is not None:
+            raise OpticalGainError(
+                "complete blockage and a residual floor are contradictory; choose one",
+                context={"residual_floor_w": self.residual_floor_w},
+            )
+        if not self.complete:
+            if self.residual_floor_w is None:
+                raise OpticalGainError(
+                    "the residual optical floor is a calibrated sensitivity (work plan "
+                    "section 8.1); enabling it without a calibrated value would turn "
+                    "every geometric outage into a survivable link on an invented number"
+                )
+            if not math.isfinite(self.residual_floor_w) or self.residual_floor_w < 0.0:
+                raise OpticalGainError("residual floor must be finite and non-negative",
+                                       context={"w": self.residual_floor_w})
+
+    @property
+    def occluded_power_w(self) -> float:
+        """Power delivered when the direct path is severed."""
+
+        if self.complete or self.residual_floor_w is None:
+            return 0.0
+        return self.residual_floor_w
+
+
+#: The configured model: a blocked path delivers nothing.
+COMPLETE_BLOCKAGE = BlockageModel()
+
+
+def horizontal_emission_angle_rad(relative_bearing_rad: float) -> float:
+    """Convert a geometry-frame relative bearing into the pattern's frame.
+
+    A sign flip and nothing else, but the sign is load-bearing.  Headings and
+    bearings are counter-clockwise-positive, so a target at ``+30 degrees``
+    relative bearing lies to the transmitter's **left**; the headlamp pattern's
+    horizontal axis is positive toward the vehicle's **right**, because that is
+    the axis a real beam is asymmetric about when it is aimed away from oncoming
+    traffic.  Getting this backwards mirrors the beam, which is invisible on a
+    symmetric comparison model and wrong by whatever the measured asymmetry is
+    on a real one.
+    """
+
+    if not math.isfinite(relative_bearing_rad):
+        raise OpticalGainError("relative bearing must be finite",
+                               context={"relative_bearing_rad": relative_bearing_rad})
+    return -relative_bearing_rad
+
+
+def direct_received_power_w(
+    *,
+    pattern: HeadlampPattern,
+    receiver: OpticalReceiver,
+    path_length_m: float,
+    horizontal_emission_rad: float,
+    incidence_angle_rad: float,
+    occluded: bool = False,
+    vertical_emission_rad: float = PLANAR_VERTICAL_EMISSION_RAD,
+    blockage: BlockageModel = COMPLETE_BLOCKAGE,
+) -> float:
+    """Optical power reaching the photodiode over the direct path, in watts.
+
+    Occlusion is decided by the caller and passed in, exactly as the RF module
+    takes its propagation class rather than deriving it: a channel that decided
+    its own blockage from vehicle positions could not be predicted from tracked
+    positions either, and the observation forecast would have nothing to
+    forecast.
+
+    When ``occluded`` the pattern is not sampled at all.  That is not an
+    optimization -- it is the statement that a severed path delivers the
+    blockage model's power regardless of how brightly the lamp was pointing,
+    and sampling the beam first would invite a later edit that lets a bright
+    beam leak through a bus.
+
+    No field-of-view test is applied here or in the effective area.  The
+    acceptance cone is tested in exactly one place, and the returned power is
+    conditional on that test having passed.
+    """
+
+    if occluded:
+        return blockage.occluded_power_w
+
+    if not math.isfinite(path_length_m) or path_length_m < MIN_VALID_PATH_LENGTH_M:
+        raise OpticalGainError(
+            "optical path length is below the far-field validity of the point-source "
+            "radiant-intensity form; note that this is reachable inside the configured "
+            "tagged-pair separation window, unlike the RF module's equivalent guard",
+            context={
+                "path_length_m": path_length_m,
+                "minimum_m": MIN_VALID_PATH_LENGTH_M,
+            },
+        )
+
+    intensity = pattern.radiant_intensity_w_per_sr(horizontal_emission_rad, vertical_emission_rad)
+    if intensity < 0.0:
+        raise OpticalGainError("radiant intensity cannot be negative",
+                               context={"w_per_sr": intensity})
+
+    area = receiver.effective_area_m2(incidence_angle_rad)
+    return intensity * area / (path_length_m * path_length_m)
+
+
+def received_power_from_geometry(
+    *,
+    pattern: HeadlampPattern,
+    receiver: OpticalReceiver,
+    geometry: PairGeometry,
+    occluded: bool = False,
+    blockage: BlockageModel = COMPLETE_BLOCKAGE,
+) -> float:
+    """Received optical power for one exact pair pose.
+
+    The adapter exists so the two easy mistakes are made in one place instead of
+    at every call site: the distance is ``optical_path_length_m`` and not
+    ``separation_m``, and the beam is sampled at the *signed*
+    ``relative_bearing_rad`` and not at the absolute ``emission_angle_rad``.
+    See findings 1, 2 and 4 in the module docstring.
+
+    The vertical angle is pinned to zero rather than exposed, because this
+    configuration cannot produce another value: both endpoints sit at 0.7 m and
+    the roads are planar.  A pitch or grade model would make it a real
+    argument, and would be the moment the pattern's cutoff axis starts to
+    matter.
+    """
+
+    return direct_received_power_w(
+        pattern=pattern,
+        receiver=receiver,
+        path_length_m=geometry.optical_path_length_m,
+        horizontal_emission_rad=horizontal_emission_angle_rad(geometry.relative_bearing_rad),
+        incidence_angle_rad=geometry.incidence_angle_rad,
+        occluded=occluded,
+        vertical_emission_rad=PLANAR_VERTICAL_EMISSION_RAD,
+        blockage=blockage,
+    )
+
+
+__all__ = [
+    "COMPLETE_BLOCKAGE",
+    "MIN_VALID_PATH_LENGTH_M",
+    "PLANAR_VERTICAL_EMISSION_RAD",
+    "BlockageModel",
+    "OpticalGainError",
+    "direct_received_power_w",
+    "horizontal_emission_angle_rad",
+    "received_power_from_geometry",
+]
