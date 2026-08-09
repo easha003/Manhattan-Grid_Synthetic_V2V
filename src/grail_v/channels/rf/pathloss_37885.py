@@ -28,23 +28,23 @@ coupled through this module's input rather than through a fitted correlation
 coefficient.  Section 8.3 requires the joint failure probability to be logged
 rather than assumed independent, and this is where the dependence originates.
 
-Sourcing status, stated plainly because section 4.7 requires it:
-
-* The LOS and NLOS median forms below are the TR 37.885 urban expressions and
-  are used as published.
-* The **NLOSv blockage constants are not yet verified against the primary
-  document**.  The structure -- zero loss when the blocker is shorter than both
-  antennas, otherwise a normal variate whose mean grows with distance -- is
-  right, but the coefficients carry the same status as the unsourced values in
-  section 4.7 and must be checked before Gate 2.  They are named constants
-  rather than literals so that a correction is one edit.
+**Sourcing status: verified.**  Every coefficient below was checked against the
+ns-3 implementation of Table 6.2.1-1 and against an independent quotation of the
+same expressions.  The check was worth doing: it found the NLOS coefficients
+cyclically permuted, a 4.6 dB understatement at 5 m turning into a 4.3 dB
+overstatement at 100 m, and the NLOSv blockage spread applied as one value where
+the document gives two.  Naming the constants rather than inlining them is what
+made the correction a five-line edit.
 
 Two consequences of those constants meeting this configuration were measured
-rather than assumed, and both narrow what NLOSv can mean here.
+rather than assumed, and both narrow what NLOSv can mean here.  Both survive the
+correction, because the blockage coefficients were right all along.
 
-**The distance term is inert.**  ``max(0, 15 log10(d) - 41)`` turns positive
+**The distance term is inert, and that is correct rather than a transcription
+error.**  ``max(0, 15 log10(d) - 41)`` turns positive
 only beyond **541 m**, which is outside the 5-100 m tagged-pair window and
-outside any V2V range that matters.  Within the window, vehicle blockage is a
+outside any V2V range that matters.  The coefficients 15 and 41 are confirmed,
+so the term genuinely targets ranges this study never reaches.  Within the window, vehicle blockage is a
 flat offset with no distance dependence, so blockage *severity* cannot be
 inferred from separation -- only blockage *presence* can.  A feature that tries
 to read severity off pair distance is reading nothing.
@@ -89,24 +89,34 @@ LOS_DISTANCE_COEFFICIENT = 16.7
 LOS_FREQUENCY_COEFFICIENT = 18.2
 LOS_SHADOWING_SIGMA_DB = 3.0
 
-#: TR 37.885 urban NLOS: ``PL = 36.85 log10(d) + 30 log10(fc) + 18.9``.
-NLOS_INTERCEPT_DB = 18.9
-NLOS_DISTANCE_COEFFICIENT = 36.85
-NLOS_FREQUENCY_COEFFICIENT = 30.0
+#: TR 37.885 urban NLOS: ``PL = 36.85 + 30 log10(d) + 18.9 log10(fc)``.
+#: VERIFIED against the ns-3 implementation of Table 6.2.1-1 and an independent
+#: quotation of the same expression.  An earlier revision of this module had all
+#: three coefficients cyclically permuted -- intercept 18.9, distance 36.85,
+#: frequency 30.0 -- which understated NLOS loss by 4.6 dB at 5 m and overstated
+#: it by 4.3 dB at 100 m.  The tell was physical rather than numerical: an NLOS
+#: intercept of 18.9 dB against a LOS intercept of 38.77 dB is a 20 dB gap
+#: between two quantities that are both "loss at one metre" and should sit in
+#: the same range.
+NLOS_INTERCEPT_DB = 36.85
+NLOS_DISTANCE_COEFFICIENT = 30.0
+NLOS_FREQUENCY_COEFFICIENT = 18.9
 NLOS_SHADOWING_SIGMA_DB = 4.0
 
 #: NLOSv is LOS propagation plus a blockage term, so it inherits the LOS
 #: shadowing spread and adds the variate below.
 NLOSV_SHADOWING_SIGMA_DB = LOS_SHADOWING_SIGMA_DB
 
-#: Additional vehicle blockage loss, in dB, as a normal variate.  The mean grows
-#: with distance because a distant blocker subtends more of the first Fresnel
-#: zone.  UNVERIFIED -- see the module docstring.
+#: Additional vehicle blockage loss, in dB, as a normal variate.  VERIFIED.
+#: The spread differs by case: 4.5 dB when both antennas sit below the blocker,
+#: 4.0 dB when the blocker falls between them.  The earlier revision used 4.5
+#: for both, which widened the mixed case by half a decibel.
 NLOSV_BLOCKAGE_MEAN_SHORT_DB = 5.0
 NLOSV_BLOCKAGE_MEAN_TALL_DB = 9.0
 NLOSV_BLOCKAGE_DISTANCE_COEFFICIENT = 15.0
 NLOSV_BLOCKAGE_DISTANCE_OFFSET_DB = 41.0
-NLOSV_BLOCKAGE_SIGMA_DB = 4.5
+NLOSV_BLOCKAGE_SIGMA_TALL_DB = 4.5
+NLOSV_BLOCKAGE_SIGMA_MIXED_DB = 4.0
 
 
 class PathLossError(GrailVError):
@@ -235,6 +245,26 @@ def blockage_mean_db(
     return base + growth
 
 
+def blockage_sigma_db(
+    blocker_height_m: float, tx_height_m: float, rx_height_m: float
+) -> float:
+    """Spread of the blockage variate, which differs by case.
+
+    Wider when the blocker stands above both antennas than when it falls
+    between them: a fully obstructing body admits a broader range of
+    diffraction outcomes than a partially obstructing one.
+    """
+
+    lower, upper = sorted((tx_height_m, rx_height_m))
+    if blocker_height_m <= lower:
+        return 0.0
+    return (
+        NLOSV_BLOCKAGE_SIGMA_TALL_DB
+        if blocker_height_m > upper
+        else NLOSV_BLOCKAGE_SIGMA_MIXED_DB
+    )
+
+
 def large_scale_loss(
     *,
     distance_m: float,
@@ -267,7 +297,9 @@ def large_scale_loss(
 __all__ = [
     "LargeScaleLoss",
     "MIN_VALID_DISTANCE_M",
-    "NLOSV_BLOCKAGE_SIGMA_DB",
+    "NLOSV_BLOCKAGE_SIGMA_MIXED_DB",
+    "NLOSV_BLOCKAGE_SIGMA_TALL_DB",
+    "blockage_sigma_db",
     "PathLossError",
     "blockage_mean_db",
     "large_scale_loss",
