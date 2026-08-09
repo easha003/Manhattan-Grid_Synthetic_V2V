@@ -79,15 +79,24 @@ from grail_v.core.errors import GrailVError
 from grail_v.core.link_endpoints import DEFAULT_PHOTODIODE_HEIGHT_M
 from grail_v.core.pair_geometry import DEFAULT_FOV_HALF_ANGLE_RAD, wrap_to_pi
 
-#: Photodiode active area, m^2 -- 1 cm^2, the large-area end of commercial
-#: silicon PIN detectors used in optical wireless front ends.  UNVERIFIED.
-ACTIVE_AREA_M2 = 1.0e-4
+#: Radiant sensitive area of a Vishay BPW34 silicon PIN photodiode, 7.5 mm^2.
+#: SOURCED -- Vishay document 81521, a commodity part widely used in VLC
+#: receivers.  The earlier value was 1.0e-4 m^2, a round 100 mm^2 chosen as an
+#: order of magnitude; that is **13x this part** and therefore 11.25 dB
+#: optimistic, because received power scales linearly with area.
+#:
+#: Larger single photodiodes exist, but area is not free: junction capacitance
+#: scales with it and forces the load resistance down to keep the bandwidth,
+#: so thermal-limited SNR grows as A rather than A^2.  Choosing a commodity
+#: part with a published datasheet is worth more here than choosing a
+#: favourable one without.
+ACTIVE_AREA_M2 = 7.5e-6
 
-#: Responsivity, A/W, for silicon against a phosphor-converted white headlamp
-#: spectrum.  Silicon peaks near 0.6 A/W in the near infrared and falls through
-#: the visible, so a spectrum-weighted value sits well below the peak.  The
-#: weighting has not been performed; 0.4 is a plausible midpoint and nothing
-#: more.  UNVERIFIED.
+#: Silicon responsivity at the phosphor-converted white LED wavelengths a
+#: headlamp emits, roughly 550-600 nm.  DECLARED, and consistent with the
+#: BPW34 datasheet: 50 uA at 1 mW/cm^2 over 7.5 mm^2 is 0.67 A/W at 900 nm,
+#: and silicon responsivity falls to roughly this value in the visible.  It is
+#: deliberately not the 900 nm peak, because the headlamp does not emit there.
 RESPONSIVITY_A_PER_W = 0.4
 
 #: In-band transmission of the optical filter that rejects ambient light.
@@ -99,11 +108,12 @@ FILTER_TRANSMISSION = 0.9
 #: because the range of transparent dielectrics is narrow.  UNVERIFIED.
 CONCENTRATOR_REFRACTIVE_INDEX = 1.5
 
-#: Junction capacitance per unit active area, F/m^2, equivalent to 112 pF/cm^2
-#: for a reverse-biased silicon p-i-n.  This constant is what couples area to
-#: bandwidth and so to thermal noise; it is the load-bearing one in this file
-#: and it is as unsourced as the rest.  UNVERIFIED.
-DETECTOR_CAPACITANCE_PER_AREA_F_PER_M2 = 1.12e-6
+#: BPW34 junction capacitance is 70 pF at 1 MHz with zero reverse bias, over
+#: 7.5 mm^2, giving 9.33e-6 F/m^2.  SOURCED -- Vishay document 81521.  Zero
+#: bias is the pessimistic end: reverse-biasing the diode lowers capacitance
+#: substantially and a real receiver would do so, so the front-end bandwidth
+#: check this feeds is conservative.
+DETECTOR_CAPACITANCE_PER_AREA_F_PER_M2 = 9.33e-6
 
 #: Transimpedance load resistance, ohm.  **Not independently chosen**: it is
 #: bounded above by the RC pole of the configured 5 MHz front end with a 1 cm^2

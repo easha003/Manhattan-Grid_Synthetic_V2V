@@ -33,24 +33,65 @@ section below.
 
 ## Tier 1 — changes a headline result
 
-| Parameter | Value | Status | Band | What it decides |
-|---|---:|---|---|---|
-| `desired_time_headway_s` | 1.2 s | **standard, uncited** | needed: 1.0 / 1.2 / 1.5 | Traffic capacity → the density band → the constraint groups. **And**, since §12.3, the bumper gap — which the optical budget divides by, **squared**. |
-| ~~`NLOSV_BLOCKAGE_MEAN_TALL_DB`~~ | 9.0 dB | **verified** | — | Confirmed against Table 6.2.1-1. Resolved out of tier 1. |
-| headlamp pattern artifact | **absent** | **missing** | — | Every optical number. M4 cannot produce a result without it. |
-| `RESPONSIVITY_A_PER_W` | 0.4 | **unsourced** | — | Scales the optical photocurrent linearly, so it moves the optical SNR one-for-one. |
-| `ACTIVE_AREA_M2` | 1.0e-4 | **unsourced** | — | Same, and it is not free to increase: capacitance forces load resistance down, so thermal-limited SNR goes as *A*, not *A*². |
+| Parameter | Value | Status | What it decides |
+|---|---:|---|---|
+| headlamp pattern artifact | **absent** | **still missing** | Every optical number. M4 cannot produce a result without it. |
+| `RESPONSIVITY_A_PER_W` | 0.4 | **declared, datasheet-consistent** | Scales optical photocurrent linearly. |
 
-`desired_time_headway_s` is the one I would fix first. It was flagged as
-unsourced when it only set capacity, and §12.3 quietly promoted it to the
-leading term in the optical link budget. Nothing about that code change made the
-promotion visible — it only appeared by working through the geometry. **An
-unsourced number moved from the edge of the model to the middle of it.**
+Two entries left. Three were resolved and the story of each is worth keeping.
 
-It is also the cheapest to fix: 1.2 s sits well inside the range Treiber,
-Hennecke and Helbing use for the IDM, and adjacent to SUMO's default. The work
-is not finding a citation, it is running the sensitivity — does "optical
-improves with density" survive *T* ∈ {1.0, 1.2, 1.5}?
+### Resolved — `desired_time_headway_s`, and it was not the leading term after all
+
+**Cited.** Treiber, Hennecke and Helbing (2000) use 1.6 s for freeway traffic;
+Treiber's own published defaults give **1.5 s** for cars, with the note that city
+traffic should adapt the desired *speed* while the other parameters "essentially
+can be left unchanged". Our 1.2 s is therefore **more aggressive than the
+reference** — shorter gaps, higher capacity, and since the optical budget divides
+by the bumper gap, a *better* V-VLC link than a Treiber-parameterised model would
+give. That is now declared rather than silently favourable.
+
+**And the sensitivity says the promotion was overstated.** Measured across the
+band:
+
+| T | mean gap, ρ=10 | mean gap, ρ=30 | ρ=10→30 optical change |
+|---:|---:|---:|---:|
+| 1.0 s | 31.93 m | 10.94 m | **+10.88 dB** |
+| 1.2 s | 30.49 m | 10.92 m | **+9.97 dB** |
+| 1.5 s | 31.07 m | 11.44 m | **+9.50 dB** |
+
+The claim that V-VLC strengthens with density holds at every headway, with
+**1.4 dB of spread against a 9.5 dB effect**. And the gaps barely move with *T*
+at all — at ρ=20 they are 16.55, 18.06 and 16.98 m, non-monotonic and inside
+1.5 m. **The bumper gap is set by density, not by the car-following model**,
+because tagged pairs are already constrained to a 5–100 m window.
+
+So the earlier framing — "an unsourced number moved from the edge of the model
+to the middle of it" — was half right. It did move into the optical budget, and
+it turned out not to matter there. Worth recording that the alarm was raised and
+then measured away rather than quietly dropped.
+
+### Resolved — the photodiode, and it cost 11 dB
+
+**Sourced to a Vishay BPW34**, a commodity silicon PIN part with a published
+datasheet (Vishay document 81521): radiant sensitive area **7.5 mm²**, junction
+capacitance **70 pF at 1 MHz, zero bias**.
+
+The assumed area was 1.0e-4 m² — a round 100 mm², **13× this part**, and
+therefore **11.25 dB optimistic**, since received power scales linearly with
+area. That is the single largest correction the sourcing exercise has produced.
+
+It also cuts the other way, which is the trade the receiver module exists to
+make explicit: the smaller part *raises* the RC ceiling from 284 Ω to 455 Ω, so
+the front end became easier to build at the same moment the optical budget
+became harder. Area is not free.
+
+Zero-bias capacitance is the pessimistic end — a real receiver reverse-biases
+the diode and gets substantially less — so the bandwidth feasibility check is
+conservative.
+
+### Resolved — `NLOSV_BLOCKAGE_MEAN_TALL_DB`
+
+Verified against Table 6.2.1-1. See tier 2.
 
 ---
 
@@ -165,15 +206,17 @@ plus the guards `MIN_BLOCKLENGTH`, `MIN_VALID_DISTANCE_M`,
 1. ~~**Verify TR 37.885**~~ — **done.** Found the NLOS coefficients permuted and
    the blockage spread collapsed to one value; both fixed. The 541 m term is
    confirmed correct.
-2. **Cite and band `desired_time_headway_s`** — cheap to cite, and the
-   sensitivity run answers whether the optical-improves-with-density result is
-   robust.
+2. ~~**Cite and band `desired_time_headway_s`**~~ — **done.** Cited to Treiber;
+   the sensitivity says the optical result is robust across the band and that
+   the gap is set by density rather than by the headway.
 3. **Source or synthesise the headlamp pattern** — blocks every optical number.
    Prefer a published measurement; a declared synthetic beam with a hot spot and
    a cutoff beats the Lambertian comparison, which W17 explicitly warns against
    relying on.
-4. **Give the optical front end real part numbers** — responsivity and active
-   area are the two that scale the result linearly.
+4. ~~**Give the optical front end real part numbers**~~ — **mostly done.** Area
+   and capacitance sourced to the BPW34 datasheet, costing 11.25 dB. Only
+   responsivity remains declared, and it is datasheet-consistent for a silicon
+   detector at white-LED wavelengths.
 
 Tier 4 can stay as it is, provided this table exists.
 
