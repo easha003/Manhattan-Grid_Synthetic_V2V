@@ -61,14 +61,21 @@ def test_a_missing_measured_pattern_raises_rather_than_falling_back(tmp_path: Pa
         load_pattern(tmp_path / "absent")
 
 
-def test_the_configured_artifact_is_genuinely_absent_today() -> None:
-    """Pins the current state so it cannot be forgotten.
+def test_the_configured_artifact_exists_and_is_a_declared_envelope() -> None:
+    """It was absent until 2026-08-10, and a test pinned that so it could not be
+    forgotten. It now exists, built from the ECE R112 test-point geometry rather
+    than measured off a lamp, and the manifest says so in its own source field.
 
-    If someone adds the artifact this fails, which is the right moment to
-    revisit every VLC number that was computed without it.
+    The distinction is the point: a regulatory envelope constrains a compliant
+    lamp, it does not describe one. Cells without a test point carry the
+    applicable zone limit, which is a bound. Any optical result quoted from it
+    inherits that.
     """
 
-    assert not Path("artifacts/calibration/vlc/headlamp-v1").exists()
+    pattern = load_pattern("artifacts/calibration/vlc/headlamp-ece-r112-v1")
+    assert pattern.pattern_id == "headlamp-ece-r112-v1"
+    assert "NOT a measured lamp" in pattern.source
+    assert "zone limit" in pattern.source
 
 
 def test_lambertian_is_available_only_by_name() -> None:

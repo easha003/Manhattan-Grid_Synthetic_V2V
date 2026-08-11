@@ -183,14 +183,28 @@ def test_the_inverse_square_distance_is_the_gap_not_the_separation() -> None:
     assert geometry.separation_m == pytest.approx(20.0)
     assert geometry.optical_path_length_m == pytest.approx(20.0 - CAR_LENGTH_M)
 
+    drop = DEFAULT_HEADLAMP_HEIGHT_M - DEFAULT_PHOTODIODE_HEIGHT_M
     at_gap = direct_received_power_w(
         pattern=COMPARISON_BEAM,
         receiver=OpticalReceiver(),
         path_length_m=geometry.optical_path_length_m,
         horizontal_emission_rad=0.0,
         incidence_angle_rad=0.0,
+        vertical_emission_rad=-math.atan2(drop, geometry.optical_path_length_m),
     )
     assert power_of(COMPARISON_BEAM, geometry) == pytest.approx(at_gap)
+
+    # And the separation would have been wrong by a whole vehicle: at 20 m
+    # front-to-front the optical path is 15.5 m, which is 2.2 dB of budget.
+    at_separation = direct_received_power_w(
+        pattern=COMPARISON_BEAM,
+        receiver=OpticalReceiver(),
+        path_length_m=geometry.separation_m,
+        horizontal_emission_rad=0.0,
+        incidence_angle_rad=0.0,
+        vertical_emission_rad=-math.atan2(drop, geometry.separation_m),
+    )
+    assert at_gap > at_separation
 
 
 def test_the_optical_link_budget_improves_as_traffic_gets_denser() -> None:
@@ -291,27 +305,43 @@ def test_the_policy_observes_separation_and_never_the_leader_that_sets_the_gap()
 # -- finding 3: the pattern's vertical axis is never sampled ------------------
 
 
-def test_the_vertical_emission_angle_is_identically_zero() -> None:
-    """Both endpoints sit at 0.7 m on a planar road, so it cannot be anything else.
+def test_the_beam_is_sampled_below_the_horizon_and_the_angle_depends_on_the_gap() -> None:
+    """The photodiode sits 0.3 m below the headlamp, so the link looks downward.
 
-    The consequence is worth stating plainly: the measured beam is only ever
-    read along its horizontal cut, and the vertical axis carries the legally
-    mandated cutoff -- the feature that most distinguishes a real automotive
-    headlamp from a cosine lobe.  The non-Lambertian stress test this project
-    performs is therefore a test of horizontal asymmetry only.  A grade or
-    braking-pitch model, the gap work plan section 4.7 item 6 already records
-    for the narrow-cone sensitivity, would be what makes this axis live.
+    This test previously asserted the opposite -- that the vertical angle was
+    *identically zero*, because both endpoints sat at 0.7 m -- and recorded as a
+    finding that the pattern's vertical axis was therefore never sampled. That
+    was true, and it was the symptom of a defect rather than a property of the
+    world: co-height endpoints sample an ECE low beam exactly along its cut-off,
+    the one elevation a headlamp is engineered to keep dark, because its purpose
+    is not to dazzle oncoming drivers. The equal heights were a simulation
+    convenience inherited from the planar-path simplification.
+
+    With the receiver at 0.4 m the beam is read where a headlamp actually puts
+    its light, and the mandated cut-off -- the feature most distinguishing a
+    real lamp from a cosine lobe -- becomes live rather than inert.
+
+    The angle shrinks with distance, which matters: a fixed height difference
+    subtends less elevation as the gap grows, so the far end of the pair window
+    drifts back toward the dark cut-off on its own.
     """
 
-    assert DEFAULT_HEADLAMP_HEIGHT_M == DEFAULT_PHOTODIODE_HEIGHT_M
-    assert PLANAR_VERTICAL_EMISSION_RAD == 0.0
+    assert DEFAULT_PHOTODIODE_HEIGHT_M < DEFAULT_HEADLAMP_HEIGHT_M
 
-    pattern = RecordingPattern()
-    follower = FakeVehicle("tx", 0.0, 0.0, NORTH)
-    leader = FakeVehicle("rx", 4.0, 20.0, NORTH)
-    power_of(pattern, pair_geometry(follower, leader))
+    angles = []
+    for gap_m in (10.0, 20.0, 40.0):
+        pattern = RecordingPattern()
+        follower = FakeVehicle("tx", 0.0, 0.0, NORTH)
+        leader = FakeVehicle("rx", 0.0, gap_m + CAR_LENGTH_M, NORTH)
+        power_of(pattern, pair_geometry(follower, leader))
+        vertical = pattern.samples[0][1]
+        assert vertical < 0.0, "the link must look downward, into the beam"
+        angles.append(vertical)
 
-    assert [vertical for _, vertical in pattern.samples] == [0.0]
+    drop = DEFAULT_HEADLAMP_HEIGHT_M - DEFAULT_PHOTODIODE_HEIGHT_M
+    assert angles[0] == pytest.approx(-math.atan2(drop, 10.0), abs=1e-9)
+    # Shrinks toward the cut-off as the pair separates.
+    assert angles[0] < angles[1] < angles[2] < 0.0
 
 
 # -- finding 4: the obvious geometry field is the wrong one -------------------

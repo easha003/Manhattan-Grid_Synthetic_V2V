@@ -87,6 +87,10 @@ import math
 from dataclasses import dataclass
 
 from grail_v.channels.vlc.headlamp_pattern import HeadlampPattern
+from grail_v.core.link_endpoints import (
+    DEFAULT_HEADLAMP_HEIGHT_M,
+    DEFAULT_PHOTODIODE_HEIGHT_M,
+)
 from grail_v.channels.vlc.receiver import OpticalReceiver
 from grail_v.core.errors import GrailVError
 from grail_v.core.pair_geometry import PairGeometry
@@ -238,6 +242,8 @@ def received_power_from_geometry(
     geometry: PairGeometry,
     occluded: bool = False,
     blockage: BlockageModel = COMPLETE_BLOCKAGE,
+    tx_height_m: float = DEFAULT_HEADLAMP_HEIGHT_M,
+    rx_height_m: float = DEFAULT_PHOTODIODE_HEIGHT_M,
 ) -> float:
     """Received optical power for one exact pair pose.
 
@@ -247,13 +253,20 @@ def received_power_from_geometry(
     ``relative_bearing_rad`` and not at the absolute ``emission_angle_rad``.
     See findings 1, 2 and 4 in the module docstring.
 
-    The vertical angle is pinned to zero rather than exposed, because this
-    configuration cannot produce another value: both endpoints sit at 0.7 m and
-    the roads are planar.  A pitch or grade model would make it a real
-    argument, and would be the moment the pattern's cutoff axis starts to
-    matter.
+    The vertical angle is now a real argument.  It was pinned to zero while both
+    endpoints sat at 0.7 m, and that pinning is what hid the fact that the link
+    was sampling an ECE low beam along its cut-off.  With the photodiode at
+    0.4 m the beam is sampled below the horizon, where a headlamp actually puts
+    its light, and the pattern's cut-off axis starts to matter.
+
+    Roads are still planar and there is still no pitch model, so the elevation
+    comes only from the fixed height difference and the gap.  The slant range is
+    ignored: 0.3 m of drop over a 5 m gap is 0.2% of the distance, which is far
+    inside every other uncertainty in this budget.
     """
 
+    drop_m = tx_height_m - rx_height_m
+    elevation_rad = -math.atan2(drop_m, max(geometry.optical_path_length_m, 1e-9))
     return direct_received_power_w(
         pattern=pattern,
         receiver=receiver,
@@ -261,7 +274,7 @@ def received_power_from_geometry(
         horizontal_emission_rad=horizontal_emission_angle_rad(geometry.relative_bearing_rad),
         incidence_angle_rad=geometry.incidence_angle_rad,
         occluded=occluded,
-        vertical_emission_rad=PLANAR_VERTICAL_EMISSION_RAD,
+        vertical_emission_rad=elevation_rad,
         blockage=blockage,
     )
 

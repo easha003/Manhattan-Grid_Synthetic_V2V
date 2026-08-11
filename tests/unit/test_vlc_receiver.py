@@ -24,7 +24,10 @@ from grail_v.channels.vlc.receiver import (
     ReceiverError,
 )
 from grail_v.config import load_headline_config
-from grail_v.core.link_endpoints import DEFAULT_HEADLAMP_HEIGHT_M
+from grail_v.core.link_endpoints import (
+    DEFAULT_HEADLAMP_HEIGHT_M,
+    DEFAULT_PHOTODIODE_HEIGHT_M,
+)
 from grail_v.core.pair_geometry import DEFAULT_FOV_HALF_ANGLE_RAD, pair_geometry, wrap_to_pi
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -301,19 +304,19 @@ def test_the_photodiode_looks_backwards_and_geometry_agrees() -> None:
     assert geometry.incidence_angle_rad > 0.0
 
 
-def test_the_photodiode_sits_at_the_headlamp_height() -> None:
-    """Which is what makes the optical path horizontal.
+def test_the_photodiode_sits_below_the_headlamp() -> None:
+    """0.3 m below, which is where rear lamps and reflectors actually are.
 
-    Occlusion then reduces to a planar footprint test plus one height
-    comparison, with no interpolation along the path.  It is also why the
-    headlamp pattern's vertical axis is never sampled -- see
-    ``test_vlc_optical_gain.py``.
+    They were equal until it was measured that co-height endpoints sample an
+    ECE low beam along its cut-off. Occlusion is unaffected -- the shortest
+    vehicle class is 1.5 m and blocks a path at either height -- so this buys
+    7 to 14 dB of optical budget at no cost in availability, which is what
+    distinguishes it from narrowing the receiver cone.
     """
 
-    assert OpticalReceiver().height_m == DEFAULT_HEADLAMP_HEIGHT_M
-
-
-# -- responsivity -------------------------------------------------------------
+    assert OpticalReceiver().height_m == DEFAULT_PHOTODIODE_HEIGHT_M
+    assert DEFAULT_PHOTODIODE_HEIGHT_M < DEFAULT_HEADLAMP_HEIGHT_M
+    assert DEFAULT_HEADLAMP_HEIGHT_M - DEFAULT_PHOTODIODE_HEIGHT_M == pytest.approx(0.3)
 
 
 def test_photocurrent_is_linear_in_optical_power() -> None:

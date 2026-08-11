@@ -8,7 +8,12 @@ vlc:
   modulation_order: 2
   pulse_roll_off: 0.3
   headlamp_pattern: "measured_non_lambertian"
-  pattern_artifact: "artifacts/calibration/vlc/headlamp-v1"
+  # Built 2026-08-10 from the ECE R112 test-point geometry and the achieved
+  # illuminances of a compliant four-LED design (Wang, Wang, Li and Ge, Applied
+  # Optics 54(7):1794, 2015, Fig. 4 and Table 2).  A regulatory envelope, not a
+  # measured lamp: cells without a test point carry the applicable zone limit,
+  # which is a bound rather than a value.  Recorded in the artifact manifest.
+  pattern_artifact: "artifacts/calibration/vlc/headlamp-ece-r112-v1"
   # Receiver *semi-angle* psi_c, not a full cone: the photodiode accepts light
   # arriving up to 60 deg off its boresight, for a total opening of 120 deg.
   # This follows the Kahn-Barry optical front end the Lambertian and

@@ -13,9 +13,18 @@ correction while the receive end must be moved back one full vehicle length.
 
 **RF** runs roof to roof, taken at the centre of each vehicle.
 
-Both links are horizontal: the headlamp and photodiode sit at the same height,
-as do the two antennas.  A horizontal path means occlusion reduces exactly to a
-planar footprint test plus a scalar height comparison, with no interpolation
+The RF path is horizontal: both antennas sit at 1.5 m.  The optical path is
+**not** -- the photodiode sits 0.3 m below the headlamp, which is where rear
+lamps and reflectors actually are.  The two were equal until it was noticed that
+co-height endpoints sample an ECE low beam exactly along its cut-off, the one
+elevation a headlamp is engineered to keep dark.  That was a modelling
+convenience, not a design choice, and it cost 7 to 14 dB depending on the gap.
+
+Occlusion is unaffected by the change: the shortest vehicle class is 1.5 m,
+which is taller than either endpoint, so every body blocks either path and the
+scalar height comparison returns the same answer at 0.4 m as at 0.7 m.  A
+sloped path therefore still reduces to a planar footprint test plus a scalar
+height comparison, with no interpolation
 along the path.  :mod:`grail_v.geometry.vehicle_occlusion` relies on this.
 """
 
@@ -33,7 +42,10 @@ from grail_v.core.geometry import (
 
 #: Defaults matching ``configs/project/default.yaml`` under ``geometry``.
 DEFAULT_HEADLAMP_HEIGHT_M = 0.7
-DEFAULT_PHOTODIODE_HEIGHT_M = 0.7
+#: Rear lamps and reflectors sit at 0.35-0.6 m on real vehicles; 0.4 m is the
+#: ordinary choice rather than a favourable one.  See the module docstring for
+#: why this is no longer equal to the headlamp height.
+DEFAULT_PHOTODIODE_HEIGHT_M = 0.4
 DEFAULT_RF_ANTENNA_HEIGHT_M = 1.5
 
 
