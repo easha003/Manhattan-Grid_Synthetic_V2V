@@ -22,7 +22,14 @@ geometry:
   max_separation_m: 100.0
   rf_antenna_height_m: 1.5
   headlamp_height_m: 0.7
-  photodiode_height_m: 0.7
+  # Rear lamps and reflectors sit at 0.35-0.6 m on real vehicles.  Equal to the
+  # headlamp height until 2026-08-10, which put the optical link exactly on an
+  # ECE low beam's cut-off -- the one elevation a headlamp is engineered to keep
+  # dark, because its purpose is not to dazzle oncoming drivers.  That was a
+  # simulation convenience inherited from the planar-path simplification, not a
+  # design choice, and no deployment would place a receiver there.  Occlusion is
+  # unchanged: every vehicle class is at least 1.5 m and blocks either path.
+  photodiode_height_m: 0.4
   exact_geometry_hidden_from_policy: true
   include_building_nlos: true
 
