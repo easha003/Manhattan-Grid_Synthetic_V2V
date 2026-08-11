@@ -127,20 +127,25 @@ def power_of(pattern, geometry, **kwargs) -> float:
 # -- the rule that comes first ------------------------------------------------
 
 
-def test_the_module_has_no_beam_to_run_on_today() -> None:
-    """The headline configuration names an artifact that does not exist.
+def test_the_configured_beam_now_loads_and_is_a_declared_envelope() -> None:
+    """This test used to assert the opposite, and that was its purpose.
 
-    So every function here is exercised against named comparison models and
-    synthetic fixtures, and no absolute received power is asserted anywhere in
-    this file.  When the artifact arrives this test fails, which is the moment
-    to compute the clear-path PER against separation that work plan section 20
-    item 4 asks for.
+    It asserted the configured artifact did *not* exist, so that when one
+    arrived the test would fail and force every optical number computed without
+    it to be revisited. The artifact arrived on 2026-08-10, built from the ECE
+    R112 test-point geometry rather than measured off a lamp, and the revisiting
+    it forced was substantial: the link had been sampling the beam along its
+    cut-off, which is what led to the receiver being moved to 0.4 m.
+
+    What the file still does not do is assert an absolute received power. A
+    regulatory envelope constrains a compliant lamp, it does not describe one,
+    so ratios and orderings are meaningful here and absolute watts are not.
     """
 
     config = load_headline_config(PROJECT_ROOT)
     assert config.vlc.headlamp_pattern == "measured_non_lambertian"
-    with pytest.raises(HeadlampPatternError, match="no Lambertian"):
-        load_pattern(config.vlc.pattern_artifact)
+    pattern = load_pattern(config.vlc.pattern_artifact)
+    assert "NOT a measured lamp" in pattern.source
 
 
 def test_the_module_never_reaches_for_the_lambertian_comparison() -> None:
