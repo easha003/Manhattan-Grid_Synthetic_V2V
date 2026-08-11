@@ -57,10 +57,19 @@ def _validate_headline_contract(config: ProjectConfig) -> None:
     _require_headline("service.deadline_s", config.service.deadline_s, 0.003)
     _require_headline("service.miss_budget", config.service.miss_budget, 1e-4)
     _require_headline("service.harq_enabled", config.service.harq_enabled, False)
+    # Amended 2026-08-10 from 1 to 3, deliberately and with the arithmetic
+    # recorded, because this validator exists to make exactly that a decision
+    # rather than a drift.  Collision alone puts a 1.5-12% floor on a single
+    # attempt, 150-1200x the miss budget, so one attempt could not meet 1e-4 at
+    # any density or any end of the declared sensitivity band.  Three hopped
+    # attempts clear it at every trained density on the *nominal* band, which
+    # is what makes the result reportable without selecting the favourable end
+    # of an uncertainty.  Affordable only because the modulation moved to 16QAM
+    # and the block now fits one 0.5 ms slot instead of two.
     _require_headline(
         "service.rf_attempts_per_packet",
         config.service.rf_attempts_per_packet,
-        1,
+        3,
     )
     _require_headline(
         "service.vlc_attempts_per_packet",
