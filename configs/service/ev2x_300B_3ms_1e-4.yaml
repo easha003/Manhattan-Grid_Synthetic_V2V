@@ -15,7 +15,17 @@ service:
   miss_budget: 0.0001
   predecision_lead_s: 0.0001
   harq_enabled: false
-  rf_attempts_per_packet: 1
+  # Raised from 1 on 2026-08-10.  Collision alone puts a 1.5-12% floor on a
+  # single attempt, which is 150-1200x the miss budget, so one attempt was never
+  # a candidate at any density or any end of the declared band.  Three hopped
+  # attempts clear 1e-4 at every trained density on the NOMINAL band with about
+  # an order of magnitude spare, which is what makes the result reportable
+  # without selecting the favourable end of an uncertainty.
+  #
+  # Affordable only because the modulation changed: 16QAM fits the block in one
+  # 0.5 ms slot instead of two, so three attempts cost 1.5 ms of the 2.9 ms the
+  # deadline leaves, and still run concurrently with the 2.4 ms optical leg.
+  rf_attempts_per_packet: 3
   vlc_attempts_per_packet: 1
   dup_simultaneous: true
   rf_resource_assumption: "pre_reserved"
