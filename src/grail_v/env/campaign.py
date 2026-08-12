@@ -119,6 +119,74 @@ def expected_failure_for(action_name: str, outcome: PacketOutcome) -> float:
 
 
 @dataclass(slots=True)
+class TargetingBound:
+    """The cheapest a causal policy could be, given perfect risk prediction.
+
+    The realization oracle answers "what if you knew the outcome", which no
+    policy can approach and which therefore bounds nothing a learner can reach.
+    This answers the question that matters instead: **what if you knew each
+    packet's failure probability, but still had to choose before the draw?**
+
+    That is a knapsack. Duplicating a packet costs one extra unit and buys
+    ``p_RF - p_joint`` of expected miss. Every packet costs the same, so the
+    greedy solution is exact: sort by how much duplication buys, duplicate from
+    the top until the mean expected miss falls under the budget.
+
+    The number this produces is the one to compare a trained policy against. If
+    it sits near 2.0, per-packet risk is too flat to target and no policy beats
+    duplicating everything -- the contribution would be the constraint
+    machinery, not the selection. If it sits near 1.0, risk is concentrated in
+    a few identifiable packets and there is real headroom to learn.
+    """
+
+    #: ``(reduction, rf_probability)`` per packet, kept to solve the knapsack.
+    _packets: list[tuple[float, float]] = field(default_factory=list)
+
+    def observe(self, rf_probability: float, joint_probability: float) -> None:
+        self._packets.append((rf_probability - joint_probability, rf_probability))
+
+    def solve(self, budget: float) -> tuple[float, float]:
+        """Return ``(mean cost, achieved miss rate)`` for the cheapest feasible mix.
+
+        A cost of 1.0 means RF alone already met the budget; 2.0 means even
+        duplicating everything did not, and the returned rate says by how much.
+        """
+
+        n = len(self._packets)
+        if not n:
+            return 1.0, 0.0
+        total = math.fsum(rf for _, rf in self._packets)
+        if total / n <= budget:
+            return 1.0, total / n
+        duplicated = 0
+        for reduction, _ in sorted(self._packets, key=lambda p: -p[0]):
+            if total / n <= budget:
+                break
+            total -= reduction
+            duplicated += 1
+        return 1.0 + duplicated / n, total / n
+
+    @property
+    def packets(self) -> int:
+        return len(self._packets)
+
+    def risk_concentration(self, top_fraction: float = 0.01) -> float:
+        """Share of total expected RF misses carried by the riskiest packets.
+
+        A flat link puts ``top_fraction`` of its misses in the top fraction; a
+        link whose risk is concentrated puts far more. This is the same
+        information the knapsack uses, in a form that can be quoted.
+        """
+
+        if not self._packets:
+            return 0.0
+        risks = sorted((rf for _, rf in self._packets), reverse=True)
+        cut = max(1, int(top_fraction * len(risks)))
+        total = math.fsum(risks)
+        return math.fsum(risks[:cut]) / total if total > 0.0 else 0.0
+
+
+@dataclass(slots=True)
 class DensityReport:
     """Every policy's statistics for one density group, plus the joint check."""
 
@@ -141,6 +209,8 @@ class DensityReport:
     #: duplication buys nothing a further RF attempt would not buy cheaper.
     rf_lost_vlc_saved: int = 0
     vlc_lost_rf_saved: int = 0
+    #: The bound a learned policy is actually competing against.
+    targeting: TargetingBound = field(default_factory=TargetingBound)
 
     def policy(self, name: str) -> PolicyStatistics:
         return self.policies.setdefault(name, PolicyStatistics())
@@ -237,6 +307,9 @@ def run(
             report.rf_lost_vlc_saved += 1
         if rf.delivered and not vlc.delivered:
             report.vlc_lost_rf_saved += 1
+        report.targeting.observe(
+            rf.rf_failure_probability, dup.joint_failure_probability
+        )
 
         if release_finished_pairs and instant.final:
             rollout.release(instant.pair_id)
@@ -275,6 +348,16 @@ def format_report(report: DensityReport, budget: float = 1e-4) -> str:
             f"  {name:<8} {stats.mean_cost:>6.2f} {stats.expected_miss_rate:>10.3e} "
             f"{meets:>6} {stats.realized_miss_rate:>10.3e} {stats.wilson_upper():>10.3e}"
         )
+    if report.targeting.packets:
+        cost, achieved = report.targeting.solve(budget)
+        lines += [
+            "",
+            f"  targeting bound: mean cost {cost:.3f} at {achieved:.3e} "
+            f"-- the cheapest a policy could be if it knew each packet's risk "
+            f"but not its outcome",
+            f"  risk concentration: the riskiest 1% of packets carry "
+            f"{report.targeting.risk_concentration():.1%} of expected RF misses",
+        ]
     oracle = report.policies.get(ORACLE)
     if oracle and oracle.packets:
         picks = ", ".join(

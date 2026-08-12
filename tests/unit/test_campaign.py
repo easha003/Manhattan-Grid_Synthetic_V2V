@@ -167,3 +167,63 @@ def test_the_report_formats_without_a_division_by_zero() -> None:
 
     text = campaign.format_report(DensityReport(density=5.0))
     assert "density 5" in text
+
+
+# -- the bound a learned policy is actually competing against -----------------
+
+
+def test_a_flat_link_forces_near_universal_duplication() -> None:
+    """If every packet carries the same risk, targeting is impossible and the
+    bound collapses onto the always-duplicate baseline. This is the case where
+    the selection contribution would not exist, so it must be visible."""
+
+    bound = campaign.TargetingBound()
+    for _ in range(10_000):
+        bound.observe(3.3e-4, 8e-5)
+    cost, achieved = bound.solve(1e-4)
+    assert cost > 1.9
+    assert achieved <= 1e-4
+    assert bound.risk_concentration() == pytest.approx(0.01, abs=1e-3)
+
+
+def test_concentrated_risk_is_cheap_to_target() -> None:
+    """A few bad packets carrying the whole miss budget can be duplicated
+    individually, and the mean cost barely moves off 1.0."""
+
+    bound = campaign.TargetingBound()
+    for index in range(10_000):
+        risky = index < 100
+        bound.observe(3.0e-2 if risky else 1e-7, 1e-9)
+    cost, achieved = bound.solve(1e-4)
+    assert cost < 1.05
+    assert achieved <= 1e-4
+    assert bound.risk_concentration() > 0.9
+
+
+def test_a_link_already_inside_budget_pays_nothing() -> None:
+    bound = campaign.TargetingBound()
+    for _ in range(1000):
+        bound.observe(1e-6, 1e-9)
+    cost, achieved = bound.solve(1e-4)
+    assert cost == 1.0
+    assert achieved == pytest.approx(1e-6)
+
+
+def test_an_infeasible_budget_stops_at_universal_duplication() -> None:
+    """Duplicating everything is the most it can do, and if that still misses
+    the budget the bound says so rather than reporting a cost above 2."""
+
+    bound = campaign.TargetingBound()
+    for _ in range(1000):
+        bound.observe(0.5, 0.4)
+    cost, achieved = bound.solve(1e-4)
+    assert cost == pytest.approx(2.0)
+    assert achieved == pytest.approx(0.4)
+
+
+def test_the_bound_never_exceeds_the_duplicate_everything_baseline() -> None:
+    bound = campaign.TargetingBound()
+    for index in range(500):
+        bound.observe(1e-3 * (index + 1), 1e-6)
+    cost, _ = bound.solve(1e-4)
+    assert 1.0 <= cost <= 2.0
