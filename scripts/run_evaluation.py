@@ -33,7 +33,7 @@ from grail_v.config.hashing import scope_hash
 from grail_v.env import campaign
 from grail_v.env.assembly import build_rollout
 from grail_v.env.episodes import TraceSource, iter_pair_instants
-from grail_v.env.statistics import MIN_CLUSTERS
+from grail_v.env.statistics import MIN_CLUSTERS, _normal_quantile
 
 #: The trace opens in its seeded formation -- evenly spaced, aligned, every pair
 #: pointing straight down its lane -- and reads a geometric outage of 4.6% there
@@ -51,6 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=20260812)
     parser.add_argument("--out", type=Path, default=Path("artifacts/evaluations"))
+    parser.add_argument("--force", action="store_true",
+                        help="overwrite an existing result file")
     return parser.parse_args()
 
 
@@ -71,9 +73,12 @@ def report_to_dict(report: campaign.DensityReport, budget: float, replicates: in
             "mean_cost": stats.mean_cost,
             "expected_miss_rate": stats.expected_miss_rate,
             "realized_miss_rate": stats.realized_miss_rate,
-            "bootstrap_upper_95": stats.upper_bound(replicates=replicates),
-            "wilson_upper_95": stats.wilson_upper(),
-            "meets_budget": stats.expected_miss_rate <= budget,
+            "expected_bootstrap_upper": stats.upper_bound(replicates=replicates),
+            "realized_bootstrap_upper": stats.realized_upper(replicates=replicates),
+            "realized_wilson_upper": stats.wilson_upper(),
+            # Keyed off the bound, not the point estimate: that is the
+            # difference between "we measured 7.5e-5" and "we showed 1e-4".
+            "meets_budget": stats.upper_bound(replicates=replicates) <= budget,
             "failure_causes": dict(stats.causes),
             "action_choices": dict(stats.choices),
         }
@@ -178,13 +183,26 @@ def main() -> int:
         "packets_requested_per_density": args.packets,
         "bootstrap_replicates": args.bootstrap,
         "confidence_level": config.evaluation.confidence_level,
+        "one_sided_upper_bound": True,
+        "normal_quantile_z": _normal_quantile(config.evaluation.confidence_level),
         "interval_method": "trajectory_block_bootstrap",
         "root_seed": args.seed,
         "config_hash": scope_hash(config, "mobility"),
         "densities": results,
     }
     args.out.mkdir(parents=True, exist_ok=True)
-    destination = args.out / f"campaign-{args.split}.json"
+    # The packet count is in the filename because a smoke run and a publication
+    # run are different artifacts and must not share a path. One did: a 6,000
+    # packet check overwrote a 3,000,000 packet result that had taken five
+    # hours. The guard below is the second line of defence.
+    destination = args.out / f"campaign-{args.split}-{args.packets}.json"
+    if destination.exists() and not args.force:
+        print(
+            f"refusing to overwrite {destination}\n"
+            f"  it holds a completed run; pass --force if that is what you want",
+            file=sys.stderr,
+        )
+        return 1
     destination.write_text(json.dumps(payload, indent=2))
     print(f"wrote {destination}")
     return 0
