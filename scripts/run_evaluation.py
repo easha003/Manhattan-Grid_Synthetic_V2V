@@ -53,6 +53,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=Path("artifacts/evaluations"))
     parser.add_argument("--force", action="store_true",
                         help="overwrite an existing result file")
+    parser.add_argument(
+        "--pattern-variant", default=None, choices=("wide", "narrow"),
+        help="override the headlamp pattern. 'wide' is the headline (the "
+             "model's own falloff past the last regulated angle); 'narrow' is "
+             "the sensitivity (a steeper decay there). ECE R112 specifies "
+             "nothing beyond 9L/9R, so results that depend on that region are "
+             "a band across the two rather than a single number.",
+    )
     return parser.parse_args()
 
 
@@ -121,6 +129,18 @@ def main() -> int:
     args = parse_args()
     root = Path.cwd()
     config = load_config(headline_config_layers(root), project_root=root)
+    if args.pattern_variant:
+        artifact = (root / "artifacts" / "calibration" / "vlc"
+                    / f"headlamp-r112-compliant-{args.pattern_variant}-v2")
+        if not artifact.exists():
+            print(f"missing pattern artifact {artifact}\n"
+                  f"  build it with scripts/build_headlamp_pattern.py", file=sys.stderr)
+            return 1
+        config = config.model_copy(
+            update={"vlc": config.vlc.model_copy(update={"pattern_artifact": artifact})},
+            deep=True,
+        )
+        print(f"headlamp pattern: {artifact.name}")
     budget = config.service.miss_budget
     per_replicate = max(1, args.packets // args.replicates)
 
@@ -187,6 +207,7 @@ def main() -> int:
         "normal_quantile_z": _normal_quantile(config.evaluation.confidence_level),
         "interval_method": "trajectory_block_bootstrap",
         "root_seed": args.seed,
+        "headlamp_pattern_variant": args.pattern_variant or "as configured",
         "config_hash": scope_hash(config, "mobility"),
         "densities": results,
     }
@@ -195,7 +216,8 @@ def main() -> int:
     # run are different artifacts and must not share a path. One did: a 6,000
     # packet check overwrote a 3,000,000 packet result that had taken five
     # hours. The guard below is the second line of defence.
-    destination = args.out / f"campaign-{args.split}-{args.packets}.json"
+    variant = args.pattern_variant or "config"
+    destination = args.out / f"campaign-{args.split}-{variant}-{args.packets}.json"
     if destination.exists() and not args.force:
         print(
             f"refusing to overwrite {destination}\n"

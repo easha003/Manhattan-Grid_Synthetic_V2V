@@ -52,9 +52,12 @@ frontier tables, which read a single PER off a single separation.
 so.**  This finding originally read that the vertical angle was identically
 zero, because both endpoints sat at 0.7 m on a planar road.  That pinning is
 what hid the fact that the link was sampling an ECE low beam along its cut-off.
-With the photodiode at 0.4 m the beam is read at ``-atan2(0.3, d)``, which is
--1.7 deg at a 10 m path and steepens fast as the pair closes: -16.7 deg at 1 m
-and past the envelope's -20 deg floor below about 0.8 m.  The vertical axis
+With the photodiode at 0.55 m the beam is read at ``-atan2(0.15, d)``, which is
+-0.86 deg at a 10 m path -- the 50V/50R hot-spot row -- and steepens as the pair
+closes, reaching ECE R112's 4D limit only at 2.15 m, under the IDM's 2.5 m
+minimum gap.  An earlier 0.40 m photodiode gave a 0.30 m drop, reached 4D at
+4.29 m, and put 56% of density-30 pair-instants below anything the regulation
+describes.  The vertical axis
 carries the legally mandated cutoff -- the single feature that most
 distinguishes a real automotive beam from a cosine lobe -- so it is now
 exercised rather than bypassed.  Roads are still planar and there is still no
@@ -70,13 +73,15 @@ target to the vehicle's *left*, while the pattern's horizontal axis is positive
 to the right.  :func:`horizontal_emission_angle_rad` is that one-line
 conversion, named so it can be tested rather than inlined at call sites.
 
-**5. The transmitter's beam envelope, not the receiver's cone, dominates
-geometric outage.**  Measured over the campaign, the ECE R112 horizontal grid's
-+/-9 deg limit denies 16.8 / 14.1 / 10.1% of pair-instants at densities 10 / 20 /
-30, against 5.8 / 4.7 / 3.4% for the 60 deg acceptance cone -- roughly three
-times as much.  Every earlier sensitivity treated the receiver cone as the
-lever; it is the smaller one.  See the alignment short-circuit in
-:mod:`grail_v.channels.vlc.model` for how out-of-envelope directions are scored.
+**5. Both ends of the link limit alignment, and the regulation limits what can
+be said about either.**  ECE R112 specifies the passing beam only within
+9L..9R by 4U..4D.  The transmitter-side share of geometric outage therefore
+depends on what is assumed outside that box, which is why the pattern artifact
+ships in ``wide`` and ``narrow`` variants and why results are reported as a band
+across them.  An earlier reading -- that the +/-9 deg horizontal limit dominates
+the 60 deg receiver cone by threefold -- was measured against an artifact whose
+own angular extent produced the cliff, and does not survive a smooth compliant
+beam.  See the alignment short-circuit in :mod:`grail_v.channels.vlc.model`.
 
 **Validity has a near end, and unlike the radio's it is inside the configured
 window.**  The point-source form ``I / d^2`` assumes the far field of an
@@ -123,7 +128,7 @@ MIN_VALID_PATH_LENGTH_M = 1.0
 #: The vertical emission angle a configuration with both endpoints at one
 #: height produces on a planar road.  Retained as the explicit
 #: no-height-difference case; the headline profile is *not* it, since the
-#: photodiode sits at 0.4 m against the headlamp's 0.7 m.  See finding 3.
+#: photodiode sits at 0.55 m against the headlamp's 0.7 m.  See finding 3.
 PLANAR_VERTICAL_EMISSION_RAD = 0.0
 
 

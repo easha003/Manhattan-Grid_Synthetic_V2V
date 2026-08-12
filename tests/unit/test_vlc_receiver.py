@@ -17,6 +17,12 @@ from pathlib import Path
 
 import pytest
 
+#: ECE R112 Rev.4 para 6.2.4 specifies the passing beam only to 4 degrees
+#: below the horizon; zone I is its lowest band.
+R112_LOWEST_SPECIFIED_DEG = 4.0
+#: IDM minimum bumper gap, from configs/mobility.
+IDM_MINIMUM_GAP_M = 2.5
+
 from grail_v.channels.vlc.receiver import (
     ACTIVE_AREA_M2,
     DEFAULT_LOAD_RESISTANCE_OHM,
@@ -305,18 +311,34 @@ def test_the_photodiode_looks_backwards_and_geometry_agrees() -> None:
 
 
 def test_the_photodiode_sits_below_the_headlamp() -> None:
-    """0.3 m below, which is where rear lamps and reflectors actually are.
+    """Below it, but only just -- and the margin is what the drop is chosen for.
 
-    They were equal until it was measured that co-height endpoints sample an
-    ECE low beam along its cut-off. Occlusion is unaffected -- the shortest
-    vehicle class is 1.5 m and blocks a path at either height -- so this buys
-    7 to 14 dB of optical budget at no cost in availability, which is what
-    distinguishes it from narrowing the receiver cone.
+    The endpoints were equal until it was measured that co-height endpoints
+    sample an ECE low beam along its cut-off. Occlusion is unaffected either
+    way, since the shortest vehicle class is 1.5 m and blocks a path at any of
+    these heights.
+
+    The magnitude is not a preference. The vertical emission angle is
+    ``-atan(dh / d_o)``, so the drop decides which row of the beam a pair reads
+    and therefore whether that row is one ECE R112 specifies at all: the
+    regulation stops at 4D, and below it states neither a minimum nor a
+    maximum. The drop must be small enough that the 4D crossing falls under the
+    car-following model's minimum gap, so that essentially every pair is
+    sampled inside the regulated domain rather than in extrapolation. A
+    0.30 m drop crossed 4D at 4.29 m and put 56% of density-30 pair-instants
+    outside it; this is the assertion that would have caught that.
     """
 
     assert OpticalReceiver().height_m == DEFAULT_PHOTODIODE_HEIGHT_M
     assert DEFAULT_PHOTODIODE_HEIGHT_M < DEFAULT_HEADLAMP_HEIGHT_M
-    assert DEFAULT_HEADLAMP_HEIGHT_M - DEFAULT_PHOTODIODE_HEIGHT_M == pytest.approx(0.3)
+
+    drop = DEFAULT_HEADLAMP_HEIGHT_M - DEFAULT_PHOTODIODE_HEIGHT_M
+    crossing_m = drop / math.tan(math.radians(R112_LOWEST_SPECIFIED_DEG))
+    assert crossing_m < IDM_MINIMUM_GAP_M, (
+        f"a {drop:.2f} m drop reaches R112's 4D limit at {crossing_m:.2f} m, "
+        f"above the {IDM_MINIMUM_GAP_M} m minimum gap, so close pairs would "
+        f"sample directions the regulation does not describe"
+    )
 
 
 def test_photocurrent_is_linear_in_optical_power() -> None:

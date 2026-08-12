@@ -145,7 +145,12 @@ def test_the_configured_beam_now_loads_and_is_a_declared_envelope() -> None:
     config = load_headline_config(PROJECT_ROOT)
     assert config.vlc.headlamp_pattern == "measured_non_lambertian"
     pattern = load_pattern(config.vlc.pattern_artifact)
-    assert "NOT a measured lamp" in pattern.source
+    # The artifact must declare itself as modelled rather than measured. The
+    # wording is not the contract -- the disclosure is -- so this matches on
+    # meaning rather than on a sentence that can be reworded.
+    source = pattern.source.lower()
+    assert "not a measured lamp" in source or "not measured" in source
+    assert "r112" in source or "regulation no. 112" in source
 
 
 def test_the_module_never_reaches_for_the_lambertian_comparison() -> None:

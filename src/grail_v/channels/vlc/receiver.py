@@ -9,10 +9,11 @@ lists and forms no noise power from them, so that the night and day ambient
 configurations of section 12.4 remain separate configurations rather than a
 runtime boolean reaching in here for constants.
 
-**Nothing below is sourced.**  Section 12.2 requires source IDs in the resolved
-parameter table and that table has no entries yet.  So every physical constant
-is a named module constant carrying an ``UNVERIFIED`` marker, exactly as the
-NLOSv blockage coefficients in :mod:`grail_v.channels.rf.pathloss_37885` do.
+**Two constants are sourced; the rest are not, and each says which.**  Active
+area and junction capacitance come from the Vishay BPW34 datasheet (document
+81521) and are marked SOURCED.  Everything else carries ``DECLARED`` or
+``UNVERIFIED``, exactly as the NLOSv blockage coefficients in
+:mod:`grail_v.channels.rf.pathloss_37885` do.
 They are order-of-magnitude plausible for a silicon PIN front end driven by a
 phosphor-converted white headlamp and nothing stronger should be read into
 them.  Naming them makes a correction one edit and stops an invented number
@@ -52,8 +53,9 @@ without touching the junction capacitance -- so the same factor ``g`` buys
 ``g^2``.  Read against the configuration's own sensitivity, narrowing psi_c
 from 60 to 30 degrees is 4.8 dB optical and 9.5 dB electrical, and *buying that
 back with raw area instead would take a nine-fold larger detector*, whose
-capacitance would then cap the load resistance near 32 ohm against 284 ohm
-today.  The wide cone is expensive in a way a bigger photodiode cannot fix.
+capacitance would then cap the load resistance near 51 ohm against the 455 ohm
+the 7.5 mm^2 part allows at 5 MHz.  The wide cone is expensive in a way a
+bigger photodiode cannot fix.
 :func:`OpticalReceiver.max_load_resistance_ohm` makes the ceiling computable and
 :func:`OpticalReceiver.check_front_end_feasible` refuses a receiver that
 violates it, so this stays a constraint rather than a paragraph.
@@ -116,8 +118,8 @@ CONCENTRATOR_REFRACTIVE_INDEX = 1.5
 DETECTOR_CAPACITANCE_PER_AREA_F_PER_M2 = 9.33e-6
 
 #: Transimpedance load resistance, ohm.  **Not independently chosen**: it is
-#: bounded above by the RC pole of the configured 5 MHz front end with a 1 cm^2
-#: detector, which is 284 ohm.  250 ohm leaves a small margin.  Raising it
+#: bounded above by the RC pole of the configured 5 MHz front end with the
+#: 7.5 mm^2 BPW34, which is 455 ohm.  250 ohm leaves a comfortable margin.  Raising it
 #: lowers thermal noise and narrows the front end, and
 #: :func:`OpticalReceiver.check_front_end_feasible` is where that trade is
 #: refused rather than absorbed.  UNVERIFIED.

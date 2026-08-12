@@ -48,6 +48,24 @@ from grail_v.geometry.vehicle_occlusion import is_obstructed
 #: Neighbours within this range contend for the same sidelink resources.
 CONTENTION_RADIUS_M = 200.0
 
+#: Share of contenders whose resource reservations this transmitter can
+#: decode. It multiplies the collision model's own ``sensing_reliability``:
+#: one is *where* the neighbours are, the other is how well sensing works once
+#: they are heard.
+#:
+#: Held at 1.0 -- every contender assumed decodable -- and that is optimistic.
+#: A contender behind a building is NLOS and its reservation is not decodable,
+#: so real hidden-terminal counts are higher and collisions worse. Deriving it
+#: would mean a visibility classification per contender per packet, several
+#: hundred ray casts where the model currently does two, and it is deferred on
+#: that basis rather than because it does not matter. The pessimistic
+#: sensitivity band, which drops sensing reliability to 0.7, covers part of the
+#: same ground.
+#:
+#: It lives here as a named constant rather than a literal in the request so
+#: that it is visible to a reader and changeable in one place.
+DEFAULT_SENSED_FRACTION = 1.0
+
 #: Suffix separating a pair's blockage state from its shadowing state.
 #:
 #: The NLOSv blockage loss carries its own spread on top of the class
@@ -98,6 +116,7 @@ class Rollout:
     buildings: Sequence
     root_seed: int = 0
     fov_half_angle_rad: float = DEFAULT_FOV_HALF_ANGLE_RAD
+    sensed_fraction: float = DEFAULT_SENSED_FRACTION
     shadowing: ShadowingProcess = field(default=None)  # type: ignore[assignment]
     fading: FadingProcess = field(default=None)  # type: ignore[assignment]
     _last_time_s: dict[str, float] = field(default_factory=dict, repr=False)
@@ -265,7 +284,7 @@ class Rollout:
             # than a zero one.
             fading_power_gain=1.0,
             neighbour_count=contenders,
-            sensed_fraction=1.0,
+            sensed_fraction=self.sensed_fraction,
             randomness=tape.rf_attempts[0],
         )
         vlc_request = VLCChannelRequest(
@@ -320,6 +339,7 @@ def best_action(alternatives: dict[str, PacketOutcome]) -> Action:
 
 __all__ = [
     "CONTENTION_RADIUS_M",
+    "DEFAULT_SENSED_FRACTION",
     "ActionChooser",
     "PacketContext",
     "Rollout",
