@@ -84,10 +84,30 @@ class PacketTape:
 
     rf_attempts: tuple[RFPacketRandomness, ...]
     vlc: VLCPacketRandomness
+    #: Small-scale fading power gain realized on each RF attempt.
+    #:
+    #: On the tape rather than in the request because it is part of the
+    #: packet's realized channel, and the matched-tape rule says RF-only and
+    #: DUP must see the *same* fade on the same packet. It is per attempt
+    #: because the attempts hop: that is the entire reason the profile grants
+    #: three of them rather than repeating one.
+    #:
+    #: Empty means "no per-attempt realization supplied" and the request's
+    #: single ``fading_power_gain`` applies to every attempt -- which is a link
+    #: with no hopping diversity, not a link with no fading.
+    rf_fading_power_gains: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.rf_attempts:
             raise PacketError("at least one RF attempt tape is required")
+        if self.rf_fading_power_gains and len(self.rf_fading_power_gains) != len(self.rf_attempts):
+            raise PacketError(
+                "fading gains must be supplied for every RF attempt or for none",
+                context={
+                    "attempts": len(self.rf_attempts),
+                    "gains": len(self.rf_fading_power_gains),
+                },
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +214,11 @@ class PacketLifecycle:
                 propagation_state=request.propagation_state,
                 blockage_db=request.blockage_db,
                 shadowing_normalized=request.shadowing_normalized,
-                fading_power_gain=request.fading_power_gain,
+                fading_power_gain=(
+                    tape.rf_fading_power_gains[index]
+                    if tape.rf_fading_power_gains
+                    else request.fading_power_gain
+                ),
                 neighbour_count=request.neighbour_count,
                 sensed_fraction=request.sensed_fraction,
                 randomness=tape.rf_attempts[index],
@@ -205,6 +229,44 @@ class PacketLifecycle:
                 return True, self.timing.rf_arrival_s(index), FailureCause.NONE, index + 1, probability
             cause = result.failure_cause
         return False, None, cause, attempts, probability
+
+    def _rf_failure_probability(self, request: RFChannelRequest, tape: PacketTape) -> float:
+        """The **packet's** RF failure probability, over every granted attempt.
+
+        Not one attempt's. Section 8.3 forms ``p_joint / (p_RF p_VLC)``, and
+        p_VLC is already a packet-level quantity because the optical leg gets
+        one attempt. Pairing it with a single-attempt radio probability would
+        overstate the denominator by roughly the diversity order and make the
+        ratio read far below one -- an apparent complementarity that is pure
+        bookkeeping.
+
+        The product form assumes attempts fail independently. That is the same
+        assumption :meth:`_run_rf` realizes by drawing a fresh collision and a
+        fresh hop per attempt, and it is the optimistic reading: correlated
+        collisions across attempts would raise this. It is stated here because
+        it is the single assumption the three-attempt profile rests on.
+        """
+
+        attempts = min(self.timing.rf_attempts, len(tape.rf_attempts))
+        probability = 1.0
+        for index in range(attempts):
+            probability *= self.rf.failure_probability(
+                RFChannelRequest(
+                    distance_m=request.distance_m,
+                    propagation_state=request.propagation_state,
+                    blockage_db=request.blockage_db,
+                    shadowing_normalized=request.shadowing_normalized,
+                    fading_power_gain=(
+                        tape.rf_fading_power_gains[index]
+                        if tape.rf_fading_power_gains
+                        else request.fading_power_gain
+                    ),
+                    neighbour_count=request.neighbour_count,
+                    sensed_fraction=request.sensed_fraction,
+                    randomness=tape.rf_attempts[index],
+                )
+            )
+        return probability
 
     def run(
         self,
@@ -224,7 +286,7 @@ class PacketLifecycle:
         policy -- which is exactly the bias it exists to detect.
         """
 
-        rf_probability = self.rf.failure_probability(rf_request)
+        rf_probability = self._rf_failure_probability(rf_request, tape)
         vlc_probability = self.vlc.failure_probability(vlc_request)
 
         rf_delivered = False

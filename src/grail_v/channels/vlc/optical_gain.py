@@ -9,17 +9,15 @@ the effective area by :class:`~grail_v.channels.vlc.receiver.OpticalReceiver`, a
 ``d`` the headlamp-to-photodiode distance.  Occlusion collapses it to zero, or
 to a calibrated residual floor when one exists.
 
-**This module cannot return a number today, and that is the correct state.**
-The configuration declares ``headlamp_pattern: measured_non_lambertian`` and
-names an artifact that does not exist, so ``load_pattern`` raises and nothing
-here ever runs on the headline configuration.  Nothing in this file constructs
-a Lambertian lobe to fill the gap: spec 12.1 permits Lambertian only as an
-explicitly named comparison model, and a cosine lobe standing in for a measured
-beam produces exactly the claim W17 warns against while looking identical to a
-real result in every log.  The module is built against the interface so that
-obtaining the artifact is the only remaining step.
+**The artifact now exists and this module runs.**  ``headlamp-ece-r112-v1``
+supplies the beam as a regulatory envelope derived from ECE R112 test-point
+geometry -- a bound rather than a measured lamp, and labelled as such in its own
+manifest.  Nothing in this file constructs a Lambertian lobe to fill any gap:
+spec 12.1 permits Lambertian only as an explicitly named comparison model, and a
+cosine lobe standing in for a measured beam produces exactly the claim W17 warns
+against while looking identical to a real result in every log.
 
-Four consequences of this project's geometry meeting this expression were
+Five consequences of this project's geometry meeting this expression were
 worked out rather than assumed.  Each narrows what the optical link can mean
 here, and each is pinned in ``tests/unit/test_vlc_optical_gain.py``.
 
@@ -34,7 +32,9 @@ link budget **improves by 4.8 dB optical and 9.5 dB electrical** from the
 lightest to the heaviest density, 5.2 / 10.4 dB on the corrected gaps -- the
 same span as the entire 60-to-30-degree concentrator
 sensitivity, and pointing the same way as the measured geometric outage, which
-also falls with density (3.41 / 1.87 / 1.01%).  Both V-VLC mechanisms therefore
+also falls with density (17.4 / 14.4 / 10.3% over the campaign; an earlier
+reading of 3.4 / 1.9 / 1.0% counted only the receiver's cone and only the trace's
+seeded opening formation).  Both V-VLC mechanisms therefore
 strengthen exactly where RF congestion is worst.  Note what that makes of the
 time headway: work plan section 4.7 item 1 flags it as undeclared and treats it
 as a *capacity* parameter, and it is in fact the leading term in the optical
@@ -48,16 +48,17 @@ whole concentrator sensitivity.  The observation vector carries
 the policy and is not represented as a source of spread in the section 14.1
 frontier tables, which read a single PER off a single separation.
 
-**3. The vertical axis of the measured pattern is never sampled.**  Headlamp
-and photodiode both sit at 0.7 m, the roads are planar, and no pitch model
-exists, so the vertical emission angle is identically zero.  The pattern is
-only ever read along its horizontal cut.  That axis carries the legally
-mandated cutoff -- the single feature that most distinguishes a real automotive
-beam from a cosine lobe -- so the non-Lambertian stress test this project
-performs is weaker than the phrase suggests: it exercises horizontal asymmetry
-and nothing else.  This is the same modelling gap section 4.7 item 6 records
-for the narrow-cone sensitivity (no grade, no braking pitch), reaching the
-optics as well as the alignment statistics.
+**3. The vertical axis is sampled, and moving the photodiode is what made it
+so.**  This finding originally read that the vertical angle was identically
+zero, because both endpoints sat at 0.7 m on a planar road.  That pinning is
+what hid the fact that the link was sampling an ECE low beam along its cut-off.
+With the photodiode at 0.4 m the beam is read at ``-atan2(0.3, d)``, which is
+-1.7 deg at a 10 m path and steepens fast as the pair closes: -16.7 deg at 1 m
+and past the envelope's -20 deg floor below about 0.8 m.  The vertical axis
+carries the legally mandated cutoff -- the single feature that most
+distinguishes a real automotive beam from a cosine lobe -- so it is now
+exercised rather than bypassed.  Roads are still planar and there is still no
+pitch or grade model, which is the gap section 4.7 item 6 records.
 
 **4. The obvious geometry field is the wrong one.**  ``PairGeometry`` offers
 ``emission_angle_rad``, which is an absolute value.  Feeding it to an
@@ -69,6 +70,14 @@ target to the vehicle's *left*, while the pattern's horizontal axis is positive
 to the right.  :func:`horizontal_emission_angle_rad` is that one-line
 conversion, named so it can be tested rather than inlined at call sites.
 
+**5. The transmitter's beam envelope, not the receiver's cone, dominates
+geometric outage.**  Measured over the campaign, the ECE R112 horizontal grid's
++/-9 deg limit denies 16.8 / 14.1 / 10.1% of pair-instants at densities 10 / 20 /
+30, against 5.8 / 4.7 / 3.4% for the 60 deg acceptance cone -- roughly three
+times as much.  Every earlier sensitivity treated the receiver cone as the
+lever; it is the smaller one.  See the alignment short-circuit in
+:mod:`grail_v.channels.vlc.model` for how out-of-envelope directions are scored.
+
 **Validity has a near end, and unlike the radio's it is inside the configured
 window.**  The point-source form ``I / d^2`` assumes the far field of an
 extended source; a headlamp lens is 0.1-0.3 m across, so it holds from roughly
@@ -77,8 +86,17 @@ a 4.5 m car is a 0.5 m optical path and behind a 5.2 m van is a *negative* one
 -- overlapping footprints.  The RF module's equivalent guard never fires for a
 tagged link; this one guards a region the admission window nominally permits,
 and only the IDM's 2.5 m minimum gap keeps real pairs above it, with a factor
-of 2.5 to spare.  Refusing is the right response: ``1/d^2`` at 0.5 m returns a
-large, entirely fictional number.
+of 2.5 to spare.  Refusing is the right response *in the primitive*: ``1/d^2``
+at 0.5 m returns a large, entirely fictional number.
+
+The campaign then showed the guard firing for real, because queued traffic at
+density 30 closes below the IDM's steady-state gap.  So the two layers differ
+deliberately: :func:`direct_received_power_w` still refuses, and
+:func:`received_power_from_geometry` holds the distance at the floor and says
+why.  Holding is conservative -- it awards *less* power than the pair has, into
+a 40 dB margin -- and it cannot turn a failure into a success.  Below roughly
+0.8 m the question does not arise: the vertical emission angle has by then
+steepened past the pattern's envelope and the pair is an alignment failure.
 """
 
 from __future__ import annotations
@@ -102,9 +120,10 @@ from grail_v.core.pair_geometry import PairGeometry
 #: photometric-distance rule, neither taken from a source.
 MIN_VALID_PATH_LENGTH_M = 1.0
 
-#: The vertical emission angle this configuration can produce.  Both endpoints
-#: sit at 0.7 m on a planar road with no pitch model, so it is exactly zero;
-#: see finding 3 in the module docstring.
+#: The vertical emission angle a configuration with both endpoints at one
+#: height produces on a planar road.  Retained as the explicit
+#: no-height-difference case; the headline profile is *not* it, since the
+#: photodiode sits at 0.4 m against the headlamp's 0.7 m.  See finding 3.
 PLANAR_VERTICAL_EMISSION_RAD = 0.0
 
 
@@ -235,6 +254,48 @@ def direct_received_power_w(
     return intensity * area / (path_length_m * path_length_m)
 
 
+def _emission_elevation(
+    geometry: PairGeometry, tx_height_m: float, rx_height_m: float
+) -> tuple[float, float]:
+    """The height drop and the resulting downward emission angle."""
+
+    drop_m = tx_height_m - rx_height_m
+    return drop_m, -math.atan2(drop_m, max(geometry.optical_path_length_m, 1e-9))
+
+
+def emission_direction_rad(
+    geometry: PairGeometry,
+    *,
+    tx_height_m: float = DEFAULT_HEADLAMP_HEIGHT_M,
+    rx_height_m: float = DEFAULT_PHOTODIODE_HEIGHT_M,
+) -> tuple[float, float]:
+    """Where the lamp has to point for this pose, in the pattern's own frame.
+
+    Exposed so a caller can ask the pattern whether it covers that direction
+    *before* sampling it, without reimplementing the sign flip and the elevation
+    -- the two conversions the adapter exists to centralize. Duplicating them at
+    a call site is how the beam ends up sampled at the absolute bearing again.
+    """
+
+    _, elevation_rad = _emission_elevation(geometry, tx_height_m, rx_height_m)
+    return horizontal_emission_angle_rad(geometry.relative_bearing_rad), elevation_rad
+
+
+def beam_covers_pair(
+    pattern: HeadlampPattern,
+    geometry: PairGeometry,
+    *,
+    tx_height_m: float = DEFAULT_HEADLAMP_HEIGHT_M,
+    rx_height_m: float = DEFAULT_PHOTODIODE_HEIGHT_M,
+) -> bool:
+    """Whether the lamp's pattern can answer for this pair's direction."""
+
+    horizontal, vertical = emission_direction_rad(
+        geometry, tx_height_m=tx_height_m, rx_height_m=rx_height_m
+    )
+    return pattern.covers(horizontal, vertical)
+
+
 def received_power_from_geometry(
     *,
     pattern: HeadlampPattern,
@@ -265,12 +326,25 @@ def received_power_from_geometry(
     inside every other uncertainty in this budget.
     """
 
-    drop_m = tx_height_m - rx_height_m
-    elevation_rad = -math.atan2(drop_m, max(geometry.optical_path_length_m, 1e-9))
+    _, elevation_rad = _emission_elevation(geometry, tx_height_m, rx_height_m)
+
+    # A pair closer than the photometric distance is held *at* it rather than
+    # refused. The primitive still refuses, because extrapolating a point-source
+    # form into the near field is a modelling error there; here it is a traffic
+    # state. At density 30 vehicles queue bumper to bumper and the tenth
+    # percentile optical path is 2.5 m, so sub-metre pairs are a routine
+    # occurrence and raising would end a campaign run partway through.
+    #
+    # Holding the distance is conservative in the only direction that matters:
+    # 1/d^2 means a pair reported at 1.0 m when it is really at 0.9 m is
+    # credited with 0.9 dB *less* power than it has, against a link margin of
+    # roughly 40 dB at that range. The clamp cannot turn a failure into a
+    # success -- it can only fail to award power that is already superfluous.
+    path_length_m = max(geometry.optical_path_length_m, MIN_VALID_PATH_LENGTH_M)
     return direct_received_power_w(
         pattern=pattern,
         receiver=receiver,
-        path_length_m=geometry.optical_path_length_m,
+        path_length_m=path_length_m,
         horizontal_emission_rad=horizontal_emission_angle_rad(geometry.relative_bearing_rad),
         incidence_angle_rad=geometry.incidence_angle_rad,
         occluded=occluded,
@@ -285,7 +359,9 @@ __all__ = [
     "PLANAR_VERTICAL_EMISSION_RAD",
     "BlockageModel",
     "OpticalGainError",
+    "beam_covers_pair",
     "direct_received_power_w",
+    "emission_direction_rad",
     "horizontal_emission_angle_rad",
     "received_power_from_geometry",
 ]

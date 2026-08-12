@@ -46,6 +46,7 @@ from grail_v.channels.vlc.ook import DEFAULT_CORRECTABLE_FRACTION, evaluate
 from grail_v.channels.vlc.optical_gain import (
     COMPLETE_BLOCKAGE,
     BlockageModel,
+    beam_covers_pair,
     received_power_from_geometry,
 )
 from grail_v.channels.vlc.receiver import OpticalReceiver
@@ -102,6 +103,13 @@ class VLCChannelResult:
     total_failure_probability: float
     success: bool
     failure_cause: FailureCause
+    #: Whether the transmitter's beam envelope covers this direction at all.
+    #:
+    #: Separate from ``within_field_of_view`` because the two are different
+    #: design levers pointing at opposite ends of the link: a wider acceptance
+    #: cone fixes one, a wider beam the other, and a P_out that merged them
+    #: would say which link to build without saying which end to build it at.
+    beam_aimed: bool = True
 
     @property
     def snr_db(self) -> float:
@@ -112,13 +120,13 @@ class VLCChannelResult:
         """Whether geometry alone decided this, with no appeal to the budget.
 
         The quantity that caps the hybrid gain at ``1 / P_out``: no optical
-        power reaches a blocked path or one outside the acceptance cone, so
-        these failures are immune to every transmitter and receiver
-        improvement. Reported per attempt so the cap is measured rather than
-        assumed.
+        power reaches a blocked path, one outside the acceptance cone, or one
+        the beam does not illuminate, so these failures are immune to every
+        transmitter and receiver *power* improvement. Reported per attempt so
+        the cap is measured rather than assumed.
         """
 
-        return self.occluded or not self.within_field_of_view
+        return self.occluded or not self.within_field_of_view or not self.beam_aimed
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,13 +147,32 @@ class VVLCChannel:
         """Deliver or lose one packet, and say which mechanism decided it."""
 
         geometry = request.geometry
+
+        # Alignment has two halves and both are geometric. The receiver's is
+        # the acceptance cone; the transmitter's is the beam's own envelope,
+        # and it is the narrower of the two: the ECE R112 low-beam test points
+        # span +/-9 degrees horizontally, so a pair further off the
+        # transmitter's heading than that is a direction the lamp is not
+        # required to illuminate and the artifact cannot answer for.
+        #
+        # Crediting it zero is a conservative choice, deliberately made and
+        # deliberately visible: a real lamp does emit some stray light out
+        # there, so this understates the optical link at exactly the junction
+        # geometries where the two media are least alike. It is not a clamp --
+        # the pattern still refuses to extrapolate, and this asks first.
+        #
+        # The consequence is that P_out, the geometric outage that caps the
+        # hybrid gain at 1/P_out, now counts transmitter-side misalignment as
+        # well as receiver-side. That is a larger P_out than the acceptance
+        # cone alone gives, and it is the honest one.
+        aimed = beam_covers_pair(self.pattern, geometry)
         in_view = geometry.within_field_of_view
 
         # Geometry first, and it short-circuits. A path outside the acceptance
         # cone is not a dim link, it is no link, and sampling the beam for it
         # would invite a later edit that lets a bright lamp leak through the
         # cone's edge.
-        if request.occluded or not in_view:
+        if request.occluded or not in_view or not aimed:
             cause = (
                 FailureCause.VLC_OCCLUSION if request.occluded
                 else FailureCause.VLC_ALIGNMENT
@@ -154,6 +181,7 @@ class VVLCChannel:
                 received_power_w=self.blockage.occluded_power_w if request.occluded else 0.0,
                 electrical_snr=0.0,
                 within_field_of_view=in_view,
+                beam_aimed=aimed,
                 occluded=request.occluded,
                 bit_error_rate=0.5,
                 decoding_failure_probability=1.0,
@@ -187,6 +215,7 @@ class VVLCChannel:
             received_power_w=power,
             electrical_snr=snr,
             within_field_of_view=True,
+            beam_aimed=True,
             occluded=False,
             bit_error_rate=outcome.bit_error_rate,
             decoding_failure_probability=outcome.packet_error_rate,
