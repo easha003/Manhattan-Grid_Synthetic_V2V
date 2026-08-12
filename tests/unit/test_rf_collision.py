@@ -27,6 +27,11 @@ from grail_v.channels.rf.collision import (
 #: Neighbours within 200 m, measured on the completed campaign.
 MEASURED_NEIGHBOURS = {10: 44, 20: 100, 30: 159}
 #: V-VLC geometric outage from the same campaign, for the comparisons below.
+#: NOTE: pinned against the superseded test-point headlamp artifact. The
+#: rebuilt R112-compliant beam and the 0.55 m photodiode change these, and
+#: they are re-measured by the campaign re-run. The RF conclusions this file
+#: draws are insensitive to the exact value -- it enters as a scale factor --
+#: but the absolute magnitudes below move with it.
 MEASURED_VLC_OUTAGE = {10: 0.0959, 20: 0.0917, 30: 0.0726}
 
 
@@ -61,7 +66,7 @@ def test_invalid_scopes_are_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    ("density", "expected"), [(10, 0.220), (20, 0.500), (30, 0.795)]
+    ("density", "expected"), [(10, 0.330), (20, 0.750), (30, 1.0)]
 )
 def test_channel_busy_ratio_tracks_the_measured_neighbour_counts(
     density: int, expected: float
@@ -122,7 +127,7 @@ def test_half_duplex_is_the_receiver_duty_cycle() -> None:
     """A floor no resource selection removes, which is a small but genuine
     argument for a second *medium* rather than a second attempt."""
 
-    assert half_duplex_probability(headline_parameters()) == pytest.approx(0.01)
+    assert half_duplex_probability(headline_parameters()) == pytest.approx(0.015)
 
 
 # -- the bands ----------------------------------------------------------------
@@ -130,7 +135,7 @@ def test_half_duplex_is_the_receiver_duty_cycle() -> None:
 
 @pytest.mark.parametrize(
     ("density", "optimistic", "nominal", "pessimistic"),
-    [(10, 1.54, 2.62, 4.22), (20, 2.23, 4.65, 8.16), (30, 2.95, 6.74, 12.14)],
+    [(10, 2.04, 3.11, 4.70), (20, 2.73, 5.13, 8.63), (30, 3.44, 7.21, 12.59)],
 )
 def test_the_declared_band_at_each_trained_density(
     density: int, optimistic: float, nominal: float, pessimistic: float
@@ -223,10 +228,54 @@ def test_duplication_needs_two_hopped_rf_attempts_to_reach_the_budget() -> None:
     single = failure_probability(MEASURED_NEIGHBOURS[20], parameters)
 
     one_attempt = single * optical
-    assert one_attempt == pytest.approx(4.3e-3, rel=0.1)
+    assert one_attempt == pytest.approx(4.7e-3, rel=0.1)
     assert one_attempt > 1e-4, "one RF attempt cannot reach the budget under DUP"
 
     two_attempts = single**2 * optical
-    assert two_attempts == pytest.approx(2.0e-4, rel=0.15)
+    assert two_attempts == pytest.approx(2.4e-4, rel=0.15)
     assert two_attempts > 1e-4, "even two attempts do not clear it at nominal"
     assert two_attempts < one_attempt / 10.0, "but a second attempt is worth 20x"
+
+
+def test_half_duplex_is_tied_to_the_profile_rather_than_to_a_constant() -> None:
+    """The invariant that would have caught a hardcoded airtime.
+
+    ``half_duplex_probability`` is the receiver's own duty cycle, so it must
+    equal the airtime the *service profile* commits divided by its generation
+    period -- not a number that happens to sit in this module. An earlier
+    version hardcoded 1.0 ms while the profile committed three pre-reserved
+    0.5 ms attempts, and every test in this file agreed with it because they
+    all read the same wrong constant. Deriving the expectation from the
+    configuration instead is what makes this test able to fail.
+    """
+
+    from pathlib import Path
+
+    from grail_v.config.loader import headline_config_layers, load_config
+
+    config = load_config(headline_config_layers(Path.cwd()), project_root=Path.cwd())
+    committed = config.rf.timing.airtime_s * config.service.rf_attempts_per_packet
+    expected = committed / config.service.generation_period_s
+
+    from grail_v.env.assembly import build_rf_channel
+
+    assert half_duplex_probability(build_rf_channel(config).collision) == pytest.approx(expected)
+
+
+def test_the_channel_busy_ratio_uses_the_same_committed_airtime() -> None:
+    """The observation feature and the half-duplex term share one airtime.
+
+    They are the same physical quantity seen from two sides -- what this
+    vehicle occupies, and what its neighbours occupy -- so a profile change
+    that moved one without the other would be incoherent.
+    """
+
+    from pathlib import Path
+
+    from grail_v.config.loader import headline_config_layers, load_config
+    from grail_v.env.assembly import build_rf_channel
+
+    config = load_config(headline_config_layers(Path.cwd()), project_root=Path.cwd())
+    parameters = build_rf_channel(config).collision
+    one_vehicle = channel_busy_ratio(1, parameters) * parameters.subchannels
+    assert one_vehicle == pytest.approx(half_duplex_probability(parameters))

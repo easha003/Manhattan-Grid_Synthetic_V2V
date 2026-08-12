@@ -29,7 +29,16 @@ geometry:
   # simulation convenience inherited from the planar-path simplification, not a
   # design choice, and no deployment would place a receiver there.  Occlusion is
   # unchanged: every vehicle class is at least 1.5 m and blocks either path.
-  photodiode_height_m: 0.4
+  # 0.55 m, giving a 0.15 m drop from the 0.7 m headlamp. The drop sets the
+  # vertical emission angle as -atan(dh/d), so it decides which row of the beam
+  # a pair samples -- and, critically, whether that row is one ECE R112 actually
+  # specifies. R112 stops at 4D. At the previous 0.40 m the drop was 0.30 m and
+  # 4D was reached at 4.29 m, which put 56% of density-30 pair-instants below
+  # anything the regulation describes. At 0.15 m the 4D crossing falls to 2.15 m,
+  # under the IDM's 2.5 m minimum gap, so essentially every pair is sampled
+  # inside the regulated domain. At 10 m it lands on 0.86D -- the 50V/50R
+  # hot-spot row.
+  photodiode_height_m: 0.55
   exact_geometry_hidden_from_policy: true
   include_building_nlos: true
 

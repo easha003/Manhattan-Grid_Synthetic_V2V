@@ -111,9 +111,22 @@ class CollisionParameters:
         return self.subchannels * self.selection_window_slots
 
 
+#: Airtime one vehicle commits per generation period under the headline
+#: profile: three pre-reserved 0.5 ms attempts. It is a **default, not a
+#: constant** -- the profile owns it, and :func:`headline_parameters` takes it
+#: as an argument so a changed service profile cannot leave this behind. An
+#: earlier version hardcoded 1.0 ms here while the profile committed 1.5 ms,
+#: which fed a channel-busy-ratio a third too low into the observation vector.
+DEFAULT_COMMITTED_AIRTIME_S = 1.5e-3
+
+
 #: The frozen profile: two 12-RB subchannels on 24 RB, a 100 ms selection
-#: window at 0.5 ms slots, 1.0 ms of airtime every 100 ms.
-def headline_parameters(band: SensitivityBand = SensitivityBand.NOMINAL) -> CollisionParameters:
+#: window at 0.5 ms slots.
+def headline_parameters(
+    band: SensitivityBand = SensitivityBand.NOMINAL,
+    *,
+    committed_airtime_s: float = DEFAULT_COMMITTED_AIRTIME_S,
+) -> CollisionParameters:
     """Parameters for the headline profile at one end of the declared band.
 
     The reliability values are a declared range, not a measurement. They are
@@ -131,7 +144,7 @@ def headline_parameters(band: SensitivityBand = SensitivityBand.NOMINAL) -> Coll
         subchannels=2,
         selection_window_slots=200,
         sensing_reliability=reliability,
-        airtime_s=1.0e-3,
+        airtime_s=committed_airtime_s,
         generation_period_s=0.1,
     )
 
@@ -233,6 +246,7 @@ def failure_probability(
 
 
 __all__ = [
+    "DEFAULT_COMMITTED_AIRTIME_S",
     "MODEL_NAME",
     "CollisionError",
     "CollisionParameters",

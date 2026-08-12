@@ -13,7 +13,7 @@ vlc:
   # Optics 54(7):1794, 2015, Fig. 4 and Table 2).  A regulatory envelope, not a
   # measured lamp: cells without a test point carry the applicable zone limit,
   # which is a bound rather than a value.  Recorded in the artifact manifest.
-  pattern_artifact: "artifacts/calibration/vlc/headlamp-ece-r112-v1"
+  pattern_artifact: "artifacts/calibration/vlc/headlamp-r112-compliant-wide-v2"
   # Receiver *semi-angle* psi_c, not a full cone: the photodiode accepts light
   # arriving up to 60 deg off its boresight, for a total opening of 120 deg.
   # This follows the Kahn-Barry optical front end the Lambertian and

@@ -45,7 +45,7 @@ DEFAULT_HEADLAMP_HEIGHT_M = 0.7
 #: Rear lamps and reflectors sit at 0.35-0.6 m on real vehicles; 0.4 m is the
 #: ordinary choice rather than a favourable one.  See the module docstring for
 #: why this is no longer equal to the headlamp height.
-DEFAULT_PHOTODIODE_HEIGHT_M = 0.4
+DEFAULT_PHOTODIODE_HEIGHT_M = 0.55
 DEFAULT_RF_ANTENNA_HEIGHT_M = 1.5
 
 

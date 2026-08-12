@@ -826,24 +826,73 @@ collision model is analytical with declared sensitivity bands, and it is named
 as such throughout the implementation. Cross-validation against a
 system-level simulator remains outstanding.
 
-\subsection{The headlamp envelope is narrow, and it drives $P_{\mathrm{out}}$}
+\subsection{Vehicle blockage is weaker than the NLOSv label suggests}
 
-The pattern artifact spans $\pm\SI{9}{\degree}$ horizontally because that is
-the extent of the ECE~R112 test-point grid as reproduced in \cite{wang2015};
-directions beyond it are credited zero radiant intensity. This is
-conservative, but the resulting transmitter-side outage of
-$16.8/14.1/10.1\%$ is therefore substantially a property of the artifact's
-angular extent rather than a measurement of a physical lamp. Measured
-patterns extend considerably further: Alsalami \emph{et al.} report path-loss
-differences of \SI{24.6}{\decibel} at night and \SI{8.15}{\decibel} at rush
-hour between an empirical Toyota Altis pattern and a Lambertian model
-\cite{alsalami2021}, and the strong influence of realistic radiation patterns
-on V-VLC is well established \cite{memedi2021,memedi2018}. The attribution of
-outage between transmitter and receiver should therefore be read as a
-comparison of design levers under a stated envelope, not as a claim that
-headlamps emit nothing beyond \SI{9}{\degree}. Widening the artifact, or
-reporting the envelope as a bound with sensitivity, is required before this
-result is published.
+The NLOSv blockage term is decided by comparing the blocker's roof with the two
+antennas. With both antennas at \SI{1.5}{\meter} the ``between the antennas''
+case cannot fire at all, and the shortest vehicle class is itself
+\SI{1.5}{\meter}, so a passenger car---$90\%$ of the fleet---contributes
+\emph{zero} additional loss while still being classified NLOSv. A van or truck
+contributes a flat \SI{9}{\decibel}: the distance-growth term in the model only
+becomes positive beyond \SI{541}{\meter}, far outside the
+\SIrange{10}{60}{\meter} tagged-pair window. NLOSv therefore differs from LOS
+mainly through the Rician $K$ factor. This is immaterial to the reported
+results---radio failure is collision-dominated by two to four orders of
+magnitude, so a few decibels either way does not move the miss rate---but the
+vehicle-blockage mechanism is weaker in this implementation than the
+propagation-class label implies.
+
+\subsection{The optical coding model is conservative by roughly 40\% of range}
+
+The coded packet error assumes bounded-distance decoding correcting $5\%$ of
+coded bits at rate $1/4$. The Shannon limit for that rate on a binary symmetric
+channel is $21.5\%$, and a capacity-approaching code would extend the optical
+range from \SIrange{34}{49}{\meter}. The declared value is therefore at the
+pessimistic end of the plausible interval, which is the safe direction for a
+claim that the hybrid is necessary, and it is reported as a sensitivity rather
+than as a property of any specific code.
+
+\subsection{Sensing coverage is assumed complete}
+
+The collision model separates \emph{where} contenders are from \emph{how well}
+sensing works once they are heard. The second is a declared band; the first is
+held at unity, meaning every contender within the contention radius is assumed
+to have a decodable reservation. A contender behind a building does not, so real
+hidden-terminal counts are higher and collisions worse than reported. Deriving
+it would require a visibility classification per contender per packet---several
+hundred ray casts where the model currently performs two---and it is deferred on
+that basis. The pessimistic sensitivity band covers part of the same ground.
+
+\subsection{The headlamp pattern is modelled, not measured}
+
+UN Regulation No.~112 is a compliance envelope, not a beam. It states nine
+point limits, four zone limits and eight grouped-point minima, all confined to
+9L--9R horizontally and 4U--4D vertically. A pattern built directly on those
+points is a sparse scatter of spikes separated by whatever the author places
+between them, and interpolating across it yields a beam shape that is an
+artefact of the sampling grid. The artifact used here is instead a smooth
+two-lobe distribution with an asymmetric cut-off, fitted so that every R112
+Class~B limit is satisfied by construction and verified numerically before the
+artifact is emitted. It is a plausible compliant design, not a measured lamp,
+and where measured patterns are available \cite{alsalami2021,memedi2018} they
+should replace it.
+
+Outside 9L--9R the regulation imposes no minimum, so what is emitted there is a
+design choice rather than a requirement. Two variants are therefore shipped---
+one continuing the model's own falloff, one applying a steeper decay past the
+last regulated angle---and results that depend on the unregulated region are
+reported as a band across them.
+
+The receiver height interacts with this directly. The vertical emission angle
+is $-\arctan(\Delta h/d_o)$, so a large endpoint height difference drives short-
+range pairs below 4D, where the regulation says nothing at all---neither floor
+nor ceiling. At an earlier \SI{0.40}{\meter} photodiode the drop was
+\SI{0.30}{\meter}, 4D was reached at \SI{4.29}{\meter}, and $56\%$ of
+density-30 pair-instants sampled directions the regulation does not describe.
+The configured \SI{0.55}{\meter} gives a \SI{0.15}{\meter} drop, reaching 4D at
+\SI{2.15}{\meter}---below the IDM's minimum gap---so essentially every pair is
+sampled inside the regulated domain, and at \SI{10}{\meter} the link reads the
+50V/50R hot-spot row.
 
 \subsection{Unsourced parameters}
 

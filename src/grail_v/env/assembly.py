@@ -53,7 +53,12 @@ def build_rf_channel(
         tx_power_dbm=config.rf.tx_power_dbm,
         blocklength=channel_uses,
         information_bits=(config.service.payload_bytes + config.rf.timing.framing_overhead_bytes) * 8,
-        collision=headline_parameters(band or SensitivityBand.NOMINAL),
+        collision=headline_parameters(
+            band or SensitivityBand.NOMINAL,
+            # What this profile actually commits per packet, not a default.
+            committed_airtime_s=config.rf.timing.airtime_s
+            * config.service.rf_attempts_per_packet,
+        ),
     )
 
 
