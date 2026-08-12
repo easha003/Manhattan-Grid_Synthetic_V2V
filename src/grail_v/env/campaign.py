@@ -26,7 +26,12 @@ from grail_v.core.enums import FailureCause
 from grail_v.env.episodes import PairInstant
 from grail_v.env.packet import ACTIONS, PacketOutcome
 from grail_v.env.rollout import PacketContext, Rollout, always, best_action
-from grail_v.env.statistics import MIN_CLUSTERS, ClusteredRate, poisson_interval
+from grail_v.env.statistics import (
+    MIN_CLUSTERS,
+    ClusteredRate,
+    _normal_quantile,
+    poisson_interval,
+)
 
 #: The fixed-action baselines, by the name the lifecycle uses for each action.
 BASELINES = tuple(action.name for action in ACTIONS)
@@ -435,6 +440,7 @@ def format_report(
     *,
     bootstrap_replicates: int = 10_000,
     frontier_budgets: Sequence[float] | None = None,
+    confidence: float = 0.95,
 ) -> str:
     """A table a reader can check the constraint against directly."""
 
@@ -465,8 +471,12 @@ def format_report(
 
     lines += [
         "",
-        f"  {'policy':<8} {'cost':>6} {'E[miss]':>10} {'E 95%up':>10} "
-        f"{'holds':>6} {'realized':>10} {'R 95%up':>10}",
+        f"  bounds are ONE-SIDED upper at {confidence:.0%}, z = "
+        f"{_normal_quantile(confidence):.4f}  (z = 1.96 would be a 97.5% "
+        f"one-sided bound, not this one)",
+        "",
+        f"  {'policy':<8} {'cost':>6} {'E[miss]':>10} {'E up':>10} "
+        f"{'holds':>6} {'realized':>10} {'R up':>10}",
     ]
     for name in (*BASELINES, ORACLE):
         stats = report.policies.get(name)

@@ -8,10 +8,18 @@ from one episode are worth far less than three hundred packets from three
 hundred episodes, so the effective sample size is the number of *episodes*.
 
 A Wilson interval -- or any binomial interval -- assumes independent Bernoulli
-trials and therefore reports an interval that is too narrow, by roughly the
-square root of the within-episode correlation inflation. At a 1e-4 budget that
-is the difference between "the upper bound clears the constraint" and "it does
-not", which is exactly the claim the paper rests on.
+trials, so in general it reports an interval that is too narrow. **On this
+campaign it turned out not to**: measured like for like, the cluster bootstrap
+and Wilson agree on the realized rate to within 1% at every density. Misses do
+not bunch inside episodes here, and there is a physical reason -- RF failure is
+collision-dominated, and the collision draw is independent per packet even
+though the contender count it depends on varies slowly.
+
+That is a measurement, not an assumption, and it is worth having either way:
+the correct estimator now says the correction is negligible, rather than nobody
+having checked. The real tightening came from elsewhere -- bounding the
+*expectation* rather than the realized count, which is roughly ten times
+tighter because it is a smooth statistic rather than a rare-event tally.
 
 The fix is the one the evaluation profile already specifies: resample whole
 **pair-episode clusters** with replacement, recompute the rate as a ratio of
@@ -205,11 +213,23 @@ class ClusteredRate:
         return self.misses > 0
 
     def wilson_upper(self, *, confidence: float = 0.95) -> float:
-        """The binomial bound, kept for comparison and **not** for reporting.
+        """Wilson score interval, upper limit, **one-sided at ``confidence``**.
 
-        Assumes independent trials, which these are not. Retained because the
-        gap between it and the bootstrap is the measurement of how much
-        correlation the episode structure carries.
+        No continuity correction::
+
+            upper = [p + z^2/2n + z sqrt(p(1-p)/n + z^2/4n^2)] / (1 + z^2/n)
+
+        ``z`` is the one-sided quantile -- 1.6449 at 0.95, **not** 1.96. That
+        distinction is decision-relevant rather than pedantic: at density 30 the
+        realized duplication rate bounds to 9.70e-5 with z = 1.6449 and 1.005e-4
+        with z = 1.96, so the same data passes or fails the budget depending on
+        which convention is meant. An earlier version of this function hardcoded
+        1.96 and labelled the result a 95% bound, which is a 97.5% bound.
+
+        Assumes independent trials, which packets within an episode are not.
+        Retained because the gap between it and the cluster bootstrap measures
+        how much correlation the trajectory structure actually carries -- which
+        on this campaign turned out to be almost none.
         """
 
         n = self.packets
