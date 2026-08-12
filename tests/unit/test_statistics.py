@@ -250,3 +250,44 @@ def test_observing_after_a_solve_invalidates_the_cached_order() -> None:
     bound.solve(1e-4)
     bound.observe(0.9, 1e-6)
     assert bound._descending()[0] == pytest.approx(0.9 - 1e-6)
+
+
+# -- the zero-miss failure mode, and the estimator that survives it -----------
+
+
+def test_the_realized_bootstrap_cannot_bound_a_zero_count() -> None:
+    """Stated as a limitation rather than hidden.
+
+    Resampling clusters that all contain no miss can only ever produce no miss,
+    so the bound collapses to zero. Printed as "95% upper bound = 0" that reads
+    as certainty, which is why the report must not use it here.
+    """
+
+    rate = fill(ClusteredRate(), 500, 100, 0)
+    assert rate.bootstrap_upper(replicates=500, seed=7) == 0.0
+    assert not rate.realized_bound_is_informative
+
+
+def test_the_expected_bound_still_works_with_no_observed_miss() -> None:
+    """The reason the constraint is estimated as an expectation.
+
+    Every packet carries a failure probability whether or not it failed, so
+    the statistic varies across episodes and the resampling has something to
+    work with.
+    """
+
+    rate = ClusteredRate()
+    rng = np.random.default_rng(8)
+    for c in range(400):
+        level = float(10 ** rng.uniform(-5, -3))
+        for _ in range(int(rng.integers(20, 300))):
+            rate.observe(f"c{c}", missed=False, expected_failure=level)
+    upper = rate.expected_upper(replicates=1_000, seed=2)
+    assert upper > rate.expected_rate > 0.0
+    assert rate.bootstrap_upper(replicates=1_000, seed=2) == 0.0
+
+
+def test_a_miss_makes_the_realized_bound_informative_again() -> None:
+    rate = fill(ClusteredRate(), 400, 50, lambda c: 1 if c < 4 else 0)
+    assert rate.realized_bound_is_informative
+    assert rate.bootstrap_upper(replicates=1_000, seed=9) > rate.realized_rate

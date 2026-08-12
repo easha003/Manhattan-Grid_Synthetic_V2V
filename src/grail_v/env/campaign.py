@@ -99,8 +99,28 @@ class PolicyStatistics:
         return self.rate.expected_rate
 
     def upper_bound(self, *, replicates: int = 10_000, confidence: float = 0.95) -> float:
-        """The reportable bound: resampled over episodes, not over packets."""
+        """The reportable bound: the expectation, resampled over episodes.
 
+        Not the realized rate. At a 1e-4 budget most runs observe no miss at
+        all, and a realized-rate bootstrap returns zero there -- a bound that
+        certifies the constraint on no evidence. See
+        :meth:`~grail_v.env.statistics.ClusteredRate.expected_upper`.
+        """
+
+        return self.rate.expected_upper(replicates=replicates, confidence=confidence)
+
+    def realized_upper(
+        self, *, replicates: int = 10_000, confidence: float = 0.95
+    ) -> float | None:
+        """The realized-rate bound, or ``None`` when no miss was observed.
+
+        ``None`` rather than zero: seeing nothing is not evidence of nothing,
+        and the caller has to decide how to say so rather than being handed a
+        number that reads as certainty.
+        """
+
+        if not self.rate.realized_bound_is_informative:
+            return None
         return self.rate.bootstrap_upper(replicates=replicates, confidence=confidence)
 
     def wilson_upper(self, *, confidence: float = 0.95) -> float:
@@ -335,10 +355,24 @@ def run(
     *,
     density: float,
     release_finished_pairs: bool = True,
+    into: DensityReport | None = None,
 ) -> DensityReport:
-    """Evaluate every policy on every instant and accumulate the report."""
+    """Evaluate every policy on every instant and accumulate the report.
 
-    report = DensityReport(density=density)
+    ``into`` pools a further trace into an existing report. Replicates of one
+    density are independent by construction -- different seeds, disjoint
+    vehicle populations -- so their pair episodes join one cluster set rather
+    than producing three intervals that then have to be combined by hand.
+    Each replicate still needs its own rollout, because shadowing and fading
+    state must not carry across traces.
+    """
+
+    report = into if into is not None else DensityReport(density=density)
+    if report.density != density:
+        raise ValueError(
+            f'cannot pool a density-{density:g} trace into a '
+            f'density-{report.density:g} report'
+        )
     for instant in instants:
         _, context, alternatives = rollout.evaluate_instant(
             trace_id=instant.trace_id,
@@ -431,23 +465,31 @@ def format_report(
 
     lines += [
         "",
-        f"  {'policy':<8} {'cost':>6} {'E[miss]':>10} {'meets':>6} "
-        f"{'realized':>10} {'boot 95%':>10} {'wilson':>10}",
+        f"  {'policy':<8} {'cost':>6} {'E[miss]':>10} {'E 95%up':>10} "
+        f"{'holds':>6} {'realized':>10} {'R 95%up':>10}",
     ]
     for name in (*BASELINES, ORACLE):
         stats = report.policies.get(name)
         if stats is None or not stats.packets:
             continue
-        meets = "yes" if stats.expected_miss_rate <= budget else "NO"
+        bound = stats.upper_bound(replicates=bootstrap_replicates)
+        realized_bound = stats.realized_upper(replicates=bootstrap_replicates)
+        # The constraint is declared met only if the *bound* clears it, not the
+        # point estimate. That is what the evaluation profile requires, and it
+        # is the difference between "we measured 7.5e-5" and "we showed 1e-4".
+        holds = "yes" if bound <= budget else "NO"
+        shown = f"{realized_bound:>10.3e}" if realized_bound is not None else f"{'--':>10}"
         lines.append(
             f"  {name:<8} {stats.mean_cost:>6.2f} {stats.expected_miss_rate:>10.3e} "
-            f"{meets:>6} {stats.realized_miss_rate:>10.3e} "
-            f"{stats.upper_bound(replicates=bootstrap_replicates):>10.3e} "
-            f"{stats.wilson_upper():>10.3e}"
+            f"{bound:>10.3e} {holds:>6} {stats.realized_miss_rate:>10.3e} {shown}"
         )
     lines.append(
-        "  (the reportable bound is the bootstrap; wilson assumes independent "
-        "packets and is shown only to size the correlation it ignores)"
+        "  (E 95%up carries the constraint -- it bounds the expectation the budget "
+        "is written against.)"
+    )
+    lines.append(
+        "  (R 95%up is the check that the expectation is not lying; '--' means no "
+        "miss was observed, so it bounds nothing.)"
     )
 
     if report.targeting.packets:

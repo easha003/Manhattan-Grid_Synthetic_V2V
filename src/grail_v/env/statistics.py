@@ -172,6 +172,38 @@ class ClusteredRate:
         )
         return float(np.quantile(rates, confidence))
 
+    def expected_upper(
+        self, *, replicates: int = 10_000, confidence: float = 0.95, seed: int = 0
+    ) -> float:
+        """Upper bound on the **expected** miss rate -- the reportable one.
+
+        The realized-rate bootstrap has a hard limitation that matters at
+        exactly this budget: with zero observed misses it returns zero, because
+        resampling clusters that all contain no miss can only ever produce no
+        miss. Printed as a 95% bound that says the rate is certainly zero, which
+        is the opposite of what the evidence supports.
+
+        The expectation does not have that failure mode. Every packet carries a
+        failure probability whether or not it failed, so the statistic varies
+        across episodes and the bootstrap has something to resample. It is also
+        the quantity the constraint is actually written against.
+
+        So: this bound carries the constraint, and
+        :meth:`bootstrap_upper` on the realized rate is the *check* that the
+        expectation is not lying -- informative when misses were observed,
+        and honestly uninformative when none were.
+        """
+
+        return self.bootstrap_upper(
+            replicates=replicates, confidence=confidence, seed=seed, statistic="expected"
+        )
+
+    @property
+    def realized_bound_is_informative(self) -> bool:
+        """Whether the realized-rate bootstrap can bound anything at all."""
+
+        return self.misses > 0
+
     def wilson_upper(self, *, confidence: float = 0.95) -> float:
         """The binomial bound, kept for comparison and **not** for reporting.
 
