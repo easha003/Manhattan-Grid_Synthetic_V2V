@@ -65,6 +65,18 @@ class HeadlampPattern(Protocol):
         self, horizontal_angle_rad: float, vertical_angle_rad: float
     ) -> float: ...
 
+    def covers(self, horizontal_angle_rad: float, vertical_angle_rad: float) -> bool:
+        """Whether this pattern can answer for that direction at all.
+
+        The escape hatch that keeps :meth:`radiant_intensity_w_per_sr`'s refusal
+        to extrapolate strict. A caller that must handle a direction the lamp
+        does not illuminate asks this first and treats a ``False`` as *no
+        light*, so the exception stays reserved for a genuine bug rather than
+        becoming a routine control-flow signal that someone eventually softens
+        into a clamp.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class LambertianPattern:
@@ -111,6 +123,16 @@ class LambertianPattern:
             return 0.0
         return self.peak_intensity_w_per_sr * math.cos(off_axis) ** self.lambertian_order
 
+    def covers(self, horizontal_angle_rad: float, vertical_angle_rad: float) -> bool:
+        """Everywhere in the forward hemisphere, which is the idealization.
+
+        A closed form has an answer for every direction, and that is exactly the
+        difference this class exists to expose: the measured beam has an
+        envelope and this does not.
+        """
+
+        return math.hypot(horizontal_angle_rad, vertical_angle_rad) < 0.5 * math.pi
+
 
 @dataclass(frozen=True, slots=True)
 class TabulatedPattern:
@@ -153,6 +175,23 @@ class TabulatedPattern:
             if any(value < 0.0 for value in row):
                 raise HeadlampPatternError("radiant intensity cannot be negative",
                                            context={"pattern_id": self.pattern_id})
+
+    def covers(self, horizontal_angle_rad: float, vertical_angle_rad: float) -> bool:
+        """Whether both angles fall inside the measured grid.
+
+        The horizontal envelope is the narrow one: the ECE R112 low-beam test
+        points span +/-9 degrees, so a pair more than that off the transmitter's
+        heading is a direction the artifact cannot answer for. Nothing here
+        decides what a caller should do about it -- see the alignment
+        short-circuit in :mod:`grail_v.channels.vlc.model` for that.
+        """
+
+        return (
+            math.isfinite(horizontal_angle_rad)
+            and math.isfinite(vertical_angle_rad)
+            and self.horizontal_angles_rad[0] <= horizontal_angle_rad <= self.horizontal_angles_rad[-1]
+            and self.vertical_angles_rad[0] <= vertical_angle_rad <= self.vertical_angles_rad[-1]
+        )
 
     def radiant_intensity_w_per_sr(
         self, horizontal_angle_rad: float, vertical_angle_rad: float
