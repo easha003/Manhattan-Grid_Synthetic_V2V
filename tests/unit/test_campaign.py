@@ -227,3 +227,20 @@ def test_the_bound_never_exceeds_the_duplicate_everything_baseline() -> None:
         bound.observe(1e-3 * (index + 1), 1e-6)
     cost, _ = bound.solve(1e-4)
     assert 1.0 <= cost <= 2.0
+
+
+def test_complementarity_is_never_printed_as_a_percentage() -> None:
+    """It lives at 1e-5 by construction. Printed as "0.00%", the one statistic
+    that justifies carrying a second medium reads as a zero -- which is exactly
+    what happened on the first 500k-packet run."""
+
+    report = DensityReport(density=10.0)
+    report.packets = 500_172
+    report.rf_lost_vlc_saved = 6
+    line = next(
+        row for row in campaign.format_report(report).splitlines()
+        if "complementarity" in row
+    )
+    assert "%" not in line
+    assert "1.200e-05" in line
+    assert "6 packets the radio lost" in line

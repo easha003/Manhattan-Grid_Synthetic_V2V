@@ -19,19 +19,26 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from grail_v.core.enums import FailureCause
 from grail_v.env.episodes import PairInstant
 from grail_v.env.packet import ACTIONS, PacketOutcome
 from grail_v.env.rollout import PacketContext, Rollout, always, best_action
+from grail_v.env.statistics import MIN_CLUSTERS, ClusteredRate, poisson_interval
 
 #: The fixed-action baselines, by the name the lifecycle uses for each action.
 BASELINES = tuple(action.name for action in ACTIONS)
 
 #: The oracle is not an action, it is a per-packet choice among them.
 ORACLE = "ORACLE"
+
+#: Budgets the frontier is swept over: the headline 1e-4, the exploratory
+#: 1e-5 frontier, and enough points either side to draw a curve.
+DEFAULT_FRONTIER_BUDGETS: tuple[float, ...] = (
+    1e-3, 5e-4, 2e-4, 1e-4, 5e-5, 2e-5, 1e-5,
+)
 
 #: Optical failures no amount of power can fix, so they set the floor.
 _GEOMETRIC_CAUSES = frozenset(
@@ -41,56 +48,65 @@ _GEOMETRIC_CAUSES = frozenset(
 
 @dataclass(slots=True)
 class PolicyStatistics:
-    """What one policy did over one density group."""
+    """What one policy did over one density group.
 
-    packets: int = 0
-    cost: float = 0.0
-    misses: int = 0
-    expected_misses: float = 0.0
+    Counts are kept per pair episode rather than per packet, because that is
+    the unit the confidence bound has to resample -- see
+    :mod:`grail_v.env.statistics`. The point estimates are identical either
+    way; only the interval changes, and the interval is the part a binomial
+    bound gets wrong.
+    """
+
+    rate: ClusteredRate = field(default_factory=ClusteredRate)
     causes: Counter = field(default_factory=Counter)
     #: How often the oracle-style chooser picked each action. Constant for a
     #: fixed baseline, and the whole result for the oracle.
     choices: Counter = field(default_factory=Counter)
 
-    def observe(self, outcome: PacketOutcome, expected_failure: float) -> None:
-        self.packets += 1
-        self.cost += outcome.activation_cost
-        self.expected_misses += expected_failure
+    def observe(
+        self, outcome: PacketOutcome, expected_failure: float, cluster_id: str = ""
+    ) -> None:
+        self.rate.observe(
+            cluster_id,
+            missed=not outcome.delivered,
+            expected_failure=expected_failure,
+            cost=outcome.activation_cost,
+        )
         self.choices[outcome.action.name] += 1
         if not outcome.delivered:
-            self.misses += 1
             self.causes[outcome.failure_cause.name] += 1
 
     @property
+    def packets(self) -> int:
+        return self.rate.packets
+
+    @property
+    def misses(self) -> int:
+        return self.rate.misses
+
+    @property
     def mean_cost(self) -> float:
-        return self.cost / self.packets if self.packets else 0.0
+        return self.rate.mean_cost
 
     @property
     def realized_miss_rate(self) -> float:
-        return self.misses / self.packets if self.packets else 0.0
+        return self.rate.realized_rate
 
     @property
     def expected_miss_rate(self) -> float:
         """The estimator the constraint is actually checked against."""
 
-        return self.expected_misses / self.packets if self.packets else 0.0
+        return self.rate.expected_rate
 
-    def wilson_upper(self, z: float = 1.96) -> float:
-        """Upper confidence bound on the realized rate, valid at zero misses.
+    def upper_bound(self, *, replicates: int = 10_000, confidence: float = 0.95) -> float:
+        """The reportable bound: resampled over episodes, not over packets."""
 
-        A normal interval on a proportion collapses to zero width when no miss
-        was seen, which would report a 1e-4 budget as met with certainty on
-        evidence that cannot distinguish 1e-4 from 1e-6. Wilson does not.
-        """
+        return self.rate.bootstrap_upper(replicates=replicates, confidence=confidence)
 
-        n = self.packets
-        if not n:
-            return 1.0
-        p = self.misses / n
-        denominator = 1.0 + z * z / n
-        centre = p + z * z / (2 * n)
-        spread = z * math.sqrt(p * (1.0 - p) / n + z * z / (4 * n * n))
-        return (centre + spread) / denominator
+    def wilson_upper(self, *, confidence: float = 0.95) -> float:
+        """The binomial bound, for comparison only. Do not report this alone."""
+
+        return self.rate.wilson_upper(confidence=confidence)
 
 
 def expected_failure_for(action_name: str, outcome: PacketOutcome) -> float:
@@ -141,9 +157,23 @@ class TargetingBound:
 
     #: ``(reduction, rf_probability)`` per packet, kept to solve the knapsack.
     _packets: list[tuple[float, float]] = field(default_factory=list)
+    _sorted: list[float] | None = field(default=None, repr=False)
 
     def observe(self, rf_probability: float, joint_probability: float) -> None:
         self._packets.append((rf_probability - joint_probability, rf_probability))
+        self._sorted = None
+
+    def _descending(self) -> list[float]:
+        """Reductions, largest first, computed once and reused.
+
+        The frontier evaluates many budgets against the same packets, and each
+        one is a prefix of this same ordering -- so sorting per budget would
+        make an O(n log n) job O(bn log n) for no reason.
+        """
+
+        if self._sorted is None:
+            self._sorted = sorted((reduction for reduction, _ in self._packets), reverse=True)
+        return self._sorted
 
     def solve(self, budget: float) -> tuple[float, float]:
         """Return ``(mean cost, achieved miss rate)`` for the cheapest feasible mix.
@@ -159,12 +189,31 @@ class TargetingBound:
         if total / n <= budget:
             return 1.0, total / n
         duplicated = 0
-        for reduction, _ in sorted(self._packets, key=lambda p: -p[0]):
+        for reduction in self._descending():
             if total / n <= budget:
                 break
             total -= reduction
             duplicated += 1
         return 1.0 + duplicated / n, total / n
+
+    def frontier(
+        self, budgets: Sequence[float]
+    ) -> tuple[tuple[float, float, float, bool], ...]:
+        """Cost of the cheapest feasible mix across a range of budgets.
+
+        The reliability-cost Pareto frontier, which is what turns "our method
+        beats the baselines" into "here is the feasible region and here is
+        where every strategy sits in it". Returns one
+        ``(budget, cost, achieved, feasible)`` row per budget; ``feasible`` is
+        false where even duplicating every packet misses the target, and there
+        the cost saturates at 2.0 rather than climbing past it.
+        """
+
+        rows = []
+        for budget in budgets:
+            cost, achieved = self.solve(budget)
+            rows.append((budget, cost, achieved, achieved <= budget * (1.0 + 1e-9)))
+        return tuple(rows)
 
     @property
     def packets(self) -> int:
@@ -232,6 +281,32 @@ class DensityReport:
         return self.joint_failures / self.predicted_joint
 
     @property
+    def cluster_count(self) -> int:
+        """Independent pair episodes -- the real sample size for an interval."""
+
+        for stats in self.policies.values():
+            if stats.packets:
+                return stats.rate.cluster_count
+        return 0
+
+    def dependence_interval_text(self) -> str:
+        """The ratio with the Poisson uncertainty on its numerator.
+
+        A handful of events decides this number -- 6, 13, 36 across the
+        campaign -- so quoting 0.853 without an interval invites a reader to
+        over-read the gap between densities that the counts cannot support.
+        """
+
+        if self.predicted_joint <= 0.0:
+            return f'({self.joint_failures} realized, none predicted)'
+        low, high = poisson_interval(self.joint_failures)
+        return (
+            f'(1.0 = independent; {self.joint_failures} realized '
+            f'[{low / self.predicted_joint:.2f}, {high / self.predicted_joint:.2f}] '
+            f'vs {self.predicted_joint:.2f} predicted)'
+        )
+
+    @property
     def optical_outage(self) -> float:
         """P_out: the share of packets geometry alone denies the optical leg."""
 
@@ -283,13 +358,16 @@ def run(
         assert alternatives is not None
         report.packets += 1
 
+        cluster = f"{instant.trace_id}|{instant.pair_id}"
         for name, outcome in alternatives.items():
-            report.policy(name).observe(outcome, expected_failure_for(name, outcome))
+            report.policy(name).observe(
+                outcome, expected_failure_for(name, outcome), cluster
+            )
 
         chosen = best_action(alternatives)
         oracle_outcome = alternatives[chosen.name]
         report.policy(ORACLE).observe(
-            oracle_outcome, expected_failure_for(ORACLE, oracle_outcome)
+            oracle_outcome, expected_failure_for(ORACLE, oracle_outcome), cluster
         )
 
         rf, vlc, dup = alternatives["RF"], alternatives["VLC"], alternatives["DUP"]
@@ -317,7 +395,13 @@ def run(
     return report
 
 
-def format_report(report: DensityReport, budget: float = 1e-4) -> str:
+def format_report(
+    report: DensityReport,
+    budget: float = 1e-4,
+    *,
+    bootstrap_replicates: int = 10_000,
+    frontier_budgets: Sequence[float] | None = None,
+) -> str:
     """A table a reader can check the constraint against directly."""
 
     cap = (
@@ -330,14 +414,25 @@ def format_report(report: DensityReport, budget: float = 1e-4) -> str:
         f"  optical outage   P_out = {report.optical_outage:>7.2%} geometric ({cap})",
         f"                         = {report.optical_failure_rate:>7.2%} including "
         f"out-of-range, which is what duplication actually pays for",
-        f"  complementarity        = {report.complementarity:>7.2%} of packets the "
-        f"radio lost and the light saved  ({report.vlc_lost_rf_saved:,} the other way)",
+        # Never a percentage: this rate lives at 1e-5 by construction, and
+        # "0.00%" is how the one statistic that justifies the second medium
+        # gets read as a zero.
+        f"  complementarity        = {report.complementarity:>7.3e} "
+        f"({report.rf_lost_vlc_saved:,} packets the radio lost and the light saved; "
+        f"{report.vlc_lost_rf_saved:,} the other way)",
         f"  dependence ratio (8.3) = {report.dependence_ratio:>7.3f}   "
-        f"(1.0 = independent; {report.joint_failures} realized vs "
-        f"{report.predicted_joint:.2f} predicted)",
+        f"{report.dependence_interval_text()}",
+    ]
+
+    clusters = report.cluster_count
+    if clusters:
+        enough = "" if clusters >= MIN_CLUSTERS else f"  BELOW the {MIN_CLUSTERS} required"
+        lines.append(f"  pair-episode clusters  = {clusters:>7,}{enough}")
+
+    lines += [
         "",
         f"  {'policy':<8} {'cost':>6} {'E[miss]':>10} {'meets':>6} "
-        f"{'realized':>10} {'95% upper':>10}",
+        f"{'realized':>10} {'boot 95%':>10} {'wilson':>10}",
     ]
     for name in (*BASELINES, ORACLE):
         stats = report.policies.get(name)
@@ -346,8 +441,15 @@ def format_report(report: DensityReport, budget: float = 1e-4) -> str:
         meets = "yes" if stats.expected_miss_rate <= budget else "NO"
         lines.append(
             f"  {name:<8} {stats.mean_cost:>6.2f} {stats.expected_miss_rate:>10.3e} "
-            f"{meets:>6} {stats.realized_miss_rate:>10.3e} {stats.wilson_upper():>10.3e}"
+            f"{meets:>6} {stats.realized_miss_rate:>10.3e} "
+            f"{stats.upper_bound(replicates=bootstrap_replicates):>10.3e} "
+            f"{stats.wilson_upper():>10.3e}"
         )
+    lines.append(
+        "  (the reportable bound is the bootstrap; wilson assumes independent "
+        "packets and is shown only to size the correlation it ignores)"
+    )
+
     if report.targeting.packets:
         cost, achieved = report.targeting.solve(budget)
         lines += [
@@ -357,7 +459,16 @@ def format_report(report: DensityReport, budget: float = 1e-4) -> str:
             f"but not its outcome",
             f"  risk concentration: the riskiest 1% of packets carry "
             f"{report.targeting.risk_concentration():.1%} of expected RF misses",
+            "",
+            f"  {'budget':>10} {'cost':>7} {'achieved':>10} {'feasible':>9}",
         ]
+        for target, mix_cost, achieved_rate, feasible in report.targeting.frontier(
+            frontier_budgets or DEFAULT_FRONTIER_BUDGETS
+        ):
+            lines.append(
+                f"  {target:>10.1e} {mix_cost:>7.3f} {achieved_rate:>10.3e} "
+                f"{'yes' if feasible else 'NO':>9}"
+            )
     oracle = report.policies.get(ORACLE)
     if oracle and oracle.packets:
         picks = ", ".join(
@@ -370,9 +481,11 @@ def format_report(report: DensityReport, budget: float = 1e-4) -> str:
 
 __all__ = [
     "BASELINES",
+    "DEFAULT_FRONTIER_BUDGETS",
     "ORACLE",
     "DensityReport",
     "PolicyStatistics",
+    "TargetingBound",
     "expected_failure_for",
     "format_report",
     "run",
