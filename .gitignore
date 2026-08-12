@@ -51,3 +51,9 @@ artifacts/archive/**
 
 # Claude Code tool settings (permission grants, not project configuration).
 .claude/
+
+# LaTeX build products; the .tex and the built PDF are tracked.
+docs/report/*.aux
+docs/report/*.log
+docs/report/*.out
+docs/report/*.toc
