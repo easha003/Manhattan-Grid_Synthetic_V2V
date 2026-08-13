@@ -45,6 +45,18 @@ def main() -> int:
         args.out / "fig_headlamp_pattern.pdf", artifacts=args.calibration)
     built.append("fig_headlamp_pattern.pdf")
 
+    distributions = args.evaluations / "geometry-distributions.json"
+    if distributions.exists():
+        paper_figures.density_coupling(
+            args.out / "fig_coupling.pdf", distributions=distributions)
+        built.append("fig_coupling.pdf")
+        paper_figures.optical_cliff(
+            args.out / "fig_optical_cliff.pdf", distributions=distributions)
+        built.append("fig_optical_cliff.pdf")
+    else:
+        print("skipping coupling and cliff: run "
+              "scripts/measure_geometry_distributions.py", file=sys.stderr)
+
     wide = args.evaluations / "campaign-test-wide-1000000.json"
     narrow = args.evaluations / "campaign-test-narrow-1000000.json"
     if wide.exists() and narrow.exists():
