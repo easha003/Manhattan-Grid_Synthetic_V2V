@@ -7,6 +7,7 @@
 \usepackage{textcomp}
 \usepackage{booktabs}
 \usepackage{multirow}
+\graphicspath{{../../artifacts/figures/}}
 \usepackage{siunitx}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,fit,calc,backgrounds}
@@ -186,6 +187,60 @@ documented source of error in earlier iterations of this work.
 \section{Exact Geometry}
 \label{sec:geometry}
 
+\begin{figure}[!t]
+\centering
+\begin{tikzpicture}[font=\scriptsize, x=1mm, y=1mm]
+  % --- side elevation -------------------------------------------------------
+  \draw[gray!55] (0,0) -- (74,0);
+  \foreach \x in {2,8,...,72} \draw[gray!40] (\x,0) -- (\x-1.6,-1.6);
+
+  % follower
+  \draw[fill=blue!7, draw=blue!55] (4,1.6) rectangle (17.5,7.2);
+  \draw[fill=blue!14, draw=blue!55] (7.2,7.2) -- (14.6,7.2) -- (13.2,10.6) -- (8.8,10.6) -- cycle;
+  \fill[gray!65] (7.0,1.6) circle (1.5); \fill[gray!65] (15.0,1.6) circle (1.5);
+  % leader
+  \draw[fill=blue!7, draw=blue!55] (46,1.6) rectangle (59.5,7.2);
+  \draw[fill=blue!14, draw=blue!55] (49.2,7.2) -- (56.6,7.2) -- (55.2,10.6) -- (50.8,10.6) -- cycle;
+  \fill[gray!65] (49.0,1.6) circle (1.5); \fill[gray!65] (57.0,1.6) circle (1.5);
+
+  % endpoints
+  \fill[orange!85!black] (17.5,4.9) circle (0.85);
+  \fill[orange!85!black] (46,4.2) circle (0.85);
+  \fill[blue!70!black]  (10.7,8.9) circle (0.85);
+  \fill[blue!70!black]  (52.7,8.9) circle (0.85);
+
+  % links
+  \draw[orange!85!black, thick] (17.5,4.9) -- (46,4.2);
+  \draw[blue!70!black, thick, dashed] (10.7,8.9) -- (52.7,8.9);
+
+  \node[orange!60!black, anchor=south] at (31.8,4.6) {optical, $d_o$};
+  \node[blue!60!black, anchor=south] at (31.8,9.2) {radio, $d$};
+  \node[anchor=north, gray!60!black] at (17.5,3.6) {\tiny 0.70\,m};
+  \node[anchor=north, gray!60!black] at (46,3.2) {\tiny 0.55\,m};
+  \node[anchor=south, gray!60!black] at (10.7,10.0) {\tiny 1.50\,m};
+
+  % the distance that is not the separation
+  \draw[<->, gray!70] (10.7,-4) -- (52.7,-4);
+  \node[anchor=north, gray!60!black] at (31.7,-4) {separation $d$};
+  \draw[<->, orange!70!black] (17.5,-9) -- (46,-9);
+  \node[anchor=north, orange!60!black] at (31.7,-9) {$d_o = d - \ell_{\mathrm{rx}}$};
+  \draw[gray!50, dotted] (10.7,-4) -- (10.7,8.9);
+  \draw[gray!50, dotted] (52.7,-4) -- (52.7,8.9);
+  \draw[orange!50, dotted] (17.5,-9) -- (17.5,4.9);
+  \draw[orange!50, dotted] (46,-9) -- (46,4.2);
+\end{tikzpicture}
+\caption{Link geometry for one tagged pair, to scale vertically. The radio runs
+centre to centre at \SI{1.5}{\meter}; the optical link runs from the follower's
+headlamp at \SI{0.7}{\meter} to the leader's rear-mounted photodiode at
+\SI{0.55}{\meter}, and is therefore shorter than the separation by one receiver
+length. Because the two paths sit at different heights and different endpoints
+they are obstructed by different vehicles, which is what makes their failures
+independent. The \SI{0.15}{\meter} drop also sets the vertical emission angle,
+$-\arctan(\Delta h/d_o)$, and hence which row of the beam a pair reads.}
+\label{fig:geometry}
+\end{figure}
+
+
 The geometry engine computes hidden ground truth. It is used to generate
 outcomes and to answer oracle questions; it is never visible to a policy
 (Sec.~\ref{sec:arch}).
@@ -194,7 +249,7 @@ outcomes and to answer oracle questions; it is never visible to a policy
 
 Three antenna-like reference points are defined per vehicle: the RF antenna at
 the body centre at \SI{1.5}{\meter}, the headlamp at the front face at
-\SI{0.7}{\meter}, and the photodiode at the rear face at \SI{0.4}{\meter}.
+\SI{0.7}{\meter}, and the photodiode at the rear face at \SI{0.55}{\meter}.
 The optical link path therefore runs headlamp-to-photodiode and is shorter
 than the separation by one receiver length, while the radio path runs
 centre-to-centre.
@@ -340,19 +395,48 @@ on--off keying at \SI{4.5}{\mega\bit\per\second} gross rate, \SI{2.4}{\milli
 \subsection{Headlamp radiant intensity}
 
 The transmitter is characterised by a tabulated radiant-intensity pattern
-$I(\theta_h,\theta_v)$ rather than a Lambertian lobe. The pattern artifact is
-constructed from UNECE ECE~R112 low-beam test-point geometry as reproduced by
-Wang \emph{et al.} \cite{wang2015}, converted from illuminance at
-\SI{25}{\meter} to radiant intensity via a \SI{300}{\lumen\per\watt} efficacy.
-The grid spans $\pm\SI{9}{\degree}$ horizontally and
-\SIrange{-20}{0.57}{\degree} vertically.
+$I(\theta_h,\theta_v)$ rather than a Lambertian lobe. UN Regulation No.~112 is
+a \emph{compliance envelope}, not a beam: it states nine point limits, four
+zone limits and eight grouped-point minima, all confined to 9L--9R
+horizontally and 4U--4D vertically. Building a pattern directly on those
+coordinates yields a sparse scatter of spikes separated by whatever the author
+places between them, and interpolating across it produces a shape belonging to
+the sampling grid rather than to any lamp.
 
-Two properties are enforced. First, the pattern refuses extrapolation: a
-direction outside the measured envelope raises rather than returning an edge
-value, and callers must query coverage explicitly. Second, a Lambertian
-pattern exists in the codebase as a named comparison model only and is never
-constructed as a fallback---a cosine lobe substituted for a measured beam
-would look identical to a real result in every log.
+The artifact is therefore a smooth two-lobe distribution with an asymmetric
+cut-off, fitted so that every R112 Class~B limit holds by construction and
+verified numerically before the artifact is written; the generator refuses to
+emit a non-compliant pattern. Figure~\ref{fig:beam} shows the result against
+the limits that constrain it. It is a plausible compliant design and not a
+measured lamp, and where measured patterns are available
+\cite{alsalami2021,memedi2018} they should replace it.
+
+Beyond 9L/9R the regulation imposes no minimum, so emission there is a design
+choice. Two variants ship---one continuing the model's own falloff, one
+applying a steeper decay past the last regulated angle---and every result that
+depends on the unregulated region is reported as a band across them.
+
+Two further properties are enforced. The pattern refuses extrapolation beyond
+its own grid: a direction outside it raises rather than returning an edge
+value, and callers must query coverage explicitly. And a Lambertian pattern
+exists in the codebase as a named comparison model only, never constructed as
+a fallback---a cosine lobe substituted for a real beam would look identical to
+a genuine result in every log.
+
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{fig_headlamp_pattern.pdf}
+\caption{The modelled beam against the regulation that constrains it.
+Left: the pattern with every ECE~R112 Class~B passing-beam test point and the
+zone~IV box drawn on it; filled markers carry minima, open markers maxima. The
+cut-off and its asymmetric shoulder are the features that distinguish a real
+low beam from a cosine lobe. Right: a horizontal cut at 0.86D. The regulation
+specifies nothing beyond 9L/9R, so the two shipped variants diverge there by
+construction and every result depending on that region is reported as a band
+across them.}
+\label{fig:beam}
+\end{figure*}
 
 \subsection{Optical gain}
 
@@ -744,6 +828,19 @@ $\rho$ & policy & {$\mathbb{E}[\text{miss}]$} & {95\,\% upper} & {holds} \\
 \end{tabular}
 \end{table}
 
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig_coupling.pdf}
+\caption{The coupling the contribution rests on. Optical path length and
+contender count are measured over the same tagged-pair instants of the same
+traces, so their opposition is a property of one traffic state rather than of
+two independently parameterised models. Markers are medians, bars the
+interquartile range. The curves cross near $\rho=17$: below it the light has
+the harder job, above it the radio does.}
+\label{fig:coupling}
+\end{figure}
+
 \subsection{Neither medium suffices alone}
 
 Table~\ref{tab:reliability} shows the radio meeting the budget only at the
@@ -759,6 +856,22 @@ headlamp-based optical link at high density therefore rests on emission the
 regulation does not require, and the honest statement is that the constraint is
 met across the range of compliant designs rather than met with margin.
 
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig_optical_cliff.pdf}
+\caption{The optical link is decided by range, and density decides the
+range. An inverse-square budget against a steep coded threshold puts the whole
+transition within a few metres of \SI{34}{\meter}, so the packet-error curve is
+nearly binary. Overlaid with the measured distribution of optical path at each
+density it explains the optical column of Table~\ref{tab:reliability}: at
+$\rho=10$ the median pair sits at \SI{28.2}{\meter} and most of the
+distribution is past the cliff, while at $\rho=30$ the median is
+\SI{3.8}{\meter} and nearly all of it is inside. Shading marks paths shorter
+than the tagged-pair admission window admits.}
+\label{fig:cliff}
+\end{figure}
+
 \subsection{The failures are independent}
 
 The dependence ratio $p_{\mathrm{joint}}/(p_{\mathrm{rf}}\,p_{\mathrm{vlc}})$
@@ -773,6 +886,22 @@ This is a measurement of an assumption that comparable studies generally make
 silently, and there is a mechanism behind it---radio failure is
 collision-dominated, and contention does not care about the geometry that
 blocks light.
+
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{fig_rf_decomposition.pdf}
+\caption{Why the radio's design lever is not its link budget. Left: the
+access-layer mechanisms against contention; collision rises with the number of
+contenders and half duplex is a flat duty cycle, and neither responds to
+transmit power. They cross near \num{45} contenders, which is where $\rho=10$
+sits. Right: the finite-blocklength decoding curve. At $n=\num{2419}$ channel
+uses it is a cliff about a decibel wide, and the link sits far above it in
+every condition except deep NLOS shadowing at the far end of the pair window.
+Decoding is negligible because the threshold is sharp and rarely approached,
+not because the margin is uniformly large.}
+\label{fig:rf}
+\end{figure*}
 
 \subsection{The optical leg is range-limited before it is geometry-limited}
 
@@ -810,6 +939,19 @@ the hybrid's reason to exist expressed as a rate, and its growth with density
 reflects the structural anti-correlation the framework was built to expose:
 the optical path shortens as traffic slows (median \SIrange{26.4}{3.9}{\meter}
 from $\rho=10$ to $\rho=30$) exactly as radio contention worsens.
+
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig_frontier.pdf}
+\caption{The reliability--cost frontier. Each curve is the cheapest mean
+activation cost attaining a given expected miss rate, given perfect knowledge
+of per-packet risk but none of outcomes; markers give the two fixed baselines.
+The shaded band between headlamp variants is the part of the answer ECE~R112
+does not fix. Duplication over-delivers at every density and the frontier
+reaches the budget well short of cost~2.}
+\label{fig:frontier}
+\end{figure}
 
 \subsection{Blind duplication is wasteful}
 
@@ -951,12 +1093,13 @@ than assumed. On a held-out test split the measurements are unambiguous: the
 sidelink alone misses a $10^{-4}$ budget above the lightest density,
 duplication meets it everywhere at twice the activation cost, and the two
 media fail approximately independently, with a pooled dependence ratio of
-$0.965$ $[0.812,1.139]$.
+$0.923$ $[0.826,1.029]$.
 
 The framework's more useful output is the targeting bound. It establishes,
-without training any policy, that between $19\%$ and $100\%$ of duplication's
+without training any policy, that between $31\%$ and $100\%$ of duplication's
 excess cost is recoverable by a policy able to predict per-packet risk---and
-that the recoverable fraction depends strongly on density. That is the
+that the recoverable fraction depends strongly on density, from the whole of it
+at $\rho=10$ to roughly a third at $\rho=30$. That is the
 quantity against which the constrained policy-optimisation stage should be
 judged, and it exists because the environment can evaluate every action on the
 same realised packet.
