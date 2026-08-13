@@ -6,6 +6,7 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{siunitx}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,fit,calc,backgrounds}
@@ -700,34 +701,45 @@ real headroom.
 \section{Measured Results}
 \label{sec:results}
 
-Results below are from the held-out test split: \num{1000000} packets per
-density pooled across three replicate traces, \num{18864} pair episodes, with
-a \SI{400}{\second} warm-up discarded. The warm-up is necessary because a
-trace opens in its seeded formation---evenly spaced and aligned---and reads a
-geometric outage of $4.6\%$ there against $17.4\%$ over its length.
+Results below are from the held-out test split, pooled across three replicate
+traces with a \SI{400}{\second} warm-up discarded. The warm-up is necessary
+because a trace opens in its seeded formation---evenly spaced and
+aligned---and is unrepresentative until the traffic disperses.
+
+Densities 10 and 20 use \num{1000000} packets per density; density 30 uses
+\num{3000000}, and the difference is a finding rather than a convenience. At
+\num{1000000} packets the density-30 result twice fell on the wrong side of
+the constraint and twice reversed at \num{3000000}. The mechanism is that a
+denser frame yields more pairs, so a packet budget is exhausted after far less
+simulated time: \num{1000000} packets bought \num{6484} pair episodes at
+density 30, while \num{3000000} bought \num{12899}. The sample was not merely
+smaller, it was less mixed. \textbf{The sufficiency criterion should therefore
+be independent episodes, not packets}---a study reproducing this at a
+\num{1000000}-packet floor would draw the opposite conclusion at the density
+that matters most.
 
 \begin{table}[!t]
-\caption{Reliability and cost by density (test split)}
+\caption{Expected miss rate by density and headlamp variant (test split).
+Bounds are one-sided upper at 95\,\%; the constraint is judged against the
+bound, not the point estimate.}
 \label{tab:reliability}
 \centering
-\begin{tabular}{@{}lS[table-format=1.3e1]S[table-format=1.3e1]cS[table-format=1.3]@{}}
+\begin{tabular}{@{}llS[table-format=1.3e1]S[table-format=1.3e1]c@{}}
 \toprule
-& {$\mathbb{E}[\text{miss}]$} & {95\,\% upper} & {holds} & {cost} \\
+$\rho$ & policy & {$\mathbb{E}[\text{miss}]$} & {95\,\% upper} & {holds} \\
 \midrule
-\multicolumn{5}{@{}l}{\textit{$\rho=10$ veh/lane/km}}\\
-\quad RF only   & 2.282e-5 & 2.304e-5 & yes & 1.00 \\
-\quad VLC only  & 5.650e-1 & 5.733e-1 & no  & 1.00 \\
-\quad DUP       & 1.339e-5 & 1.365e-5 & yes & 2.00 \\
+\multirow{3}{*}{10} & RF only & 3.648e-5 & 3.679e-5 & yes \\
+ & VLC only & 5.423e-1 & 5.504e-1 & no \\
+ & DUP & 2.046e-5 & 2.083e-5 & yes \\
 \midrule
-\multicolumn{5}{@{}l}{\textit{$\rho=20$ veh/lane/km}}\\
-\quad RF only   & 1.401e-4 & 1.425e-4 & no  & 1.00 \\
-\quad VLC only  & 3.613e-1 & 3.708e-1 & no  & 1.00 \\
-\quad DUP       & 4.725e-5 & 4.892e-5 & yes & 2.00 \\
+\multirow{3}{*}{20} & RF only & 1.803e-4 & 1.831e-4 & no \\
+ & VLC only & 3.474e-1 & 3.564e-1 & no \\
+ & DUP & 5.913e-5 & 6.115e-5 & yes \\
 \midrule
-\multicolumn{5}{@{}l}{\textit{$\rho=30$ veh/lane/km}}\\
-\quad RF only   & 3.658e-4 & 3.712e-4 & no  & 1.00 \\
-\quad VLC only  & 2.506e-1 & 2.592e-1 & no  & 1.00 \\
-\quad DUP       & 8.424e-5 & 8.795e-5 & yes & 2.00 \\
+\multirow{3}{*}{30} & RF only & 4.347e-4 & 4.389e-4 & no \\
+ & VLC only & 2.301e-1 & 2.354e-1 & no \\
+ & DUP (wide) & 9.076e-5 & 9.330e-5 & yes \\
+ & DUP (narrow) & 9.675e-5 & 9.943e-5 & yes \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -735,53 +747,65 @@ geometric outage of $4.6\%$ there against $17.4\%$ over its length.
 \subsection{Neither medium suffices alone}
 
 Table~\ref{tab:reliability} shows the radio meeting the budget only at the
-lowest density; at $\rho=20$ and $\rho=30$ its upper bound exceeds $10^{-4}$
-by $1.4\times$ and $3.7\times$. The optical link alone fails everywhere by
-three orders of magnitude, dominated not by decoding but by range and
-geometry. Duplication meets the budget at every density on the bound, with
-$12\%$ margin at the worst case.
+lowest density; at $\rho=20$ and $\rho=30$ its upper bound exceeds $10^{-4}$ by
+$1.8\times$ and $4.4\times$. The optical link alone fails everywhere by three
+orders of magnitude, dominated not by decoding but by range and geometry.
+
+Duplication meets the budget at every density on the bound, and---the point of
+carrying two variants---it does so under both headlamp assumptions. The margin
+is thin where it matters: at $\rho=30$ the bound clears by $6.7\%$ under the
+wide variant and by $0.57\%$ under the narrow one. The reliability of a
+headlamp-based optical link at high density therefore rests on emission the
+regulation does not require, and the honest statement is that the constraint is
+met across the range of compliant designs rather than met with margin.
 
 \subsection{The failures are independent}
 
 The dependence ratio $p_{\mathrm{joint}}/(p_{\mathrm{rf}}\,p_{\mathrm{vlc}})$
-equals unity under independence. Pooled over the campaign it is $0.965$ with a
-$95\%$ Poisson interval of $[0.812, 1.139]$, from \num{140} realised joint
-failures against \num{145.1} predicted. Per density the values are $0.672$,
-$1.057$ and $0.960$. The interval brackets unity: within the resolution of
-\num{140} events, the two media fail independently.
+equals unity under independence. Pooled over the campaign it is $0.923$ with a
+$95\%$ Poisson interval of $[0.826, 1.029]$, from \num{325} realised joint
+failures against \num{352} predicted. Per density the values are $0.782$,
+$0.929$ and $0.933$, and the narrow variant gives $0.884$, $0.924$ and $0.964$.
+The interval brackets unity under either assumption: within the resolution of
+several hundred events, the two media fail independently.
 
 This is a measurement of an assumption that comparable studies generally make
 silently, and there is a mechanism behind it---radio failure is
 collision-dominated, and contention does not care about the geometry that
 blocks light.
 
-\subsection{Geometric outage is transmitter-dominated}
+\subsection{The optical leg is range-limited before it is geometry-limited}
 
 \begin{table}[!t]
-\caption{Optical outage decomposition and complementarity}
+\caption{Optical outage and complementarity. $P_{\mathrm{out}}$ is identical
+across variants---they cover the same directions and differ in how much light
+reaches them---so the band appears in the total failure rate, not the floor.}
 \label{tab:optical}
 \centering
-\begin{tabular}{@{}lS[table-format=2.2]S[table-format=2.2]S[table-format=1.3e1]S[table-format=3.0]@{}}
+\begin{tabular}{@{}lS[table-format=2.2]S[table-format=2.2]S[table-format=2.2]S[table-format=4.0]@{}}
 \toprule
-$\rho$ & {$P_{\mathrm{out}}$ [\%]} & {total fail [\%]}
-& {complement.} & {saved} \\
+& & \multicolumn{2}{c}{total optical failure [\%]} & \\
+\cmidrule(lr){3-4}
+$\rho$ & {$P_{\mathrm{out}}$ [\%]} & {wide} & {narrow} & {saved} \\
 \midrule
-10 & 19.75 & 56.50 & 1.400e-5 & 14 \\
-20 & 17.40 & 36.13 & 8.792e-5 & 88 \\
-30 & 13.79 & 25.06 & 2.994e-4 & 300 \\
+10 & 15.60 & 54.23 & 57.22 & 21 \\
+20 & 14.62 & 34.74 & 36.97 & 120 \\
+30 & 11.14 & 23.02 & 24.62 & 1049 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Table~\ref{tab:optical} separates the geometric floor from total optical
-failure. Within $P_{\mathrm{out}}$, the transmitter's beam envelope accounts
-for $16.8/14.1/10.1\%$ of pair-instants against $5.8/4.7/3.4\%$ for the
-receiver's \SI{60}{\degree} acceptance cone---roughly three times as much.
-This attribution should be read together with the limitation in
-Sec.~\ref{sec:limits}.
+failure. $P_{\mathrm{out}}$ is identical across the two headlamp variants,
+which is informative rather than suspicious: both cover the same angular
+domain and differ only in how much light reaches its outer part, so the
+variant band appears in the link budget and not in the outage floor. The
+optical leg is range-limited rather than geometry-limited at low density---at
+$\rho=10$ a $15.6\%$ floor sits under a $54\%$ total failure rate---and the two
+converge as traffic densifies and pairs close.
 
-The final columns give the complementarity: packets the radio lost and the
-light saved, rising from \num{14} to \num{300} as density increases. This is
+The final column gives the complementarity: packets the radio lost and the
+light saved, rising from \num{21} to \num{1049} as density increases. This is
 the hybrid's reason to exist expressed as a rate, and its growth with density
 reflects the structural anti-correlation the framework was built to expose:
 the optical path shortens as traffic slows (median \SIrange{26.4}{3.9}{\meter}
@@ -790,26 +814,27 @@ from $\rho=10$ to $\rho=30$) exactly as radio contention worsens.
 \subsection{Blind duplication is wasteful}
 
 \begin{table}[!t]
-\caption{Targeting bound: mean activation cost at $\delta=10^{-4}$}
+\caption{Targeting bound: mean activation cost at $\delta=10^{-4}$, against
+duplication's 2.00}
 \label{tab:frontier}
 \centering
 \begin{tabular}{@{}lS[table-format=1.3]S[table-format=1.3]S[table-format=1.3]@{}}
 \toprule
-$\delta$ & {$\rho=10$} & {$\rho=20$} & {$\rho=30$}\\
+variant & {$\rho=10$} & {$\rho=20$} & {$\rho=30$}\\
 \midrule
-$10^{-3}$ & 1.000 & 1.000 & 1.000\\
-$2\times10^{-4}$ & 1.000 & 1.000 & 1.259\\
-$10^{-4}$ & 1.000 & 1.136 & 1.614\\
-$5\times10^{-5}$ & 1.000 & 1.558 & {infeasible}\\
+wide & 1.000 & 1.279 & 1.694\\
+narrow & 1.000 & 1.282 & 1.720\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:frontier} gives the reliability--cost frontier. At the headline
-budget the targeting bound is $1.000$, $1.136$ and $1.614$ against
-duplication's $2.00$---about $37\%$ of activations recoverable on average, and
-$19\%$ at the binding density. The bound is strongly density-dependent, which
-is the case for a geometry-aware policy rather than a fixed strategy.
+Table~\ref{tab:frontier} gives the targeting bound at the headline budget:
+$1.000$, $1.279$ and $1.694$ against duplication's $2.00$---about a third of
+activations recoverable on average, and $15\%$ at the binding density. It is
+insensitive to the headlamp variant, moving by at most $0.026$, because it is
+driven by the spread of \emph{radio} risk across packets rather than by the
+optical budget. The bound is strongly density-dependent, which is the case for
+a geometry-aware policy rather than for a fixed strategy.
 
 Two qualifications belong with this number. It assumes perfect knowledge of
 per-packet risk, whereas a policy sees a noisy \SI{200}{\milli\second}
