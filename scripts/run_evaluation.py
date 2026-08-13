@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from grail_v.config.loader import headline_config_layers, load_config
 from grail_v.config.hashing import scope_hash
 from grail_v.env import campaign
+from grail_v.channels.rf.collision import SensitivityBand
 from grail_v.env.assembly import build_rollout
 from grail_v.env.episodes import TraceSource, iter_pair_instants
 from grail_v.env.statistics import MIN_CLUSTERS, _normal_quantile
@@ -53,6 +54,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=Path("artifacts/evaluations"))
     parser.add_argument("--force", action="store_true",
                         help="overwrite an existing result file")
+    parser.add_argument(
+        "--band", default=None, choices=("optimistic", "nominal", "pessimistic"),
+        help="collision sensitivity band. The contention model is analytical "
+             "with a declared uncertainty range; this selects which end of it "
+             "to evaluate.")
+    parser.add_argument(
+        "--fov-deg", type=float, default=None,
+        help="receiver acceptance half-angle, overriding the profile. The "
+             "headline is 60 deg; 30 deg is the concentrated sensitivity, "
+             "which buys optical gain and costs availability.")
+    parser.add_argument(
+        "--ambient", default=None, choices=("clear_night", "clear_day"),
+        help="ambient optical condition. Daylight raises shot noise by four "
+             "orders of magnitude and is the harshest declared case.")
     parser.add_argument(
         "--pattern-variant", default=None, choices=("wide", "narrow"),
         help="override the headlamp pattern. 'wide' is the headline (the "
@@ -141,6 +156,20 @@ def main() -> int:
             deep=True,
         )
         print(f"headlamp pattern: {artifact.name}")
+    vlc_updates: dict = {}
+    if args.fov_deg is not None:
+        vlc_updates["receiver_fov_deg"] = args.fov_deg
+    if args.ambient is not None:
+        vlc_updates["ambient_condition"] = args.ambient
+    if vlc_updates:
+        config = config.model_copy(
+            update={"vlc": config.vlc.model_copy(update=vlc_updates)}, deep=True)
+        print(f"vlc overrides: {vlc_updates}")
+
+    band = SensitivityBand(args.band) if args.band else None
+    if band:
+        print(f"collision band: {band.value}")
+
     budget = config.service.miss_budget
     per_replicate = max(1, args.packets // args.replicates)
 
@@ -160,7 +189,8 @@ def main() -> int:
             # carry across traces, and the seed is tied to the trace so a rerun
             # of one replicate reproduces exactly.
             rollout = build_rollout(
-                config, buildings=(), root_seed=args.seed + density * 10 + replicate
+                config, buildings=(), root_seed=args.seed + density * 10 + replicate,
+                band=band,
             )
             campaign.run(
                 rollout,
@@ -208,6 +238,9 @@ def main() -> int:
         "interval_method": "trajectory_block_bootstrap",
         "root_seed": args.seed,
         "headlamp_pattern_variant": args.pattern_variant or "as configured",
+        "collision_band": args.band or "nominal",
+        "receiver_fov_deg": config.vlc.receiver_fov_deg,
+        "ambient_condition": config.vlc.ambient_condition,
         "config_hash": scope_hash(config, "mobility"),
         "densities": results,
     }
@@ -216,7 +249,14 @@ def main() -> int:
     # run are different artifacts and must not share a path. One did: a 6,000
     # packet check overwrote a 3,000,000 packet result that had taken five
     # hours. The guard below is the second line of defence.
-    variant = args.pattern_variant or "config"
+    parts = [args.pattern_variant or "config"]
+    if args.band:
+        parts.append(args.band)
+    if args.fov_deg is not None:
+        parts.append(f"fov{args.fov_deg:g}")
+    if args.ambient:
+        parts.append(args.ambient)
+    variant = "-".join(parts)
     destination = args.out / f"campaign-{args.split}-{variant}-{args.packets}.json"
     if destination.exists() and not args.force:
         print(
