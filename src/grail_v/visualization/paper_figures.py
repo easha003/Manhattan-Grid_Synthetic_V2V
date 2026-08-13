@@ -278,4 +278,143 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
     style.save(fig, out)
 
 
-__all__ = ["headlamp_pattern", "reliability_cost_frontier", "rf_failure_decomposition"]
+
+
+
+# --------------------------------------------------------------------------
+# Figure: the coupling the whole contribution rests on
+# --------------------------------------------------------------------------
+
+def density_coupling(out: Path, *, distributions: Path) -> None:
+    """The optical path shortens exactly as contention rises.
+
+    Both quantities are measured over the same tagged-pair instants of the same
+    traces, which is the point: their opposition is a property of one traffic
+    state rather than of two independently parameterised models. It is the
+    reason a hybrid is worth carrying at all, and no comparable study can plot
+    it, because none drives both media from a single mobility trace.
+    """
+
+    import matplotlib.pyplot as plt
+
+    data = json.load(open(distributions))["densities"]
+    rho = sorted(int(k) for k in data)
+
+    def band(field):
+        med = [data[str(r)][field]["quantiles"]["50"] for r in rho]
+        lo = [data[str(r)][field]["quantiles"]["25"] for r in rho]
+        hi = [data[str(r)][field]["quantiles"]["75"] for r in rho]
+        return np.array(med), np.array(lo), np.array(hi)
+
+    optical, o_lo, o_hi = band("optical_path_m")
+    contend, c_lo, c_hi = band("contenders")
+
+    fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.4))
+    # Interquartile bars rather than filled bands: with three conditions the
+    # fills overlap into a wash, and the spread at the sparsest density is wide
+    # enough to swallow the trend it is meant to qualify.
+    optical_h = ax.errorbar(rho, optical, yerr=[optical - o_lo, o_hi - optical], color=VLC,
+                marker="o", ms=3.6, capsize=2.5, lw=1.2, elinewidth=0.8,
+                label="optical path")
+    ax.set_xlabel(r"density $\rho$ [veh/lane/km]")
+    ax.set_ylabel("headlamp-to-photodiode path [m]", color=VLC)
+    ax.tick_params(axis="y", colors=VLC)
+    ax.set_ylim(0, max(o_hi) * 1.12)
+    ax.set_xticks(rho)
+
+    bx = ax.twinx()
+    contend_h = bx.errorbar(rho, contend, yerr=[contend - c_lo, c_hi - contend], color=RF,
+                marker="s", ms=3.4, capsize=2.5, lw=1.2, ls="--", elinewidth=0.8,
+                label="contenders")
+    bx.set_ylabel("contenders within 200 m", color=RF)
+    bx.tick_params(axis="y", colors=RF)
+    bx.set_ylim(0, max(c_hi) * 1.12)
+    bx.grid(False)
+
+    ax.legend([optical_h, contend_h], ["optical path", "contenders"],
+              loc="upper center", ncol=2, columnspacing=1.0)
+    ax.set_ylim(0, max(o_hi) * 1.35)
+    style.save(fig, out)
+
+
+# --------------------------------------------------------------------------
+# Figure: the optical cliff, with the traffic that has to cross it
+# --------------------------------------------------------------------------
+
+def optical_cliff(out: Path, *, distributions: Path) -> None:
+    """Range decides the optical link, and density decides the range.
+
+    The packet error curve is nearly binary: an inverse-square budget against a
+    steep coded threshold puts the transition inside a few metres. Plotting it
+    alone says little. Overlaid with the measured distribution of optical path
+    at each density, it explains the whole optical column of the results -- why
+    the light fails most packets at low density and most of it arrives at high.
+    """
+
+    import matplotlib.pyplot as plt
+
+    from grail_v.channels.vlc.model import VLCChannelRequest, VLCPacketRandomness
+    from grail_v.config import load_headline_config
+    from grail_v.core.pair_geometry import pair_geometry
+    from grail_v.env.assembly import build_vlc_channel
+
+    config = load_headline_config(Path.cwd())
+    channel = build_vlc_channel(config)
+    car_length, north = 4.5, 0.5 * math.pi
+
+    class _V:
+        def __init__(self, vid, x, y):
+            self.vehicle_id, self.x_m, self.y_m, self.heading_rad = vid, x, y, north
+            self.length_m, self.width_m, self.height_m, self.speed_mps = \
+                car_length, 1.8, 1.5, 10.0
+
+    gaps = np.linspace(1.5, 60.0, 260)
+    paths, per = [], []
+    for gap in gaps:
+        geometry = pair_geometry(_V("t", 0.0, 0.0), _V("r", 0.0, gap + car_length))
+        result = channel.evaluate(VLCChannelRequest(
+            geometry=geometry, occluded=False, randomness=VLCPacketRandomness(0.5)))
+        paths.append(geometry.optical_path_length_m)
+        per.append(max(result.decoding_failure_probability, 1e-16))
+
+    data = json.load(open(distributions))["densities"]
+    rho = sorted(int(k) for k in data)
+
+    # Optical path for a tagged pair is its separation less one vehicle
+    # length, so the 10-60 m eligibility window maps to roughly 5.5-55.5 m
+    # behind a passenger car. Outside it no pair is ever evaluated.
+    window = (10.0 - car_length, 60.0 - car_length)
+
+    fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.5))
+    ax.axvspan(0, window[0], color=GREY, alpha=0.13, lw=0)
+    ax.annotate("below\npair window", xy=(window[0] - 0.4, 1e-7), fontsize=6,
+                color=GREY, ha="right", va="center")
+    ax.semilogy(paths, per, color=BOUND, lw=1.4)
+    ax.annotate("packet error", xy=(31.5, 3e-9), fontsize=6.8, color=BOUND,
+                ha="right", va="center")
+    ax.set_xlabel("headlamp-to-photodiode path [m]")
+    ax.set_ylabel("optical packet error")
+    ax.set_xlim(0, 60)
+    ax.set_ylim(1e-16, 3.0)
+    ax.set_yticks([1e-15, 1e-10, 1e-5, 1e0])
+
+    bx = ax.twinx()
+    for shade, r in zip((0.40, 0.68, 1.0), rho, strict=True):
+        d = data[str(r)]["optical_path_m"]
+        bx.plot(d["cdf_x"], d["cdf_p"], color=VLC, alpha=shade, lw=1.0,
+                label=rf"$\rho={r}$")
+    bx.set_ylabel("fraction of pairs at or below", color=VLC)
+    bx.tick_params(axis="y", colors=VLC)
+    bx.set_ylim(0, 1.05)
+    bx.grid(False)
+    bx.legend(loc="center right", title="path CDF", title_fontsize=6.5)
+    style.save(fig, out)
+
+
+__all__ = [
+    "density_coupling",
+    "headlamp_pattern",
+    "optical_cliff",
+    "reliability_cost_frontier",
+    "rf_failure_decomposition",
+]
