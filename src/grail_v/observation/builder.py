@@ -164,23 +164,66 @@ def _optical_fov_margin_rad(inputs: PairObservationInputs) -> float:
     return inputs.fov_half_angle_rad - incidence
 
 
+def link_feature_values(
+    links: LinkStateTracker, now_s: float
+) -> Mapping[str, float | Sequence[float]]:
+    """The features that depend on what the policy did, and on nothing else.
+
+    Split out because it is the only part of the observation a *replay* cannot
+    precompute. Everything else here is a function of the trace, so it is the
+    same for every policy and every seed and can be measured once; these nine
+    depend on the actions taken and must be rebuilt as a trajectory unfolds.
+
+    Exposed rather than inlined so that a cached environment reconstructs them
+    with this code and not with a copy of it. A second implementation that
+    drifted from this one would train the policy on an observation the
+    evaluator never produces, and nothing downstream would report a mismatch.
+    """
+
+    rf_quality, rf_age = _quality_and_age(links, Link.RF, now_s)
+    vlc_quality, vlc_age = _quality_and_age(links, Link.VLC, now_s)
+    return {
+        "rf_quality": rf_quality,
+        "rf_quality_age": rf_age,
+        "rf_quality_history": links.rf.padded_values(fill=UNMEASURED_QUALITY),
+        "vlc_quality": vlc_quality,
+        "vlc_quality_age": vlc_age,
+        "vlc_quality_history": links.vlc.padded_values(fill=UNMEASURED_QUALITY),
+        "previous_action": (
+            float(links.previous_action) if links.previous_action is not None else -1.0
+        ),
+        "last_delivery_outcome": (
+            -1.0 if links.last_delivered is None else float(links.last_delivered)
+        ),
+        "consecutive_miss_count": float(links.consecutive_misses),
+    }
+
+
+#: Feature names :func:`link_feature_values` supplies. The complement is
+#: trace-derived, and the two sets together must cover every configured feature.
+LINK_FEATURES: frozenset[str] = frozenset(
+    {
+        "rf_quality",
+        "rf_quality_age",
+        "rf_quality_history",
+        "vlc_quality",
+        "vlc_quality_age",
+        "vlc_quality_history",
+        "previous_action",
+        "last_delivery_outcome",
+        "consecutive_miss_count",
+    }
+)
+
+
 def _feature_values(inputs: PairObservationInputs) -> Mapping[str, float | Sequence[float]]:
     """One entry per §6.1 feature name."""
-
-    now = inputs.now_s
-    rf_quality, rf_age = _quality_and_age(inputs.links, Link.RF, now)
-    vlc_quality, vlc_age = _quality_and_age(inputs.links, Link.VLC, now)
 
     tx_velocity = inputs.transmitter.speed_mps
     rx_velocity = inputs.receiver.speed_mps
 
     return {
-        "rf_quality": rf_quality,
-        "rf_quality_age": rf_age,
-        "rf_quality_history": inputs.links.rf.padded_values(fill=UNMEASURED_QUALITY),
-        "vlc_quality": vlc_quality,
-        "vlc_quality_age": vlc_age,
-        "vlc_quality_history": inputs.links.vlc.padded_values(fill=UNMEASURED_QUALITY),
+        **link_feature_values(inputs.links, inputs.now_s),
         "rf_channel_busy_ratio": inputs.channel_busy_ratio,
         "neighbor_count": float(inputs.neighbour_count),
         "pair_distance": _pair_distance_m(inputs),
@@ -206,17 +249,9 @@ def _feature_values(inputs: PairObservationInputs) -> Mapping[str, float | Seque
         # The older of the two, because a pair is only as well known as its
         # worse-tracked end.
         "track_age": max(
-            inputs.transmitter_track.age_s(now), inputs.receiver_track.age_s(now)
+            inputs.transmitter_track.age_s(inputs.now_s),
+            inputs.receiver_track.age_s(inputs.now_s),
         ),
-        "previous_action": (
-            float(inputs.links.previous_action)
-            if inputs.links.previous_action is not None
-            else -1.0
-        ),
-        "last_delivery_outcome": (
-            -1.0 if inputs.links.last_delivered is None else float(inputs.links.last_delivered)
-        ),
-        "consecutive_miss_count": float(inputs.links.consecutive_misses),
     }
 
 
@@ -275,9 +310,11 @@ class ObservationBuilder:
 __all__ = [
     "BuilderConfigSource",
     "HISTORY_FEATURES",
+    "LINK_FEATURES",
     "UNMEASURED_AGE_S",
     "UNMEASURED_QUALITY",
     "ObservationBuilder",
     "ObservationSchema",
     "PairObservationInputs",
+    "link_feature_values",
 ]
