@@ -5,11 +5,11 @@ Run as::
     python scripts/fitted_risk_check.py [--density 30] [--packets 200000]
 
 The targeting bound assumes a policy knows each packet's failure probability
-exactly. It does not: it sees thirty-five features derived from measurements
-that are \\SI{50}{\\milli\\second} stale, metre-noisy, and propagated
-\\SI{200}{\\milli\\second} forward. The bound is therefore an upper limit on
-what *any* risk-aware policy can achieve, and the interesting question is how
-much of it survives the observation.
+exactly. It does not: it sees a thirty-five column observation derived from
+measurements that are \\SI{50}{\\milli\\second} stale, metre-noisy, and
+propagated \\SI{200}{\\milli\\second} forward. The bound is therefore an upper
+limit on what *any* risk-aware policy can achieve, and the interesting
+question is how much of it survives the observation.
 
 This answers that without training anything. For each packet it records the
 observation a policy would see and the risk the channel actually assigned,
@@ -25,12 +25,19 @@ alignment the policy can only estimate. Handing a fit the true joint risk
 therefore hands it the entire difficult half, which is why the leaky variant
 is reported beside the honest one rather than deleted.
 
-**It is a screening test, not a bound on PPO.** A ridge regression on
-thirty-five features is a weak learner, so a poor result here does not prove a
-neural policy would fail. A *good* result, though, is close to conclusive in
-the other direction: if a linear fit already recovers most of the headroom,
-the information is present in the observation and the remaining question is
-only whether the optimiser finds it.
+**It is a screening test, not a bound on PPO.** A ridge regression is a weak
+learner, so a poor result here does not prove a neural policy would fail. A
+*good* result, though, is close to conclusive in the other direction: if a
+linear fit already recovers most of the headroom, the information is present
+in the observation and the remaining question is only whether the optimiser
+finds it.
+
+It also under-reports for a reason specific to this script. The baseline it
+drives is RF-only, so the optical leg is never spent, never measured, and its
+ten quality columns stay at their unset value for every packet. That is the
+feedback channel behaving correctly -- an action teaches nothing about the
+link it did not use -- but it means the fit works from a strictly smaller
+observation than a policy that sometimes duplicates would enjoy.
 
 The screening costs minutes. Training five seeds for ten million transitions
 each does not, and finding out afterwards that the features cannot support the
@@ -50,14 +57,14 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grail_v.channels.rf.collision import SensitivityBand
 from grail_v.config import load_headline_config
 from grail_v.env.assembly import build_rollout
 from grail_v.env.campaign import TargetingBound
 from grail_v.env.episodes import TraceSource, iter_pair_instants
+from grail_v.env.feedback import measurements
+from grail_v.env.packet import ACTIONS
 from grail_v.env.perception import build_perception
 from grail_v.env.rollout import always
-from grail_v.env.packet import ACTIONS
 
 WARMUP_S = 400.0
 
@@ -95,10 +102,16 @@ def collect(config, density: int, packets: int, split: str, replicate: int, seed
         rf_risk.append(rf.rf_failure_probability)
         joint_risk.append(alternatives["DUP"].joint_failure_probability)
         # The policy learns from what it did; here nothing is chosen, so the
-        # link history is fed the baseline outcome to keep it moving.
+        # link history is fed the baseline outcome to keep it moving. The
+        # measurement goes through the feedback channel rather than straight
+        # from the outcome, because the exact SINR is oracle-side.
         perception.record(
             instant.pair_id, action=rf.action, at_s=instant.time_s,
             delivered=rf.delivered,
+            measurements=measurements(
+                rf, root_seed=seed, trace_id=instant.trace_id,
+                pair_id=instant.pair_id, packet_index=instant.index,
+            ),
         )
         if instant.final:
             rollout.release(instant.pair_id)
@@ -146,7 +159,8 @@ def _spearman(a: np.ndarray, b: np.ndarray) -> float:
 
     ra = np.argsort(np.argsort(a)).astype(float)
     rb = np.argsort(np.argsort(b)).astype(float)
-    ra -= ra.mean(); rb -= rb.mean()
+    ra -= ra.mean()
+    rb -= rb.mean()
     denominator = math.sqrt(float(ra @ ra) * float(rb @ rb))
     return float(ra @ rb) / denominator if denominator else 0.0
 
