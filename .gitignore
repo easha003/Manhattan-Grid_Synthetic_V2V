@@ -14,10 +14,26 @@ dist/
 # research/literature/*.md are our own analysis and are tracked.
 research/literature/pdfs/
 
-artifacts/calibration/*
+# Calibration artifacts and figures are tracked. They are *inputs*, not
+# outputs: the headline profile names a pattern artifact by path, so a fresh
+# clone cannot evaluate a single packet without one, and the report embeds the
+# figures it cites. Together they are about a megabyte, which is a fair price
+# for a repository that runs after `git clone` rather than after a build step.
+#
+# Evaluation results and training checkpoints stay out: those are outputs, they
+# grow without bound across conditions, and every number they carry is already
+# quoted in the report and its commit history.
 artifacts/checkpoints/*
 artifacts/evaluations/*
-artifacts/figures/*
+
+# Except this one. headlamp-ece-r112-v1 is the superseded test-point pattern:
+# it credited zone IV 1,875 cd against the regulation's 2,500, carried a
+# vertical axis with 75R's *horizontal* coordinate on it, and applied the zone
+# IV floor far outside zone IV's box. It is kept on disk so the earlier numbers
+# can be reproduced, and kept out of the repository so nobody points a profile
+# at it by accident. scripts/build_headlamp_pattern.py regenerates the
+# replacement and verifies its compliance before writing.
+artifacts/calibration/vlc/headlamp-ece-r112-v1/
 
 # Generated mobility traces. Roughly 280 MB per trace and 21 traces to a
 # campaign, so versioning them would put gigabytes of parquet in history for
@@ -36,10 +52,8 @@ artifacts/traces/*
 artifacts/traces-*/
 artifacts/traces/*
 
-!artifacts/calibration/.gitkeep
 !artifacts/checkpoints/.gitkeep
 !artifacts/evaluations/.gitkeep
-!artifacts/figures/.gitkeep
 !artifacts/traces/.gitkeep
 
 # Superseded campaigns are kept on disk for bookkeeping.  Track only the small
