@@ -262,3 +262,66 @@ def test_feedback_is_action_dependent(config) -> None:
     ages = perception._links[pair.pair_id].ages(now_s=2.5)
     assert ages[Link.RF] == pytest.approx(0.5)
     assert ages[Link.VLC] == pytest.approx(0.5)
+
+
+@pytestmark_trace
+def test_the_spatial_hash_finds_exactly_the_brute_force_blockers(config) -> None:
+    """The hash is an optimisation, so it must change no answer.
+
+    Both the contender count and the blocker filter were scanning every live
+    track for every pair and together took 88% of the chain. Bucketing them is
+    only legitimate if the set it returns is the set brute force returns --
+    a filter that quietly dropped a candidate would weaken the blockage
+    estimate in exactly the crowded frames where it matters.
+    """
+
+    from grail_v.env.perception import NOMINAL_BLOCKER, _near_segment
+
+    perception = build_perception(config, root_seed=11)
+    compared = 0
+    for instant in instants(400):
+        if perception.observe(instant) is None:
+            continue
+        tx = perception._predicted[instant.transmitter.vehicle_id]
+        rx = perception._predicted[instant.receiver.vehicle_id]
+        margin = 0.5 * NOMINAL_BLOCKER.length_m + 3.0 * max(
+            tx.cross_track_std_m, rx.cross_track_std_m, 1.0)
+        exclude = (tx.vehicle_id, rx.vehicle_id)
+        brute = {
+            s.vehicle_id for s in perception._predicted.values()
+            if s.vehicle_id not in exclude
+            and _near_segment(s.x_m, s.y_m, tx, rx, margin)
+        }
+        hashed = {
+            s.vehicle_id
+            for s in perception._cells_near(tx.x_m, tx.y_m, rx.x_m, rx.y_m, margin)
+            if s.vehicle_id not in exclude
+            and _near_segment(s.x_m, s.y_m, tx, rx, margin)
+        }
+        assert hashed == brute
+        compared += 1
+    assert compared > 100, "expected a meaningful number of comparisons"
+
+
+@pytestmark_trace
+def test_the_contender_count_is_taken_at_the_forecast_horizon(config) -> None:
+    """Consistent with the rest of the observation, and asserted as a choice.
+
+    The blockage estimate and the pair geometry are both evaluated at the
+    horizon because the decision applies to a packet sent later. Counting
+    contenders at measurement time instead would describe a different instant
+    from the rest of the vector.
+    """
+
+    from grail_v.env.perception import CONTENTION_RADIUS_M
+
+    perception = build_perception(config, root_seed=12)
+    instant = next(i for i in instants(60) if perception.observe(i) is not None)
+    tx = perception._predicted[instant.transmitter.vehicle_id]
+
+    expected = sum(
+        1 for other in perception._predicted.values()
+        if other.vehicle_id != tx.vehicle_id
+        and math.hypot(other.x_m - tx.x_m, other.y_m - tx.y_m) <= CONTENTION_RADIUS_M
+    )
+    assert perception._contenders(tx) == expected
