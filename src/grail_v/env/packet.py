@@ -30,7 +30,7 @@ Both numbers come from the frozen service profile rather than from here.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from grail_v.channels.rf.model import NRV2XChannel, RFChannelRequest, RFPacketRandomness
 from grail_v.channels.vlc.model import (
@@ -173,6 +173,16 @@ class PacketOutcome:
     #: Marginal failure probabilities for this packet, for section 8.3.
     rf_failure_probability: float
     vlc_failure_probability: float
+    #: Realized signal quality on each leg the action actually spent, in dB.
+    #:
+    #: ``None`` for a leg the action did not use, and that asymmetry is the
+    #: point: section 6.3's sequential claim is that choosing a link buys a
+    #: fresh reading of it while the other leg's estimate ages. A value here is
+    #: the *oracle* quantity; the observation layer is handed a noisy, aged
+    #: version of it, and :mod:`grail_v.env.feedback` is the only thing allowed
+    #: to make that conversion.
+    rf_quality_db: float | None = None
+    vlc_quality_db: float | None = None
 
     @property
     def joint_failure_probability(self) -> float:
@@ -197,17 +207,25 @@ class PacketLifecycle:
     def __post_init__(self) -> None:
         self.timing.check_feasible()
 
-    def _run_rf(self, request: RFChannelRequest, tape: PacketTape) -> tuple[bool, float | None, FailureCause, int, float]:
+    def _run_rf(
+        self, request: RFChannelRequest, tape: PacketTape
+    ) -> tuple[bool, float | None, FailureCause, int, float, float | None]:
         """Up to ``rf_attempts`` hopped attempts, stopping at the first success.
 
         Stopping early is not an optimization and does not save cost: the
         opportunity is pre-reserved, so the airtime is committed whether or not
         it is used. It only decides the arrival time.
+
+        The SINR returned is the *last attempt actually made*, because that is
+        the freshest thing a receiver could report back. The attempts hop, so
+        they do not share a fade, and averaging them would report a channel
+        that no single attempt saw.
         """
 
         attempts = min(self.timing.rf_attempts, len(tape.rf_attempts))
         probability = 1.0
         cause = FailureCause.NONE
+        sinr_db: float | None = None
         for index in range(attempts):
             attempt = RFChannelRequest(
                 distance_m=request.distance_m,
@@ -225,10 +243,12 @@ class PacketLifecycle:
             )
             result = self.rf.evaluate(attempt)
             probability *= result.total_failure_probability
+            sinr_db = result.sinr_db
             if result.success:
-                return True, self.timing.rf_arrival_s(index), FailureCause.NONE, index + 1, probability
+                return (True, self.timing.rf_arrival_s(index), FailureCause.NONE,
+                        index + 1, probability, sinr_db)
             cause = result.failure_cause
-        return False, None, cause, attempts, probability
+        return False, None, cause, attempts, probability, sinr_db
 
     def _rf_failure_probability(self, request: RFChannelRequest, tape: PacketTape) -> float:
         """The **packet's** RF failure probability, over every granted attempt.
@@ -293,12 +313,15 @@ class PacketLifecycle:
         rf_time: float | None = None
         rf_cause = FailureCause.NONE
         attempts_used = 0
+        rf_quality_db: float | None = None
         if action.uses_rf:
-            rf_delivered, rf_time, rf_cause, attempts_used, _ = self._run_rf(rf_request, tape)
+            (rf_delivered, rf_time, rf_cause, attempts_used, _,
+             rf_quality_db) = self._run_rf(rf_request, tape)
 
         vlc_delivered = False
         vlc_time: float | None = None
         vlc_cause = FailureCause.NONE
+        vlc_quality_db: float | None = None
         if action.uses_vlc:
             result = self.vlc.evaluate(
                 VLCChannelRequest(
@@ -309,6 +332,7 @@ class PacketLifecycle:
             )
             vlc_delivered = result.success
             vlc_cause = result.failure_cause
+            vlc_quality_db = result.snr_db
             if vlc_delivered:
                 vlc_time = self.timing.vlc_arrival_s
 
@@ -338,6 +362,8 @@ class PacketLifecycle:
             vlc_delivered=vlc_delivered,
             rf_failure_probability=rf_probability,
             vlc_failure_probability=vlc_probability,
+            rf_quality_db=rf_quality_db,
+            vlc_quality_db=vlc_quality_db,
         )
 
     def counterfactuals(
