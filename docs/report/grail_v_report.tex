@@ -983,6 +983,61 @@ per-packet risk, whereas a policy sees a noisy \SI{200}{\milli\second}
 forecast; and risk concentration is mild (the riskiest $10\%$ of packets carry
 roughly $23\%$ of expected misses), so the headroom is real but not dramatic.
 
+\subsection{Sensitivity}
+
+Table~\ref{tab:sensitivity} varies one declared parameter at a time at the
+binding density. Two conditions break the constraint and one strengthens it,
+and none of the three is a modelling detail.
+
+\begin{table}[!t]
+\caption{Sensitivity at $\rho=30$, \num{3000000} packets, wide variant.
+Bounds are one-sided upper at 95\,\%.}
+\label{tab:sensitivity}
+\centering
+\begin{tabular}{@{}lS[table-format=1.3e1]S[table-format=1.3e1]cS[table-format=1.3]@{}}
+\toprule
+condition & {DUP $\mathbb{E}[\text{miss}]$} & {95\,\% upper} & {holds} & {cost} \\
+\midrule
+headline & 9.076e-5 & 9.330e-5 & yes & 1.694 \\
+collision optimistic & 9.555e-6 & 9.814e-6 & yes & 1.000 \\
+collision pessimistic & 4.868e-4 & 5.006e-4 & no & 2.000 \\
+receiver cone \SI{30}{\degree} & 7.278e-5 & 7.512e-5 & yes & 1.640 \\
+clear daylight & 1.026e-4 & 1.053e-4 & no & 2.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The collision band is the widest axis, and deliberately so: it is a declared
+uncertainty standing in for a calibration that has not been done, and it spans
+a factor of \num{50} in duplication's miss rate. At the pessimistic end the
+budget is unreachable at $\rho=30$ by any action. Narrowing that band is worth
+more to this work than any other single measurement.
+
+Daylight breaks the constraint too, and by a smaller margin that makes it more
+interesting: ambient shot noise raises the optical failure rate from $23.0\%$
+to $26.3\%$ and duplication lands at $1.026\times10^{-4}$. \textbf{The
+high-density reliability result is therefore a night-time result.} Reporting it
+without that qualifier would be the most misleading thing in this document.
+
+The receiver cone is the surprise. Narrowing it from \SI{60}{\degree} to
+\SI{30}{\degree} reduces optical failure by $20\%$ and triples the margin at
+$\rho=30$---and it does so at \emph{exactly} zero cost in availability:
+$P_{\mathrm{out}}$ is bit-identical between the two. The reason is that the
+acceptance cone is redundant behind the beam envelope. Every pair whose
+incidence angle falls between \SI{30}{\degree} and \SI{60}{\degree} is already
+outside the region the headlamp pattern covers, so tightening the cone rejects
+nothing that was being accepted. A narrower concentrator is close to free here,
+which is not what the configuration's own commentary anticipated.
+
+That also settles the transmitter-versus-receiver attribution the earlier
+sections withdrew: it was never a split. The beam binds first, for every pair.
+
+Headway is absent from the table because it is a mobility parameter: the IDM
+holds the gap at $s_0 + vT$, so varying $T$ means regenerating the trace
+campaign rather than re-evaluating it. Since the optical path \emph{is} that
+gap, $T$ is simultaneously the leading term in the optical budget and the most
+expensive sensitivity to run, and it remains outstanding.
+
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 

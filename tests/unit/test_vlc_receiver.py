@@ -402,3 +402,38 @@ def test_the_receiver_computes_no_noise_power() -> None:
     assert not hasattr(module, "BOLTZMANN_J_PER_K")
     for forbidden in ("def thermal_noise", "def shot_noise", "def total_noise", "def snr"):
         assert forbidden not in source
+
+
+def test_the_acceptance_cone_reaches_the_receiver_as_well_as_the_geometry() -> None:
+    """One semi-angle, and both uses must move together.
+
+    The module docstring promises "there is one number in the codebase and the
+    two uses cannot drift apart", but the promise lives in the *assembly*: the
+    geometry test reads the configured semi-angle while the concentrator gain
+    reads whatever the receiver was constructed with. Building the receiver
+    without passing it left the gain pinned at the module default, so a profile
+    narrowing the cone paid the availability cost of a narrow cone and received
+    the gain of a wide one.
+
+    Asserting it here rather than in the config tests is deliberate: the defect
+    was in how the two are wired together, not in either alone.
+    """
+
+    import math
+    from pathlib import Path
+
+    from grail_v.config.loader import headline_config_layers, load_config
+    from grail_v.env.assembly import build_rollout, build_vlc_channel
+
+    config = load_config(headline_config_layers(Path.cwd()), project_root=Path.cwd())
+    for degrees in (60.0, 30.0):
+        tuned = config.model_copy(
+            update={"vlc": config.vlc.model_copy(
+                update={"receiver_fov_deg": degrees})}, deep=True)
+        channel = build_vlc_channel(tuned)
+        rollout = build_rollout(tuned, buildings=())
+        assert math.degrees(channel.receiver.fov_half_angle_rad) == pytest.approx(degrees)
+        assert math.degrees(rollout.fov_half_angle_rad) == pytest.approx(degrees)
+        # The two uses are the same number, so they agree exactly.
+        assert channel.receiver.fov_half_angle_rad == pytest.approx(
+            rollout.fov_half_angle_rad)

@@ -73,7 +73,18 @@ def build_vlc_channel(config: ProjectConfig) -> VVLCChannel:
 
     return VVLCChannel(
         pattern=load_pattern(config.vlc.pattern_artifact),
-        receiver=OpticalReceiver(),
+        # The acceptance semi-angle must be the *same* number here as in the
+        # geometry test. receiver.py says so in its own docstring -- "there is
+        # one number in the codebase and the two uses cannot drift apart" --
+        # and this line is where that promise was being broken: the receiver
+        # was constructed with its module default, so a profile that narrowed
+        # the cone tightened the acceptance test and left the concentrator gain
+        # at 60 degrees. That is the wide-cone-availability with narrow-cone-gain
+        # error the configuration warns about, running in the opposite
+        # direction: narrow acceptance paid for, wide-cone gain received.
+        receiver=OpticalReceiver(
+            fov_half_angle_rad=np.deg2rad(config.vlc.receiver_fov_deg)
+        ),
         electrical_bandwidth_hz=config.vlc.electrical_bandwidth_hz,
         payload_bytes=config.service.payload_bytes,
         framing_bytes=config.vlc.timing.framing_overhead_bytes,
