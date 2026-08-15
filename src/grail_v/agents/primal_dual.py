@@ -68,7 +68,9 @@ class Multipliers:
     def per_sample(self, groups: np.ndarray) -> np.ndarray:
         return self.value[groups].astype(np.float32)
 
-    def update(self, realized: np.ndarray, budget: float) -> np.ndarray:
+    def update(
+        self, realized: np.ndarray, budget: float, *, reference: float | None = None
+    ) -> np.ndarray:
         """One dual ascent step per group, returning the violation it saw.
 
         Projected onto the nonnegative orthant because the constraint is
@@ -78,6 +80,14 @@ class Multipliers:
         A ``NaN`` entry means the batch carried no packets from that density,
         and its multiplier is left where it is. Treating absence as zero cost
         would let a group the run never sampled decay its own price to nothing.
+
+        ``reference`` is the scale the cost signal is expressed in, and it must
+        be the same one the policy's cost advantage was divided by. The
+        multiplier is a price, and a price is only meaningful beside the units
+        of the thing it prices: scaling the dual step by the *current* budget
+        while the advantage carried raw probabilities left lambda climbing at
+        0.2 an update toward a value near 10,000, and the policy spent the
+        whole run believing duplication was not worth its second leg.
         """
 
         violation = np.asarray(realized, dtype=np.float64) - budget
@@ -85,14 +95,25 @@ class Multipliers:
         violation = np.where(observed, violation, 0.0)
         rate = np.asarray(self.learning_rate, dtype=np.float64)
         ceiling = np.asarray(self.maximum, dtype=np.float64)
-        # Scaled by the budget so the step size does not depend on the units a
-        # 1e-4 constraint happens to be written in. Without it a learning rate
-        # of 0.05 would move the multiplier by 5e-6 per update and never reach
-        # a value that changes the policy's mind.
+        scale = budget if reference is None else reference
+
+        # Saturated, and this is the difference between a loop that converges
+        # and one that spends its whole budget unwinding. An untrained policy
+        # picks the optical leg a third of the time, whose marginal is ~0.37,
+        # so the first batches sit three orders of magnitude over a 1e-4
+        # constraint. Fed to a linear dual step that reads as a violation of a
+        # thousand, and lambda integrates to the low thousands within twenty
+        # updates -- when the price at which duplication is actually worth its
+        # second leg is of order one. Everything then duplicates, the cost
+        # falls far below budget, and the multiplier unwinds at the same rate
+        # it climbed.
+        #
+        # tanh is the ordinary dual gradient near the constraint, where the
+        # magnitude is meaningful, and saturates where it is not: far from
+        # feasibility only the sign carries information.
+        step = rate * np.tanh(violation / scale)
         self.value = np.where(
-            observed,
-            np.clip(self.value + rate * violation / budget, 0.0, ceiling),
-            self.value,
+            observed, np.clip(self.value + step, 0.0, ceiling), self.value
         )
         return np.where(observed, violation, np.nan)
 

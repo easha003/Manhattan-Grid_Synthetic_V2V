@@ -87,6 +87,15 @@ class Trainer:
     curriculum: tuple
     total_transitions: int
     seed: int
+    #: The scale the cost signal is expressed in, and the units lambda prices.
+    #:
+    #: Costs are divided by it before the critic and the advantage see them, so
+    #: the constraint reads "normalized cost at most one" at the final stage and
+    #: the multiplier that makes duplication worth its second leg is order one
+    #: rather than order ten thousand. Constant across the curriculum, so
+    #: tightening the budget moves the threshold rather than rescaling every
+    #: target the cost critic has already fitted.
+    reference_budget: float = 1e-4
     generator: np.random.Generator = field(default=None)  # type: ignore[assignment]
     _lane_groups: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
     _present: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
@@ -148,7 +157,7 @@ class Trainer:
             gamma=self.gamma, lam=self.gae_lambda,
         )
         cost_advantage, cost_target = generalized_advantage(
-            costs, cost_values, last_cost_value.numpy(), dones,
+            costs / self.reference_budget, cost_values, last_cost_value.numpy(), dones,
             gamma=self.gamma, lam=self.gae_lambda,
         )
 
@@ -199,7 +208,9 @@ class Trainer:
 
             # Duals first, so the policy is priced by the multiplier implied by
             # the violation this batch just showed.
-            self.multipliers.update(progress.mean_cost_per_group, budget)
+            self.multipliers.update(
+                progress.mean_cost_per_group, budget, reference=self.reference_budget
+            )
             progress.multipliers = self.multipliers.value.copy()
 
             progress.diagnostics = update(
@@ -293,6 +304,7 @@ def build_trainer(config, caches: tuple[TransitionCache, ...], *, seed: int,
         curriculum=training.curriculum,
         total_transitions=training.total_transitions_per_seed,
         seed=seed,
+        reference_budget=float(config.service.miss_budget),
     )
 
 
