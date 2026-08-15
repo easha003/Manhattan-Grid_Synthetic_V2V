@@ -142,13 +142,43 @@ def test_a_group_with_no_samples_keeps_its_price() -> None:
 
 
 def test_the_dual_step_is_scaled_by_the_budget() -> None:
-    """A violation of one budget's worth moves the multiplier by the learning
-    rate, whatever units the budget is written in."""
+    """The step depends on the violation relative to the budget, not on the
+    units the budget happens to be written in."""
 
+    steps = []
     for budget in (1e-2, 1e-4, 1e-5):
         m = Multipliers.from_config([_Configured(20.0, rate=0.05)])
         m.update(np.array([2.0 * budget]), budget=budget)
-        assert m.value[0] == pytest.approx(0.05)
+        steps.append(m.value[0])
+    assert steps[0] == pytest.approx(steps[1]) == pytest.approx(steps[2])
+
+
+def test_a_small_violation_gets_the_ordinary_dual_gradient() -> None:
+    """Near the constraint the magnitude is meaningful, so the saturation must
+    not distort it; tanh is the identity to first order."""
+
+    m = Multipliers.from_config([_Configured(20.0, rate=0.05)])
+    m.update(np.array([1.05e-4]), budget=1e-4)
+    assert m.value[0] == pytest.approx(0.05 * 0.05, rel=1e-2)
+
+
+def test_a_hopeless_violation_cannot_wind_the_multiplier_up() -> None:
+    """The step that matters, and the reason the first loop never converged.
+
+    An untrained policy sits three orders of magnitude over a 1e-4 budget, and
+    a linear dual step reads that as a violation of a thousand. Lambda would
+    integrate into the thousands within twenty updates when the price that
+    makes duplication worthwhile is of order one, and the rest of the run
+    would be spent unwinding it.
+    """
+
+    m = Multipliers.from_config([_Configured(20.0, rate=0.05)])
+    m.update(np.array([1e-1]), budget=1e-4)
+    assert m.value[0] <= 0.05 + 1e-12
+
+    # And no violation, however extreme, moves it faster than the rate.
+    m.update(np.array([1e9]), budget=1e-4)
+    assert m.value[0] <= 0.10 + 1e-12
 
 
 # -- the curriculum -----------------------------------------------------------
