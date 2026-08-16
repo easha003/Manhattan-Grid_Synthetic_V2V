@@ -49,6 +49,12 @@ def main() -> int:
     ap.add_argument("--lanes", type=int, default=256)
     ap.add_argument("--transitions", type=int, default=None,
                     help="override total_transitions_per_seed, for smoke runs")
+    ap.add_argument("--dual-lr", type=float, default=None,
+                    help="override every density's dual learning rate. The frozen "
+                         "profile's 0.05 predates this loop, and near the constraint "
+                         "the saturated step is proportional to the relative "
+                         "violation -- so a run that ends with lambda still climbing "
+                         "has not converged, it has run out of updates")
     ap.add_argument("--out", type=Path, default=Path("artifacts/policies"))
     args = ap.parse_args()
 
@@ -68,6 +74,10 @@ def main() -> int:
         trainer = build_trainer(config, caches, seed=seed, lanes=args.lanes)
         if args.transitions is not None:
             trainer.total_transitions = args.transitions
+        if args.dual_lr is not None:
+            trainer.multipliers.learning_rate = tuple(
+                args.dual_lr for _ in trainer.multipliers.densities
+            )
         out = args.out / f"seed-{seed}"
         print(f"\nseed {seed}: {trainer.total_transitions:,} transitions, "
               f"{trainer.rollout_packets:,} per update, {args.lanes} lanes")
