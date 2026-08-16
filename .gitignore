@@ -26,6 +26,15 @@ research/literature/pdfs/
 artifacts/checkpoints/*
 artifacts/evaluations/*
 
+# Cached transitions and trained policies, by the same rule. A cache is the
+# policy-independent half of a split measured once -- ~300 MB, and derivable
+# from a trace and a commit by scripts/build_training_cache.py. The policies
+# are checkpoints under another name. Both are keyed by condition, so they
+# multiply the way evaluations do.
+artifacts/caches/
+artifacts/policies/
+artifacts/policies-*/
+
 # Except this one. headlamp-ece-r112-v1 is the superseded test-point pattern:
 # it credited zone IV 1,875 cd against the regulation's 2,500, carried a
 # vertical axis with 75R's *horizontal* coordinate on it, and applied the zone
