@@ -115,11 +115,26 @@ class Replay:
         schema: ObservationSchema,
         lanes: int,
         seed: int,
+        memoryless: bool = False,
     ) -> None:
         if not caches:
             raise ValueError("a replay needs at least one cache")
         self.caches = caches
         self.plan = ColumnPlan.from_schema(schema)
+        # The contextual ablation. Section 6.3 rests the sequential claim on the
+        # action changing what the policy will later know, and in this model
+        # that is the *only* thing an action changes: the channel, the geometry
+        # and the contention all evolve from the trace regardless. Blanking the
+        # action-dependent columns therefore turns the problem into a
+        # constrained contextual bandit exactly, and the cost difference at
+        # matched feasibility is what the sequential structure is worth.
+        #
+        # Zeroed rather than removed so the network, its parameter count and
+        # every hyperparameter stay identical; only the information moves.
+        self.memoryless = bool(memoryless)
+        self._blank = np.concatenate(
+            [np.arange(s.start, s.stop) for s in self.plan.link_slices.values()]
+        ) if self.plan.link_slices else np.zeros(0, dtype=np.int64)
         self.width = schema.width
         self.history_packets = int(schema.history_packets)
         self.lanes = int(lanes)
@@ -179,6 +194,8 @@ class Replay:
                 np.asarray(cache.trace[lane.cursor]), lane.links,
                 float(cache.time_s[lane.cursor]), out=self._buffer[index],
             )
+        if self.memoryless:
+            self._buffer[:, self._blank] = 0.0
         return self._buffer
 
     def step(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

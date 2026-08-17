@@ -49,6 +49,18 @@ def main() -> int:
     ap.add_argument("--lanes", type=int, default=256)
     ap.add_argument("--transitions", type=int, default=None,
                     help="override total_transitions_per_seed, for smoke runs")
+    ap.add_argument("--memoryless", action="store_true",
+                    help="blank the action-dependent observation columns. The "
+                         "action changes nothing else in this model, so this "
+                         "makes the problem a constrained contextual bandit "
+                         "exactly, and the cost gap at matched feasibility is "
+                         "what the sequential structure is worth")
+    ap.add_argument("--validation-split", default="validation",
+                    help="split whose caches choose the checkpoint; 'none' to "
+                         "select on the smoothed training estimate instead")
+    ap.add_argument("--constraint-memory", type=int, default=16,
+                    help="updates of exponential memory in the constraint "
+                         "estimate the dual reads")
     ap.add_argument("--dual-lr", type=float, default=None,
                     help="override every density's dual learning rate. The frozen "
                          "profile's 0.05 predates this loop, and near the constraint "
@@ -68,10 +80,20 @@ def main() -> int:
     print(f"caches: {total:,} packets over densities "
           f"{[c.density for c in caches]}")
 
+    validation = None
+    if args.validation_split.lower() != "none":
+        validation = load_caches(
+            args.caches, args.validation_split, args.densities, args.replicate, schema
+        )
+        print(f"validation: {sum(c.packets for c in validation):,} packets "
+              f"({args.validation_split} split), selecting the checkpoint")
+
     seeds = args.seeds if args.seeds is not None else list(config.training.policy_seeds)
     summaries = []
     for seed in seeds:
-        trainer = build_trainer(config, caches, seed=seed, lanes=args.lanes)
+        trainer = build_trainer(config, caches, seed=seed, lanes=args.lanes,
+                                validation=validation, memoryless=args.memoryless)
+        trainer.constraint_memory = args.constraint_memory
         if args.transitions is not None:
             trainer.total_transitions = args.transitions
         if args.dual_lr is not None:
