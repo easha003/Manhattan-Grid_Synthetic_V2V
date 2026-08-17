@@ -127,6 +127,31 @@ class Multipliers:
         self.value = np.asarray(state["value"], dtype=np.float64)
 
 
+def entropy_coefficient(configured: float, progress: float, *, hold: float = 0.3) -> float:
+    """Exploration bonus at ``progress`` through training, annealed to zero.
+
+    Constant exploration is not neutral in a CMDP whose action set contains a
+    high-variance option. The optical leg fails outright on 54% of packets at
+    the sparsest density, so a policy holding 20% probability on VLC-only
+    carries an expected miss near 0.11 -- a thousand budgets -- *in training*,
+    while the greedy policy it represents is comfortably feasible. The dual
+    prices the exploration, the multiplier climbs at a density whose
+    constraint is slack, and the policy duplicates to pay for a risk that only
+    exists because it is still sampling.
+
+    So the constraint would be enforced on one policy and reported on another.
+    Annealing collapses the two: the bonus is held through the early
+    curriculum, where exploring is what finds the optical action at all, then
+    falls linearly to zero so the policy that satisfies the budget is the
+    policy that gets deployed.
+    """
+
+    if progress <= hold:
+        return configured
+    remaining = max(0.0, 1.0 - (progress - hold) / max(1e-9, 1.0 - hold))
+    return configured * remaining
+
+
 def curriculum_budget(stages, progress: float) -> float:
     """The miss budget in force at ``progress`` through training, in ``[0, 1]``.
 
@@ -146,4 +171,4 @@ def curriculum_budget(stages, progress: float) -> float:
     return float(stages[-1].miss_budget)
 
 
-__all__ = ["Multipliers", "curriculum_budget"]
+__all__ = ["Multipliers", "curriculum_budget", "entropy_coefficient"]

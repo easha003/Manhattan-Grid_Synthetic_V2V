@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +32,11 @@ from grail_v.agents.cache import TransitionCache
 from grail_v.agents.environment import Replay, RunningNormalizer
 from grail_v.agents.networks import ActorCritic
 from grail_v.agents.ppo import PPOSettings, generalized_advantage, update
-from grail_v.agents.primal_dual import Multipliers, curriculum_budget
+from grail_v.agents.primal_dual import (
+    Multipliers,
+    curriculum_budget,
+    entropy_coefficient,
+)
 from grail_v.env.packet import ACTIONS
 from grail_v.observation.builder import ObservationSchema
 
@@ -283,6 +287,15 @@ class Trainer:
             )
             progress.multipliers = self.multipliers.value.copy()
 
+            # Exploration is annealed rather than held, so the policy the
+            # constraint is enforced on converges to the one reported.
+            settings = replace(
+                self.settings,
+                entropy_coefficient=entropy_coefficient(
+                    self.settings.entropy_coefficient,
+                    seen / self.total_transitions,
+                ),
+            )
             progress.diagnostics = update(
                 self.policy, self.optimizer,
                 observations=batch["observations"], actions=batch["actions"],
@@ -292,7 +305,7 @@ class Trainer:
                 reward_target=batch["reward_target"],
                 cost_target=batch["cost_target"],
                 lambdas=self.multipliers.per_sample(batch["groups"]),
-                settings=self.settings, generator=self.generator,
+                settings=settings, generator=self.generator,
             )
 
             record = {

@@ -419,3 +419,33 @@ def test_a_normalizer_round_trips_through_its_state() -> None:
     restored = RunningNormalizer(5)
     restored.load(normalizer.state())
     assert restored(probe) == pytest.approx(expected)
+
+
+# -- exploration ---------------------------------------------------------------
+
+
+def test_exploration_is_held_early_and_gone_by_the_end() -> None:
+    """The constraint must be enforced on the policy that gets reported.
+
+    A constant bonus leaves the trained policy sampling a high-variance action
+    forever: the optical leg is blocked on 54% of packets at rho=10, so holding
+    20% probability on VLC-only costs ~0.11 expected miss in training while the
+    greedy policy it represents is feasible. The dual prices that exploration
+    and the multiplier climbs at a density whose constraint is slack.
+    """
+
+    from grail_v.agents.primal_dual import entropy_coefficient
+
+    assert entropy_coefficient(0.01, 0.0) == pytest.approx(0.01)
+    assert entropy_coefficient(0.01, 0.3) == pytest.approx(0.01)
+    assert entropy_coefficient(0.01, 1.0) == pytest.approx(0.0)
+    assert entropy_coefficient(0.01, 0.65) == pytest.approx(0.005, rel=1e-6)
+
+
+def test_the_bonus_never_goes_negative() -> None:
+    """A negative coefficient would reward determinism and collapse the policy
+    onto whichever action it happened to prefer first."""
+
+    from grail_v.agents.primal_dual import entropy_coefficient
+
+    assert entropy_coefficient(0.01, 1.5) >= 0.0
