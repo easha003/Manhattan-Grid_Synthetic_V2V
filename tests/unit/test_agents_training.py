@@ -181,6 +181,64 @@ def test_a_hopeless_violation_cannot_wind_the_multiplier_up() -> None:
     assert m.value[0] <= 0.10 + 1e-12
 
 
+# -- smoothing the constraint estimate ----------------------------------------
+
+
+def trainer_stub(memory: int = 16):
+    """A Trainer with only the fields ``_smooth`` touches."""
+
+    from grail_v.agents.trainer import Trainer
+
+    stub = Trainer.__new__(Trainer)
+    stub.constraint_memory = memory
+    stub.multipliers = multipliers()
+    stub._smoothed = np.full(3, np.nan)
+    return stub
+
+
+def test_the_first_estimate_seeds_the_average_rather_than_decaying_toward_it() -> None:
+    """Starting from zero would report a violated constraint as satisfied for
+    the first several updates, exactly while the multiplier is deciding."""
+
+    stub = trainer_stub()
+    first = stub._smooth(np.array([1e-3, 2e-3, 3e-3]))
+    assert first == pytest.approx([1e-3, 2e-3, 3e-3])
+
+
+def test_smoothing_converges_to_a_constant_signal() -> None:
+    stub = trainer_stub(memory=8)
+    for _ in range(200):
+        out = stub._smooth(np.array([5e-5, 5e-5, 5e-5]))
+    assert out == pytest.approx([5e-5, 5e-5, 5e-5], rel=1e-6)
+
+
+def test_smoothing_actually_reduces_the_variance_it_exists_for() -> None:
+    """The constraint estimate is a mean over packets whose risk is ~1e-15 or
+    ~1.0, so a rollout's estimate is essentially a rare-event count. This is
+    the property the dual needed and was not getting.
+    """
+
+    rng = np.random.default_rng(0)
+    memory = 16
+    stub = trainer_stub(memory=memory)
+    raw, smooth = [], []
+    for _ in range(400):
+        # One batch: a handful of catastrophic packets among many harmless ones.
+        batch = float(rng.poisson(0.6)) / 32768.0
+        raw.append(batch)
+        smooth.append(float(stub._smooth(np.array([batch, np.nan, np.nan]))[0]))
+    reduction = np.std(raw[100:]) / np.std(smooth[100:])
+    assert reduction > 2.0, f"smoothing only cut the spread {reduction:.1f}x"
+
+
+def test_a_group_absent_from_a_batch_neither_updates_nor_decays() -> None:
+    stub = trainer_stub()
+    stub._smooth(np.array([1e-4, 2e-4, 3e-4]))
+    held = stub._smoothed.copy()
+    stub._smooth(np.array([np.nan, np.nan, np.nan]))
+    assert stub._smoothed == pytest.approx(held)
+
+
 # -- the curriculum -----------------------------------------------------------
 
 
@@ -282,6 +340,47 @@ def test_the_observation_matches_the_schema_width(tmp_path, schema) -> None:
     observations = replay.observations()
     assert observations.shape == (4, schema.width)
     assert np.all(np.isfinite(observations))
+
+
+def test_the_memoryless_ablation_blanks_exactly_the_action_dependent_columns(
+    tmp_path, schema
+) -> None:
+    """The ablation must remove the sequential channel and nothing else.
+
+    Blanking a trace column too would confound the comparison with a loss of
+    geometry, and the answer would read as "history matters" when it meant
+    "pair distance matters". Blanking one too few leaves a path by which the
+    action still reaches the next observation, so the contextual baseline
+    would not be contextual.
+    """
+
+    from grail_v.agents.cache import ColumnPlan
+
+    cache = synthetic_cache(tmp_path / "d20", schema, density=20.0)
+    plan = ColumnPlan.from_schema(schema)
+    blanked = np.concatenate([np.arange(s.start, s.stop)
+                              for s in plan.link_slices.values()])
+
+    full = Replay((cache,), schema=schema, lanes=4, seed=0)
+    ablated = Replay((cache,), schema=schema, lanes=4, seed=0, memoryless=True)
+    for _ in range(3):
+        a, b = full.observations().copy(), ablated.observations().copy()
+        assert np.array_equal(a[:, plan.trace_columns], b[:, plan.trace_columns])
+        assert np.all(b[:, blanked] == 0.0)
+        full.step(np.array([Action.DUP] * 4))
+        ablated.step(np.array([Action.DUP] * 4))
+
+
+def test_the_ablation_leaves_the_dynamics_alone(tmp_path, schema) -> None:
+    """Only the observation moves: the same action must cost the same."""
+
+    cache = synthetic_cache(tmp_path / "d20", schema, density=20.0)
+    full = Replay((cache,), schema=schema, lanes=3, seed=0)
+    ablated = Replay((cache,), schema=schema, lanes=3, seed=0, memoryless=True)
+    full.observations()
+    ablated.observations()
+    actions = np.array([Action.RF, Action.VLC, Action.DUP])
+    assert full.step(actions)[1] == pytest.approx(ablated.step(actions)[1])
 
 
 # -- normalization ------------------------------------------------------------

@@ -96,9 +96,29 @@ class Trainer:
     #: tightening the budget moves the threshold rather than rescaling every
     #: target the cost critic has already fitted.
     reference_budget: float = 1e-4
+    #: Memory of the exponential average the dual step reads, in updates.
+    #:
+    #: The constraint is a mean of per-packet risks whose distribution is
+    #: dominated by rare, expensive packets: the optical marginal is ~1e-15 or
+    #: ~1.0, so a policy that commits to the light and is wrong once contributes
+    #: a whole budget's worth of ten thousand packets. A rollout of 32,768
+    #: expects well under one such packet, which makes the batch estimate a
+    #: near-Poisson count scaled to ~2.4e-5 -- a quarter of a 1e-4 budget --
+    #: and the dual step and the checkpoint selector both read that as signal.
+    #:
+    #: Averaging over ``k`` updates cuts the standard error by ``sqrt(k)`` and
+    #: leaves the fixed point alone, because the dual is an integrator already
+    #: and the average is unbiased. It costs nothing.
+    constraint_memory: int = 16
+    #: Held-out replay used to choose the checkpoint, one cache per density.
+    validation: Replay | None = None
+    validation_packets: int = 200_000
+    validation_every: int = 20
     generator: np.random.Generator = field(default=None)  # type: ignore[assignment]
     _lane_groups: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
     _present: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
+    _smoothed: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
+    _validation_groups: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.generator is None:
@@ -108,9 +128,56 @@ class Trainer:
         # position in the list: loading a subset, or in another order, would
         # otherwise price each group with another group's multiplier and the
         # constraint being enforced would not be the one being reported.
+        self._smoothed = np.full(len(self.multipliers.densities), np.nan)
+        if self.validation is not None:
+            self._validation_groups = self.multipliers.group_of(
+                self.validation.lane_density
+            )
         self._lane_groups = self.multipliers.group_of(self.replay.lane_density)
         self._present = np.zeros(len(self.multipliers.densities), dtype=bool)
         self._present[np.unique(self._lane_groups)] = True
+
+    def _smooth(self, batch: np.ndarray) -> np.ndarray:
+        """Fold this batch's per-group constraint estimate into the average.
+
+        NaN groups -- densities this batch carried no packets from -- are left
+        untouched, so an absent group neither updates nor decays its estimate.
+        """
+
+        weight = 2.0 / (self.constraint_memory + 1.0)
+        fresh = np.isfinite(batch)
+        seeded = fresh & ~np.isfinite(self._smoothed)
+        self._smoothed = np.where(
+            seeded, batch,
+            np.where(fresh, (1.0 - weight) * self._smoothed + weight * batch,
+                     self._smoothed),
+        )
+        return self._smoothed
+
+    @torch.no_grad()
+    def _validate(self) -> np.ndarray:
+        """Per-group mean conditional miss on held-out episodes, greedily.
+
+        Greedy rather than sampled, because the checkpoint is chosen for the
+        policy that will be deployed and reported. Held out because selecting
+        on a training batch picks whichever candidate drew the luckiest rare
+        packets -- the same noise the dual step was reading, applied to the one
+        decision that survives the run.
+        """
+
+        assert self.validation is not None
+        groups = self._validation_groups
+        totals = np.zeros(len(self.multipliers.densities))
+        counts = np.zeros(len(self.multipliers.densities))
+        seen = 0
+        while seen < self.validation_packets:
+            scaled = self.normalizer(self.validation.observations().copy())
+            action = self.policy.actor(torch.as_tensor(scaled)).argmax(dim=-1).numpy()
+            _, cost, _ = self.validation.step(action)
+            np.add.at(totals, groups, cost)
+            np.add.at(counts, groups, 1.0)
+            seen += self.validation.lanes
+        return np.where(counts > 0, totals / np.maximum(counts, 1.0), np.nan)
 
     def _collect(self, budget: float) -> tuple[dict, Progress]:
         """One rollout of ``rollout_packets`` transitions, spread over lanes."""
@@ -207,9 +274,12 @@ class Trainer:
             seen += progress.transitions
 
             # Duals first, so the policy is priced by the multiplier implied by
-            # the violation this batch just showed.
+            # the violation the evidence now shows -- smoothed, because a single
+            # rollout's estimate of a 1e-4 constraint is mostly the noise of how
+            # many rare expensive packets it happened to draw.
+            smoothed = self._smooth(progress.mean_cost_per_group)
             self.multipliers.update(
-                progress.mean_cost_per_group, budget, reference=self.reference_budget
+                smoothed, budget, reference=self.reference_budget
             )
             progress.multipliers = self.multipliers.value.copy()
 
@@ -228,6 +298,7 @@ class Trainer:
             record = {
                 "transitions": seen, "budget": budget,
                 "cost_per_group": progress.mean_cost_per_group.tolist(),
+                "smoothed_cost_per_group": smoothed.tolist(),
                 "activation_cost": progress.mean_activation_cost,
                 "multipliers": progress.multipliers.tolist(),
                 "action_share": progress.action_share.tolist(),
@@ -236,26 +307,66 @@ class Trainer:
             }
             history.append(record)
 
-            # Reliability before cost: an infeasible point is not a cheaper
-            # policy, it is a different problem's answer.
-            key = (not progress.feasible, progress.worst_violation if not progress.feasible
-                   else 0.0, progress.mean_activation_cost)
-            if budget <= min(stage.miss_budget for stage in self.curriculum) and (
-                best is None or key < best[0]
-            ):
-                best = (key, seen)
-                torch.save(
-                    {
-                        "policy": self.policy.state_dict(),
-                        "normalizer": self.normalizer.state(),
-                        "multipliers": self.multipliers.state(),
-                        "transitions": seen,
-                        "activation_cost": progress.mean_activation_cost,
-                        "cost_per_group": progress.mean_cost_per_group.tolist(),
-                        "feasible": progress.feasible,
-                    },
-                    out / "checkpoint.pt",
+            # Selection happens on held-out episodes, and only in the final
+            # curriculum stage: a checkpoint chosen against a looser budget is
+            # answering a different question.
+            final_stage = budget <= min(stage.miss_budget for stage in self.curriculum)
+            due = len(history) % self.validation_every == 0
+            if final_stage and due and self.validation is not None:
+                measured = self._validate()
+                observed = measured[np.isfinite(measured)]
+                feasible = bool(observed.size and np.all(observed <= budget))
+                violation = (
+                    float(np.max(observed - budget)) if observed.size else float("inf")
                 )
+                # Reliability before cost: an infeasible point is not a cheaper
+                # policy, it is a different problem's answer.
+                key = (not feasible, violation if not feasible else 0.0,
+                       progress.mean_activation_cost)
+                record["validation_cost_per_group"] = measured.tolist()
+                record["validation_feasible"] = feasible
+                if best is None or key < best[0]:
+                    best = (key, seen)
+                    torch.save(
+                        {
+                            "policy": self.policy.state_dict(),
+                            "normalizer": self.normalizer.state(),
+                            "multipliers": self.multipliers.state(),
+                            "transitions": seen,
+                            "activation_cost": progress.mean_activation_cost,
+                            "cost_per_group": measured.tolist(),
+                            "feasible": feasible,
+                            "selected_on": "validation",
+                        },
+                        out / "checkpoint.pt",
+                    )
+            elif final_stage and due:
+                # No held-out replay was supplied. Select on the smoothed
+                # training estimate rather than the batch, which is the same
+                # quantity the dual reads and at least not one rollout's worth
+                # of Poisson noise.
+                observed = smoothed[np.isfinite(smoothed)]
+                feasible = bool(observed.size and np.all(observed <= budget))
+                violation = (
+                    float(np.max(observed - budget)) if observed.size else float("inf")
+                )
+                key = (not feasible, violation if not feasible else 0.0,
+                       progress.mean_activation_cost)
+                if best is None or key < best[0]:
+                    best = (key, seen)
+                    torch.save(
+                        {
+                            "policy": self.policy.state_dict(),
+                            "normalizer": self.normalizer.state(),
+                            "multipliers": self.multipliers.state(),
+                            "transitions": seen,
+                            "activation_cost": progress.mean_activation_cost,
+                            "cost_per_group": smoothed.tolist(),
+                            "feasible": feasible,
+                            "selected_on": "training-smoothed",
+                        },
+                        out / "checkpoint.pt",
+                    )
 
             if len(history) % log_every == 0:
                 rate = seen / max(time.time() - started, 1e-9)
@@ -274,14 +385,17 @@ class Trainer:
 
 
 def build_trainer(config, caches: tuple[TransitionCache, ...], *, seed: int,
-                  lanes: int = 256) -> Trainer:
+                  lanes: int = 256,
+                  validation: tuple[TransitionCache, ...] | None = None,
+                  memoryless: bool = False) -> Trainer:
     training = config.training
     schema = ObservationSchema(
         features=tuple(config.observation.features),
         history_packets=int(config.observation.history_packets),
     )
     torch.manual_seed(seed)
-    replay = Replay(caches, schema=schema, lanes=lanes, seed=seed)
+    replay = Replay(caches, schema=schema, lanes=lanes, seed=seed,
+                    memoryless=memoryless)
     policy = ActorCritic(
         schema.width, len(ACTIONS),
         actor_hidden=training.architecture.actor_hidden_units,
@@ -305,6 +419,13 @@ def build_trainer(config, caches: tuple[TransitionCache, ...], *, seed: int,
         total_transitions=training.total_transitions_per_seed,
         seed=seed,
         reference_budget=float(config.service.miss_budget),
+        validation=(
+            None if validation is None
+            # A separate seed, so the held-out episodes are not visited in the
+            # same order as the training ones by coincidence.
+            else Replay(validation, schema=schema, lanes=lanes,
+                        seed=seed + 100_000, memoryless=memoryless)
+        ),
     )
 
 
