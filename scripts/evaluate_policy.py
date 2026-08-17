@@ -46,8 +46,9 @@ from grail_v.observation.builder import ObservationSchema
 
 def evaluate(policy: ActorCritic, normalizer: RunningNormalizer, cache: TransitionCache,
              *, schema: ObservationSchema, packets: int, lanes: int, seed: int,
-             deterministic: bool, bootstrap: int) -> dict:
-    replay = Replay((cache,), schema=schema, lanes=lanes, seed=seed)
+             deterministic: bool, bootstrap: int, memoryless: bool = False) -> dict:
+    replay = Replay((cache,), schema=schema, lanes=lanes, seed=seed,
+                    memoryless=memoryless)
     rate = ClusteredRate()
     shares = np.zeros(len(ACTIONS), dtype=np.int64)
     seen = 0
@@ -115,6 +116,9 @@ def main() -> int:
     ap.add_argument("--packets", type=int, default=400_000)
     ap.add_argument("--lanes", type=int, default=256)
     ap.add_argument("--bootstrap", type=int, default=2000)
+    ap.add_argument("--memoryless", action="store_true",
+                    help="fallback for checkpoints written before the flag was "
+                         "recorded; the checkpoint's own value wins when present")
     ap.add_argument("--deterministic", action="store_true",
                     help="take the argmax instead of sampling; the constraint was "
                          "learned for the stochastic policy, so this is a diagnostic")
@@ -138,6 +142,11 @@ def main() -> int:
             print(f"  seed {seed}: no checkpoint, skipping", file=sys.stderr)
             continue
         checkpoint = torch.load(checkpoint_path, weights_only=False)
+        # The policy carries its own observation contract. A memoryless
+        # policy's link-column weights never received a gradient, so
+        # evaluating it against a full observation measures its
+        # initialisation rather than what it learned.
+        memoryless = bool(checkpoint.get('memoryless', args.memoryless))
 
         policy = ActorCritic(
             schema.width, len(ACTIONS),
@@ -159,7 +168,7 @@ def main() -> int:
             outcome = evaluate(
                 policy, normalizer, cache, schema=schema, packets=args.packets,
                 lanes=args.lanes, seed=seed, deterministic=args.deterministic,
-                bootstrap=args.bootstrap,
+                bootstrap=args.bootstrap, memoryless=memoryless,
             )
             outcome["meets_budget"] = outcome["expected_miss_upper"] <= budget
             per_density[str(density)] = outcome

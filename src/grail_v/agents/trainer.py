@@ -350,6 +350,14 @@ class Trainer:
                             "cost_per_group": measured.tolist(),
                             "feasible": feasible,
                             "selected_on": "validation",
+                            # The observation contract this policy was trained
+                            # under. A memoryless policy never saw a nonzero
+                            # link column, so those weights are still at their
+                            # initialisation; evaluating it against a full
+                            # observation feeds them noise and reports a
+                            # generalisation failure that is really a wiring
+                            # mistake.
+                            "memoryless": bool(self.replay.memoryless),
                         },
                         out / "checkpoint.pt",
                     )
@@ -377,6 +385,7 @@ class Trainer:
                             "cost_per_group": smoothed.tolist(),
                             "feasible": feasible,
                             "selected_on": "training-smoothed",
+                            "memoryless": bool(self.replay.memoryless),
                         },
                         out / "checkpoint.pt",
                     )
