@@ -235,65 +235,73 @@ def rf_packet_risk(
     return (table**attempts)[inverse]
 
 
-#: Occlusion onset rate per second of clear optical path, by pair separation,
-#: measured at rho = 30 over 11,741 s of clear path at 50 ms resolution.
-#:
-#: The first entry is a **bound, not an observation**: zero onsets occurred
-#: below 9.5 m in 8,629 s, and zero is not a rate, so the rule of three supplies
-#: the 95% upper bound 3/8629.
+#: Separation bins the occlusion onset rate is resolved over, in metres.
 OCCLUSION_SEPARATION_EDGES_M: tuple[float, ...] = (0.0, 9.5, 12.0, 16.0, 25.0)
-OCCLUSION_ONSET_RATE_HZ: tuple[float, ...] = (
-    3.0 / 8629.0, 0.0241, 0.0333, 0.0441, 0.0800,
-)
+
+#: Onset rate per second of clear optical path, by density then by separation
+#: bin. Measured at 50 ms over 6,585 / 9,941 / 11,741 s of clear path.
+#:
+#: The first entry of each row is the same **pooled bound** rather than a
+#: per-density measurement: below 9.5 m the three densities together supply
+#: 17,071 s of clear path and one onset, which is too few to resolve by density
+#: and too few to call zero. The Poisson 95% upper bound for one event gives
+#: 4.744/17071, and that is what is carried.
+OCCLUSION_ONSET_RATE_HZ: dict[float, tuple[float, ...]] = {
+    10.0: (4.744 / 17071, 0.0833, 0.0319, 0.0151, 0.0454),
+    20.0: (4.744 / 17071, 0.0332, 0.0362, 0.0248, 0.0796),
+    30.0: (4.744 / 17071, 0.0241, 0.0333, 0.0441, 0.0800),
+}
 
 
 def occlusion_in_flight_risk(
-    separation_m: np.ndarray, *, airtime_s: float
+    separation_m: np.ndarray, *, airtime_s: float, density: float
 ) -> np.ndarray:
     """Chance a vehicle occludes the optical path *during* the transmission.
 
     The static optical PER answers whether the path is clear at the instant of
-    the decision. A packet is in flight for its whole airtime, and the path can
+    the decision. A packet is in flight for its whole airtime and the path can
     close underneath it, so the two are different questions and only the first
     is in the cached risk.
 
     **Why the answer is negligible for the packets that matter, and why that is
-    a measurement rather than an assumption.** Occlusion of a following pair's
-    optical path requires a third vehicle to insert itself between them, and
-    insertion needs 9.5 m of longitudinal gap -- a 4.5 m body plus the 2.5 m
-    minimum spacing the car-following model enforces at each end. Below that
-    separation there is nowhere to go, so the event is not rare, it is
-    geometrically impossible. The measurement agrees exactly: across 8,629 s of
-    clear path below 9.5 m, zero onsets; the first appear in the 9.5-12 m bin,
-    and the rate climbs monotonically with separation from there.
+    a measurement rather than an assumption.** Occluding a following pair's
+    optical path needs a third vehicle between them, and inserting one needs
+    9.5 m of longitudinal gap -- a 4.5 m body plus the 2.5 m minimum spacing the
+    car-following model enforces at each end. Below that separation there is
+    nowhere to go. Measured across all three densities: 17,071 s of clear path
+    below 9.5 m and **one** onset, against 396 above it.
 
-    That is what licenses treating optical availability as constant over a
-    transmission *for offloaded packets*, which are selected for short clear
-    paths. It does not license it in general -- beyond 25 m the rate is 0.08/s
-    and a 2.4 ms exposure is 1.9e-4, nineteen budgets. The risk is returned per
-    packet from its own separation rather than as a fleet-wide constant, because
-    a fleet-wide rate charges long-separation pairs' exposure against short-
-    separation candidates and gets the answer wrong by orders of magnitude.
+    That one event is why this is a bound and not a zero. It sits at 8.0-9.5 m,
+    just under the threshold, and it is a reminder that the 9.5 m argument
+    covers longitudinal insertion only -- a vehicle in an adjacent lane crossing
+    the path diagonally needs no gap between the pair at all. So the rate below
+    the threshold is not zero, it is roughly seven hundred times smaller than
+    above it, and the Poisson bound for a single event is carried instead of the
+    point estimate.
 
-    Two conservatisms remain, both stated. The bound below 9.5 m uses the rule
-    of three rather than the observed zero, so the term is 8.3e-7 at a 2.4 ms
-    airtime -- 8% of a 1e-5 budget -- rather than nothing. And the occlusion
-    model this was measured through is binary (``complete_blockage_main``), so a
-    vehicle edge entering the beam kills the link instantly; a real beam has
-    spatial extent and would degrade over some milliseconds, which would make
-    the true term smaller still.
+    **Resolved by density above the threshold, because it varies and not
+    monotonically.** In the 9.5-12 m bin the rate *falls* with density, 0.083 to
+    0.024, as gaps close and insertion gets harder; in the 16-25 m bin it
+    *rises*, 0.015 to 0.044, as there are simply more vehicles to do it. A rate
+    measured at one density and applied at another is wrong in both directions
+    by up to 3.5x. These bins govern the packets that are *not* offloaded, so
+    getting them right sharpens the boundary rather than moving it.
 
-    Measured at rho = 30, the densest trained condition. The 9.5 m threshold is
-    geometric and therefore density-independent, and denser traffic means
-    shorter gaps, so this is the least favourable density at which to measure
-    it.
+    Two conservatisms remain. The occlusion model this was measured through is
+    binary (``complete_blockage_main``), so a vehicle edge entering the beam
+    kills the link instantly; a real beam has spatial extent and would fade over
+    some milliseconds, which makes the measured rate an upper bound on the real
+    one. And the sub-threshold bound is a 95% upper limit rather than the 1.4e-7
+    the single event actually implies.
     """
 
     if airtime_s <= 0.0:
         raise AllocationError("airtime must be positive",
                               context={"airtime_s": airtime_s})
+    known = np.asarray(sorted(OCCLUSION_ONSET_RATE_HZ))
+    nearest = float(known[int(np.argmin(np.abs(known - float(density))))])
+    rates = np.asarray(OCCLUSION_ONSET_RATE_HZ[nearest])
     edges = np.asarray(OCCLUSION_SEPARATION_EDGES_M)
-    rates = np.asarray(OCCLUSION_ONSET_RATE_HZ)
     index = np.clip(np.digitize(np.asarray(separation_m), edges) - 1, 0, rates.size - 1)
     return np.asarray(rates[index] * airtime_s, dtype=np.float64)
 

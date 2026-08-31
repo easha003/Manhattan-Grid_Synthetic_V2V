@@ -280,20 +280,59 @@ def test_occlusion_in_flight_is_bounded_below_the_cut_in_gap() -> None:
 
     from grail_v.env.allocation import occlusion_in_flight_risk
 
-    risk = occlusion_in_flight_risk(np.array([3.0, 8.0, 9.0]), airtime_s=0.0024)
+    risk = occlusion_in_flight_risk(
+        np.array([3.0, 8.0, 9.0]), airtime_s=0.0024, density=30.0
+    )
     assert np.all(risk < 1e-6)
     assert np.all(risk == risk[0])
 
-    far = occlusion_in_flight_risk(np.array([10.0, 14.0, 20.0, 40.0]), airtime_s=0.0024)
-    assert np.all(np.diff(far) > 0)          # rises monotonically with separation
-    assert far[-1] > 1e-4                    # and is nineteen budgets at the far end
-    assert far[0] / risk[0] > 50             # the conditioning is what decides it
+    far = occlusion_in_flight_risk(
+        np.array([10.0, 14.0, 20.0, 40.0]), airtime_s=0.0024, density=30.0
+    )
+    assert far[-1] > 1e-4                    # nineteen budgets at the far end
+    assert far.min() / risk[0] > 50          # the conditioning is what decides it
 
 
 def test_a_longer_optical_packet_is_exposed_for_longer() -> None:
     from grail_v.env.allocation import occlusion_in_flight_risk
 
     sep = np.array([20.0])
-    assert occlusion_in_flight_risk(sep, airtime_s=0.0048)[0] == pytest.approx(
-        2.0 * occlusion_in_flight_risk(sep, airtime_s=0.0024)[0]
+    assert occlusion_in_flight_risk(sep, airtime_s=0.0048, density=30.0)[0] == pytest.approx(
+        2.0 * occlusion_in_flight_risk(sep, airtime_s=0.0024, density=30.0)[0]
     )
+
+
+def test_the_sub_threshold_bound_does_not_vary_with_density() -> None:
+    """Below 9.5 m the evidence is pooled, because one event cannot be split.
+
+    Three densities together give 17,071 s of clear path and a single onset.
+    Resolving that by density would report three rates from one observation.
+    """
+
+    from grail_v.env.allocation import occlusion_in_flight_risk
+
+    short = np.array([7.0])
+    values = [
+        occlusion_in_flight_risk(short, airtime_s=0.0024, density=d)[0]
+        for d in (10.0, 20.0, 30.0)
+    ]
+    assert values[0] == values[1] == values[2]
+    assert values[0] < 1e-6
+
+
+def test_the_far_bins_are_resolved_by_density_because_they_differ() -> None:
+    """And not monotonically, which is why one density cannot stand for another.
+
+    Insertion gets harder as gaps close, so the 9.5-12 m rate falls with
+    density; there are more vehicles to do it, so the 16-25 m rate rises.
+    """
+
+    from grail_v.env.allocation import occlusion_in_flight_risk
+
+    near = [occlusion_in_flight_risk(np.array([10.5]), airtime_s=0.0024, density=d)[0]
+            for d in (10.0, 20.0, 30.0)]
+    far = [occlusion_in_flight_risk(np.array([20.0]), airtime_s=0.0024, density=d)[0]
+           for d in (10.0, 20.0, 30.0)]
+
+    assert near[0] > near[1] > near[2]
+    assert far[0] < far[1] < far[2]
