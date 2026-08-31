@@ -138,6 +138,60 @@ def _validate_phy_timing(
         )
 
 
+def _validate_committed_airtime(config: ProjectConfig) -> None:
+    """Refuse a profile whose granted attempts cannot fit inside the deadline.
+
+    :func:`_validate_phy_timing` compares *one* attempt against the deadline,
+    which was sufficient while the profile granted one.  Now that the attempt
+    count is the parameter reliability is bought with, the binding quantity is
+    what a packet commits in total, and a profile that overran the deadline
+    would load cleanly and fail much later at
+    :class:`~grail_v.env.packet.PacketLifecycle` construction.
+
+    The two media run concurrently -- different physical channels -- so the
+    binding quantity is the longer leg rather than the sum.  That is the same
+    inequality ``env.packet.Timing.check_feasible`` applies.  It is repeated
+    here rather than imported because configuration validation sits below the
+    environment and must not depend on it; the two are pinned to each other by
+    a test, which is where a cross-layer invariant belongs.
+    """
+
+    service = config.service
+    available = service.deadline_s - service.predecision_lead_s
+    if available <= 0.0:
+        raise ConfigurationError(
+            f"service.predecision_lead_s {service.predecision_lead_s:g} s leaves no "
+            f"time inside the {service.deadline_s:g} s deadline"
+        )
+
+    # ``Timing`` carries no VLC attempt count, so a profile asking for more than
+    # one optical attempt would have it silently ignored -- the packet would be
+    # evaluated with one.  Rejected rather than tolerated: the field is in the
+    # schema, and a research parameter that does nothing is worse than one that
+    # is absent.
+    if service.vlc_attempts_per_packet != 1:
+        raise ConfigurationError(
+            "service.vlc_attempts_per_packet must be 1: the packet lifecycle "
+            "grants the optical leg a single attempt and would ignore "
+            f"{service.vlc_attempts_per_packet}"
+        )
+
+    committed = 0.0
+    if config.rf.enabled:
+        committed = max(
+            committed, config.rf.timing.airtime_s * service.rf_attempts_per_packet
+        )
+    if config.vlc.enabled:
+        committed = max(committed, config.vlc.timing.airtime_s)
+    if committed > available + 1e-15:
+        raise ConfigurationError(
+            f"committed airtime {committed:g} s exceeds the {available:g} s the "
+            f"{service.deadline_s:g} s deadline leaves after a "
+            f"{service.predecision_lead_s:g} s pre-decision lead "
+            f"(rf_attempts_per_packet={service.rf_attempts_per_packet})"
+        )
+
+
 def _validate_rf_resource_grid(config: ProjectConfig) -> None:
     """Reject an RF rate the resource grid cannot physically deliver.
 
@@ -257,6 +311,8 @@ def validate_project_config(config: ProjectConfig) -> ProjectConfig:
             deadline_s=config.service.deadline_s,
         )
         _validate_vlc_bandwidth(config)
+
+    _validate_committed_airtime(config)
 
     expected_packets = round(
         config.environment.episode_duration_s / config.service.generation_period_s

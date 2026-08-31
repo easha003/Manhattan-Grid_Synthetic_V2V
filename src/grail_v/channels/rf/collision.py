@@ -81,6 +81,17 @@ class CollisionParameters:
     #: these set channel occupancy per vehicle.
     airtime_s: float
     generation_period_s: float
+    #: Share of generated packets that actually put a copy on the radio.
+    #:
+    #: One means every vehicle transmits every packet, which is what a
+    #: single-medium profile does and why it is the default. Below one the
+    #: radio is carrying only part of the offered traffic because the rest
+    #: went by light, and **three separate quantities have to fall together**:
+    #: how many neighbours contend, how often the intended receiver is busy
+    #: transmitting, and how much of the pool is claimed. They are one
+    #: behaviour seen three ways, so they scale from one field rather than
+    #: from three call sites that could disagree.
+    rf_usage_fraction: float = 1.0
 
     def __post_init__(self) -> None:
         if self.subchannels < 1:
@@ -92,6 +103,9 @@ class CollisionParameters:
         if not 0.0 <= self.sensing_reliability <= 1.0:
             raise CollisionError("sensing reliability must lie in [0, 1]",
                                  context={"value": self.sensing_reliability})
+        if not 0.0 <= self.rf_usage_fraction <= 1.0:
+            raise CollisionError("rf usage fraction must lie in [0, 1]",
+                                 context={"value": self.rf_usage_fraction})
         for name in ("airtime_s", "generation_period_s"):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0.0:
@@ -126,6 +140,7 @@ def headline_parameters(
     band: SensitivityBand = SensitivityBand.NOMINAL,
     *,
     committed_airtime_s: float = DEFAULT_COMMITTED_AIRTIME_S,
+    rf_usage_fraction: float = 1.0,
 ) -> CollisionParameters:
     """Parameters for the headline profile at one end of the declared band.
 
@@ -146,7 +161,42 @@ def headline_parameters(
         sensing_reliability=reliability,
         airtime_s=committed_airtime_s,
         generation_period_s=0.1,
+        rf_usage_fraction=rf_usage_fraction,
     )
+
+
+def resource_demand(neighbour_count: int, parameters: CollisionParameters) -> float:
+    """Airtime the contending population claims, as a multiple of what exists.
+
+    The pool supplies ``subchannels * generation_period_s`` of airtime per
+    period. Each of ``neighbour_count`` vehicles transmits once per period and
+    commits ``airtime_s``, so the demand is their ratio. Where the selection
+    window spans the generation period this is exactly
+    ``neighbour_count * attempts / candidate_resources`` -- the counting form --
+    but it is written as airtime because that needs no slot duration and so
+    cannot disagree with :attr:`CollisionParameters.airtime_s`.
+
+    **Above one the pool is oversubscribed and the profile is not deliverable
+    at any collision probability**, because no assignment of contenders to
+    resources gives every vehicle what it asked for.
+    :func:`collision_probability` cannot see this: the birthday model asks where
+    *one* selection lands, not whether every selection can be honoured, so an
+    oversubscribed profile still reports a modest per-attempt collision. That is
+    how the headline profile came to sit at 1.19x demand at rho = 30 -- three
+    attempts against a pool that supplies 2.5 -- with nothing in the model
+    objecting.
+
+    Deliberately **not** clipped. :func:`channel_busy_ratio` clips because it
+    feeds an observation vector, where a fraction above one is meaningless; this
+    is the physical quantity, and the overflow is the entire signal.
+    """
+
+    if neighbour_count < 0:
+        raise CollisionError("neighbour count cannot be negative",
+                             context={"neighbour_count": neighbour_count})
+    supply = parameters.generation_period_s * parameters.subchannels
+    offered = neighbour_count * parameters.rf_usage_fraction
+    return offered * parameters.airtime_s / supply
 
 
 def channel_busy_ratio(neighbour_count: int, parameters: CollisionParameters) -> float:
@@ -157,15 +207,14 @@ def channel_busy_ratio(neighbour_count: int, parameters: CollisionParameters) ->
     the observation vector carries as ``rf_channel_busy_ratio``, and deriving
     it here rather than measuring it off a trace is what keeps M3 independent
     of the campaign that will be regenerated.
+
+    The clip is what separates this from :func:`resource_demand`, which is the
+    same arithmetic left unbounded. Delegating rather than repeating the
+    division keeps a saturated observation and an oversubscribed pool as one
+    fact reported two ways, instead of two numbers free to drift apart.
     """
 
-    if neighbour_count < 0:
-        raise CollisionError("neighbour count cannot be negative",
-                             context={"neighbour_count": neighbour_count})
-    per_vehicle = parameters.airtime_s / (
-        parameters.generation_period_s * parameters.subchannels
-    )
-    return min(1.0, neighbour_count * per_vehicle)
+    return min(1.0, resource_demand(neighbour_count, parameters))
 
 
 def hidden_contenders(neighbour_count: int, sensed_fraction: float,
@@ -186,7 +235,8 @@ def hidden_contenders(neighbour_count: int, sensed_fraction: float,
         raise CollisionError("sensed fraction must lie in [0, 1]",
                              context={"sensed_fraction": sensed_fraction})
     effective = parameters.sensing_reliability * sensed_fraction
-    return neighbour_count * (1.0 - effective)
+    offered = neighbour_count * parameters.rf_usage_fraction
+    return offered * (1.0 - effective)
 
 
 def collision_probability(
@@ -220,9 +270,20 @@ def half_duplex_probability(parameters: CollisionParameters) -> float:
     phases this is just the receiver's own duty cycle, and it is a floor no
     amount of resource selection removes -- which makes it a genuine, if small,
     argument for a second medium rather than a second attempt.
+
+    The duty cycle is the receiver's *radio* duty cycle, so it carries
+    ``rf_usage_fraction``: a receiver that sent this packet's period by light
+    was not transmitting and could hear. Charging the full cycle regardless
+    would overstate the term by ``1 / rf_usage_fraction``, and at the attempt
+    counts this profile grants the term is the same order as collision -- so it
+    is not a rounding error, it decides the answer.
     """
 
-    return parameters.airtime_s / parameters.generation_period_s
+    return (
+        parameters.rf_usage_fraction
+        * parameters.airtime_s
+        / parameters.generation_period_s
+    )
 
 
 def failure_probability(
@@ -257,4 +318,5 @@ __all__ = [
     "half_duplex_probability",
     "headline_parameters",
     "hidden_contenders",
+    "resource_demand",
 ]

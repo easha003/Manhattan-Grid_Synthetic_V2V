@@ -22,6 +22,7 @@ from grail_v.channels.rf.collision import (
     half_duplex_probability,
     headline_parameters,
     hidden_contenders,
+    resource_demand,
 )
 
 #: Neighbours within 200 m, measured on the completed campaign.
@@ -279,3 +280,81 @@ def test_the_channel_busy_ratio_uses_the_same_committed_airtime() -> None:
     parameters = build_rf_channel(config).collision
     one_vehicle = channel_busy_ratio(1, parameters) * parameters.subchannels
     assert one_vehicle == pytest.approx(half_duplex_probability(parameters))
+
+
+# -- resource demand ----------------------------------------------------------
+
+
+def test_the_busy_ratio_is_the_clipped_resource_demand() -> None:
+    """One fact reported two ways, so they cannot drift apart.
+
+    The observation feature has to be a fraction; the physical quantity has no
+    such obligation. Deriving one from the other is what stops a future edit
+    from making the saturated observation and the oversubscribed pool disagree.
+    """
+
+    parameters = headline_parameters()
+    for neighbours in (0, 1, 44, 100, 133, 159, 1_000):
+        assert channel_busy_ratio(neighbours, parameters) == pytest.approx(
+            min(1.0, resource_demand(neighbours, parameters))
+        )
+
+
+def test_resource_demand_exposes_what_the_busy_ratio_saturates_away() -> None:
+    """Above one the pool is oversubscribed, and the clip hides exactly that."""
+
+    parameters = headline_parameters()
+    assert channel_busy_ratio(100_000, parameters) == 1.0
+    assert resource_demand(100_000, parameters) > 1.0
+
+
+def test_the_headline_profile_oversubscribes_the_pool_at_the_densest_condition() -> None:
+    """Three attempts ask for more airtime than rho = 30 has to give.
+
+    The pool supplies ``subchannels * generation_period`` of airtime per period,
+    which at two subchannels and 0.5 ms slots is 400 resources. With 159
+    measured contenders each committing three, demand is 1.19 -- the profile is
+    not deliverable, and no collision probability says so, because the birthday
+    model asks where one selection lands rather than whether every selection can
+    be honoured.
+
+    This is a property of the *frozen* profile, recorded here so the arithmetic
+    is a measured fact rather than a claim in a commit message.
+    """
+
+    parameters = headline_parameters()
+
+    assert resource_demand(MEASURED_NEIGHBOURS[10], parameters) < 1.0
+    assert resource_demand(MEASURED_NEIGHBOURS[30], parameters) > 1.0
+    assert resource_demand(MEASURED_NEIGHBOURS[30], parameters) == pytest.approx(
+        159 * 3 / 400.0
+    )
+
+    # And the collision model is untroubled by it, which is the point.
+    assert failure_probability(MEASURED_NEIGHBOURS[30], parameters) < 0.1
+
+
+def test_resource_demand_counts_attempts_against_the_candidate_pool() -> None:
+    """The airtime form and the counting form are the same number.
+
+    ``resource_demand`` is written in airtime because that needs no slot
+    duration. Where the selection window spans the generation period -- which
+    the headline profile's 200 slots at 0.5 ms do exactly -- it must agree with
+    ``neighbours * attempts / candidate_resources``, and this pins the two.
+    """
+
+    slot_s = 0.0005
+    for attempts in (1, 3, 5):
+        parameters = headline_parameters(committed_airtime_s=attempts * slot_s)
+        assert parameters.selection_window_slots * slot_s == pytest.approx(
+            parameters.generation_period_s
+        )
+        for neighbours in (44, 100, 159):
+            assert resource_demand(neighbours, parameters) == pytest.approx(
+                neighbours * attempts / parameters.candidate_resources
+            )
+
+
+def test_resource_demand_rejects_a_negative_headcount() -> None:
+    with pytest.raises(CollisionError):
+        resource_demand(-1, headline_parameters())

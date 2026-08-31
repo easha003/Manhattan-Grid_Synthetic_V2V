@@ -148,3 +148,75 @@ def test_dup_cost_must_equal_committed_leg_costs(tmp_path: Path) -> None:
             tmp_path,
             "cost:\n  dup_activation: 1.5\n",
         )
+
+
+def test_attempts_that_overrun_the_deadline_are_rejected(tmp_path: Path) -> None:
+    """The total a packet commits, not one attempt, is what the deadline bounds.
+
+    Six 0.5 ms attempts is 3.0 ms against the 2.9 ms the 3 ms deadline leaves
+    after the pre-decision lead. Each attempt on its own fits comfortably, so
+    the per-link check passes and only the committed total catches it.
+    """
+
+    with pytest.raises(ConfigurationError, match="committed airtime"):
+        _load_with_override(
+            tmp_path,
+            "project:\n"
+            "  experiment: overrun-attempts\n"
+            "service:\n"
+            "  rf_attempts_per_packet: 6\n",
+        )
+
+
+def test_a_second_optical_attempt_is_rejected_rather_than_ignored(tmp_path: Path) -> None:
+    """``Timing`` grants the optical leg one attempt and has nowhere to put a second."""
+
+    with pytest.raises(ConfigurationError, match="vlc_attempts_per_packet must be 1"):
+        _load_with_override(
+            tmp_path,
+            "project:\n"
+            "  experiment: two-optical-attempts\n"
+            "service:\n"
+            "  vlc_attempts_per_packet: 2\n",
+        )
+
+
+def test_the_loader_and_the_lifecycle_agree_on_what_fits(tmp_path: Path) -> None:
+    """Cross-layer pin.
+
+    ``_validate_committed_airtime`` repeats the inequality
+    ``env.packet.Timing.check_feasible`` applies, because configuration
+    validation sits below the environment and must not import it. That
+    duplication is only safe while the two agree, so this asserts they reject
+    the same profile -- the loader first, and the lifecycle on the same numbers.
+    """
+
+    from grail_v.env.packet import PacketError, Timing
+
+    with pytest.raises(ConfigurationError, match="committed airtime"):
+        _load_with_override(
+            tmp_path,
+            "project:\n"
+            "  experiment: overrun-crosscheck\n"
+            "service:\n"
+            "  rf_attempts_per_packet: 6\n",
+        )
+
+    rejected = Timing(
+        deadline_s=0.003,
+        predecision_lead_s=0.0001,
+        rf_airtime_s=0.0005,
+        vlc_airtime_s=0.0024,
+        rf_attempts=6,
+    )
+    with pytest.raises(PacketError, match="committed airtime exceeds the deadline"):
+        rejected.check_feasible()
+
+    # And the profile that loads is the one the lifecycle accepts.
+    Timing(
+        deadline_s=0.003,
+        predecision_lead_s=0.0001,
+        rf_airtime_s=0.0005,
+        vlc_airtime_s=0.0024,
+        rf_attempts=3,
+    ).check_feasible()
