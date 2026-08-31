@@ -8,7 +8,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grail_v.channels.rf.collision import headline_parameters, resource_demand
+from grail_v.channels.rf.collision import (
+    SensitivityBand,
+    headline_parameters,
+    resource_demand,
+)
 from grail_v.config import load_headline_config
 from grail_v.env.allocation import (
     AllocationError,
@@ -174,3 +178,41 @@ def test_access_only_risk_reproduces_the_campaign_rf_marginal() -> None:
     )
 
     assert modelled.mean() == pytest.approx(risk[:, 0].astype(float).mean(), rel=0.02)
+
+
+def test_the_sweep_finds_the_offload_equilibrium_a_congested_start_misses() -> None:
+    """Bistability, and why one starting load is not an answer.
+
+    Started at full radio use the pool stays congested, duplication looks
+    necessary, and duplicating keeps it congested -- self-consistent, cost 2.0,
+    infeasible. The same inputs settled from a lower load put most packets on
+    light and meet the budget at cost 1.0. Both are equilibria; the sweep has to
+    find the second or it reports a solver artefact as a physical limit.
+    """
+
+    # The pessimistic end of the declared sensing band, at the densest measured
+    # condition. The nominal band converges to the offload equilibrium from any
+    # start; it is the pessimistic branch that splits, which is exactly the
+    # branch a single-start solver would have reported as infeasible.
+    counts = np.full(4096, 162.0)
+    vlc = np.where(np.arange(4096) < 3193, 1e-12, 1.0)
+    common = dict(
+        neighbour_counts=counts,
+        vlc_risk=vlc,
+        budget=1e-5,
+        attempts=4,
+        attempt_airtime_s=0.0005,
+        template=headline_parameters(SensitivityBand.PESSIMISTIC),
+    )
+
+    congested = solve_equilibrium(**common, starts=(1.0,))
+    swept = solve_equilibrium(**common)
+
+    assert congested.allocation.mean_cost == pytest.approx(2.0)
+    assert not congested.deliverable
+
+    assert swept.deliverable
+    assert swept.allocation.mean_cost == pytest.approx(1.0)
+    assert swept.allocation.vlc_only_fraction > 0.5
+    # Both branches settled, so the bistability is reported rather than hidden.
+    assert len(swept.equilibria) > 1

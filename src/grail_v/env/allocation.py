@@ -185,6 +185,10 @@ class Equilibrium:
     resource_demand: float
     iterations: int
     converged: bool
+    #: Distinct equilibria the starting sweep found. More than one means the
+    #: system is bistable and which one it settles in is a deployment question,
+    #: not a property of the physics.
+    equilibria: tuple[float, ...] = ()
 
     @property
     def deliverable(self) -> bool:
@@ -216,12 +220,26 @@ def solve_equilibrium(
     damping: float = 1.0,
     tolerance: float = 1e-5,
     max_iterations: int = 50,
+    starts: tuple[float, ...] = (1.0, 0.5, 0.25, 0.1),
 ) -> Equilibrium:
     """Iterate allocation and contention to their common fixed point.
 
-    Starts from every packet on the radio, which is the profile as frozen, so
-    the first iteration reproduces the single-medium answer and everything after
-    it is the offload earning its way in.
+    **Swept from several starting loads, because the map has more than one fixed
+    point.** Started at full radio use -- the profile as frozen -- a congested
+    pool makes duplication look necessary, duplicating holds the pool congested,
+    and the iteration settles there: self-consistent, cost 2.0, and infeasible.
+    Started lower, the same inputs settle on most packets going by light, the
+    offered load collapsing, and the radio comfortably carrying the rest at cost
+    1.0. Both are equilibria of the same system. Measured on the pessimistic
+    band at rho = 30, N = 4, the first gives 7.2e-5 and the second 2.2e-7.
+
+    So a single start does not answer the question asked of this function --
+    whether the profile *can* meet the budget -- it answers whether one
+    particular initial condition happens to reach it. The sweep returns the
+    cheapest feasible equilibrium found, and records the rest in ``equilibria``,
+    because bistability is a real property here: a fleet that begins congested
+    stays congested without something to coordinate the move to light, and that
+    is a deployment finding rather than a solver detail.
 
     Undamped by default, because measured on the trained caches the map is
     strongly contracting: ``rf_fraction`` reaches its fixed point in three
@@ -243,45 +261,65 @@ def solve_equilibrium(
 
     counts = np.asarray(neighbour_counts)
     committed = attempts * attempt_airtime_s
-    fraction = 1.0
-    allocation: Allocation | None = None
-    parameters = template
-    converged = False
-    used = 0
+    if not starts:
+        raise AllocationError("at least one starting load is required")
 
-    while used < max_iterations:
-        used += 1
-        parameters = replace(
-            template, airtime_s=committed, rf_usage_fraction=fraction
-        )
-        rf_risk = rf_packet_risk(
-            counts, parameters, attempts=attempts, sensed_fraction=sensed_fraction
-        )
-        allocation = solve_allocation(rf_risk, vlc_risk, budget)
-        moved = abs(allocation.rf_fraction - fraction)
-        fraction = (1.0 - damping) * fraction + damping * allocation.rf_fraction
-        if moved < tolerance:
-            converged = True
-            break
+    found: list[tuple[Allocation, int, bool]] = []
+    for start in starts:
+        if not 0.0 <= start <= 1.0:
+            raise AllocationError("a starting load must lie in [0, 1]",
+                                  context={"start": start})
+        fraction = start
+        allocation: Allocation | None = None
+        converged = False
+        used = 0
+        while used < max_iterations:
+            used += 1
+            rf_risk = rf_packet_risk(
+                counts,
+                replace(template, airtime_s=committed, rf_usage_fraction=fraction),
+                attempts=attempts,
+                sensed_fraction=sensed_fraction,
+            )
+            allocation = solve_allocation(rf_risk, vlc_risk, budget)
+            moved = abs(allocation.rf_fraction - fraction)
+            fraction = (1.0 - damping) * fraction + damping * allocation.rf_fraction
+            if moved < tolerance:
+                converged = True
+                break
+        assert allocation is not None
+        found.append((allocation, used, converged))
 
-    assert allocation is not None
+    # Cheapest equilibrium that actually met the budget, and only among the ones
+    # that settled -- an infeasible or ringing branch is not a cheaper answer, it
+    # is a different question's answer.
+    settled = [entry for entry in found if entry[2]]
+    feasible = [entry for entry in settled if entry[0].feasible]
+    allocation, used, converged = min(
+        feasible or settled or found,
+        key=lambda entry: (entry[0].mean_cost, entry[0].miss_rate),
+    )
+    distinct = tuple(
+        sorted({round(entry[0].rf_fraction, 6) for entry in settled})
+    )
     # Demand is reported against the fraction the allocation *returned*, not the
     # one it was handed. They are the same number at a fixed point and differ
     # everywhere else, and quoting the input would describe a load nobody
     # offered -- which is how a non-converged cell came to report full radio use
     # and a comfortable pool claim in the same row.
-    settled = replace(
+    at_equilibrium = replace(
         template, airtime_s=committed, rf_usage_fraction=allocation.rf_fraction
     )
     return Equilibrium(
         allocation=allocation,
-        parameters=settled,
+        parameters=at_equilibrium,
         attempts=attempts,
         resource_demand=resource_demand(
-            int(round(float(np.mean(counts)))), settled
+            int(round(float(np.mean(counts)))), at_equilibrium
         ),
         iterations=used,
         converged=converged,
+        equilibria=distinct,
     )
 
 
