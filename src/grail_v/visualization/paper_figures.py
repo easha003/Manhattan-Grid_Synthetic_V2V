@@ -18,7 +18,6 @@ import numpy as np
 from grail_v.visualization import style
 from grail_v.visualization.style import BOUND, BUDGET, DUP, GREY, RF, VLC
 
-
 # --------------------------------------------------------------------------
 # Figure: what actually breaks the radio
 # --------------------------------------------------------------------------
@@ -296,8 +295,7 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
 # Figure: the ceiling the radio cannot buy its way past
 # --------------------------------------------------------------------------
 
-def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts: int,
-                 pool: int, at_equilibrium: dict[int, float],
+def pool_ceiling(out: Path, *, campaign: Path, pool: int,
                  max_attempts: int = 8) -> None:
     """What the population asks of the resource pool, and what offload returns.
 
@@ -313,9 +311,25 @@ def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts: int,
     light and stop drawing on the pool at all. That descent is the mechanism the
     whole result rests on: at the two denser conditions the radio cannot afford
     the attempts it needs until the optical leg gives some of the pool back.
+
+    Read from the campaign artifact rather than from numbers passed in, because
+    the first version of this figure was drawn from the analytic fixed point and
+    then had to be redrawn when the measurement disagreed with it by up to 11%.
+    A figure that cannot be transcribed wrongly is worth the extra argument.
+    Densities absent from a partial artifact are simply not drawn.
     """
 
+    import json
+
     import matplotlib.pyplot as plt
+
+    measured = json.loads(campaign.read_text())
+    contenders = {int(b["density_veh_per_lane_km"]): b["pool"]["mean_contenders"]
+                  for b in measured["densities"]}
+    at_equilibrium = {int(b["density_veh_per_lane_km"]):
+                      b["equilibrium"]["resource_demand"]
+                      for b in measured["densities"] if "equilibrium" in b}
+    attempts = next(iter(measured["densities"]))["pool"]["attempts_per_packet"]
 
     fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.6))
     counts = np.arange(1, max_attempts + 1)
@@ -339,7 +353,7 @@ def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts: int,
         # count, and drawn on one vertical they read as a single arrow.
         at = attempts + 0.16 * (sorted(contenders).index(rho) - 1)
         full = contenders[rho] * attempts / pool
-        settled = at_equilibrium[rho]
+        settled = at_equilibrium.get(rho, full)
         # Only draw the descent where it is the point; a marginal one is noise.
         if settled < full - 0.10:
             ax.annotate("", xy=(at, settled), xytext=(at, full),
@@ -371,8 +385,7 @@ def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts: int,
 # Figure: what each medium reaches once the pool is enforced
 # --------------------------------------------------------------------------
 
-def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
-                         budget: float) -> None:
+def feasibility_boundary(out: Path, *, campaign: Path, budget: float) -> None:
     """The best each strategy reaches using every attempt the pool affords.
 
     The companion to :func:`pool_ceiling`, evaluated at the equilibrium that
@@ -384,9 +397,30 @@ def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
     attempts it would need. Light alone misses everywhere by four orders, on a
     geometric outage no transmit power reaches. The pair clears it at every
     density -- and above the threshold that is the only thing that does.
+
+    Bars are the expected miss rate and the whisker is its one-sided 95%
+    bootstrap upper bound, because that bound is what the budget is written
+    against: the difference between measuring 7.5e-6 and showing 1e-5. On a log
+    axis at these separations the whisker is often shorter than the bar edge,
+    which is itself the point worth seeing.
     """
 
+    import json
+
     import matplotlib.pyplot as plt
+
+    measured = json.loads(campaign.read_text())
+    named = {"RF": "RF", "VLC": "VLC", "hybrid": "EQUILIBRIUM"}
+    achieved, bounds = {}, {}
+    for block in measured["densities"]:
+        rho = int(block["density_veh_per_lane_km"])
+        policies = block["policies"]
+        if not all(n in policies for n in named.values()):
+            continue
+        achieved[rho] = {k: policies[n]["expected_miss_rate"]
+                         for k, n in named.items()}
+        bounds[rho] = {k: policies[n]["expected_bootstrap_upper"]
+                       for k, n in named.items()}
 
     order = ["RF", "VLC", "hybrid"]
     colour = {"RF": RF, "VLC": VLC, "hybrid": DUP}
@@ -396,9 +430,14 @@ def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
     fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.5))
     width = 0.26
     for offset, key in zip((-width, 0.0, width), order, strict=True):
-        ax.bar([i + offset for i in range(len(rhos))],
-               [achieved[r][key] for r in rhos], width,
-               color=colour[key], label=label[key], zorder=3)
+        at = [i + offset for i in range(len(rhos))]
+        value = [achieved[r][key] for r in rhos]
+        ax.bar(at, value, width, color=colour[key], label=label[key], zorder=3)
+        ax.errorbar(at, value,
+                    yerr=[[0.0] * len(rhos),
+                          [bounds[r][key] - achieved[r][key] for r in rhos]],
+                    fmt="none", ecolor="#333333", elinewidth=0.7, capsize=1.6,
+                    zorder=4)
 
     ax.axhline(budget, color=BUDGET, lw=1.0, ls="--", zorder=4)
     exponent = int(round(math.log10(budget)))
