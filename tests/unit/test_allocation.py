@@ -16,6 +16,8 @@ from grail_v.channels.rf.collision import (
 from grail_v.config import load_headline_config
 from grail_v.env.allocation import (
     AllocationError,
+    apply_risk_estimate,
+    fit_risk_estimate,
     rf_packet_risk,
     solve_allocation,
     solve_equilibrium,
@@ -216,3 +218,52 @@ def test_the_sweep_finds_the_offload_equilibrium_a_congested_start_misses() -> N
     assert swept.allocation.vlc_only_fraction > 0.5
     # Both branches settled, so the bistability is reported rather than hidden.
     assert len(swept.equilibria) > 1
+
+
+def test_a_belief_decides_and_the_truth_pays() -> None:
+    """Selection on what a vehicle can see, scoring on what the channel did.
+
+    The packet here looks safe and is not. An allocator that scored its own
+    optimism would report the miss it expected; this one reports the miss it
+    got, which is the only number a reliability claim can be made from.
+    """
+
+    rf = np.array([1e-3, 1e-3])
+    truth = np.array([0.5, 0.5])
+    belief = np.array([1e-9, 1e-9])
+
+    # Loose enough that the single-leg choice stands and is not rescued by
+    # duplication, so what is reported is what the belief actually bought.
+    allocation = solve_allocation(rf, truth, budget=0.9, vlc_belief=belief)
+
+    assert allocation.vlc_only_fraction == pytest.approx(1.0)
+    assert allocation.mean_cost == pytest.approx(1.0)
+    assert allocation.miss_rate == pytest.approx(0.5)
+
+    # Scoring on the belief instead would have called this a 1e-9 packet.
+    assert solve_allocation(rf, belief, budget=0.9).miss_rate < 1e-8
+
+
+def test_a_mean_risk_estimate_cannot_beat_a_bimodal_truth() -> None:
+    """Why the realistic estimator declines to offload, stated as a property.
+
+    Optical risk is ~1e-15 or ~1.0, so a conditional mean over any observable is
+    the blockage *rate* in that bin -- never below the radio's failure
+    probability, however well the bin is chosen. The allocator is then correct
+    to keep every packet on the radio, and the offload equilibrium is
+    unreachable by any estimator of this shape.
+    """
+
+    truth = np.where(np.arange(1000) < 780, 1e-15, 1.0)
+    edges = np.array([0.0, 1.0, 2.0])
+    feature = np.zeros(1000)
+
+    table = fit_risk_estimate(feature, truth, edges=edges)
+    belief = apply_risk_estimate(feature, edges=edges, table=table)
+
+    assert belief[0] == pytest.approx(0.22, abs=1e-3)
+    assert belief.min() > 1e-4  # never competitive with RF at these budgets
+
+    rf = np.full(1000, 4.5e-5)
+    allocation = solve_allocation(rf, truth, budget=1e-5, vlc_belief=belief)
+    assert allocation.vlc_only_fraction == 0.0

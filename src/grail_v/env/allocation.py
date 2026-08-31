@@ -65,8 +65,49 @@ class Allocation:
     feasible: bool
 
 
+def fit_risk_estimate(
+    feature: np.ndarray, truth: np.ndarray, *, edges: np.ndarray
+) -> np.ndarray:
+    """Mean true risk per bin of one observable, fitted on a held-out split.
+
+    The estimator a real vehicle could actually run. It sees a noisy tracked
+    separation, not the optical channel, so the best it can say is what packets
+    at this separation have historically cost. Deliberately the dumbest thing
+    that could work: a binned conditional mean has no capacity to memorise the
+    packets it was fitted on, so a gap between it and the oracle is the
+    estimator's honest loss rather than an overfitting artefact.
+
+    Returns one risk per bin, with empty bins carrying the global mean -- the
+    pessimistic filling, since an unseen separation is not evidence of a good
+    one.
+    """
+
+    values = np.asarray(feature, dtype=np.float64)
+    outcome = np.asarray(truth, dtype=np.float64)
+    if values.shape != outcome.shape:
+        raise AllocationError("feature and truth must describe the same packets")
+    index = np.clip(np.digitize(values, edges) - 1, 0, len(edges) - 2)
+    totals = np.bincount(index, weights=outcome, minlength=len(edges) - 1)
+    counts = np.bincount(index, minlength=len(edges) - 1)
+    return np.where(counts > 0, totals / np.maximum(counts, 1), outcome.mean())
+
+
+def apply_risk_estimate(
+    feature: np.ndarray, *, edges: np.ndarray, table: np.ndarray
+) -> np.ndarray:
+    """Score packets with an estimate fitted elsewhere."""
+
+    values = np.asarray(feature, dtype=np.float64)
+    index = np.clip(np.digitize(values, edges) - 1, 0, len(edges) - 2)
+    return table[index]
+
+
 def solve_allocation(
-    rf_risk: np.ndarray, vlc_risk: np.ndarray, budget: float
+    rf_risk: np.ndarray,
+    vlc_risk: np.ndarray,
+    budget: float,
+    *,
+    vlc_belief: np.ndarray | None = None,
 ) -> Allocation:
     """Cheapest per-packet assignment whose mean miss meets ``budget``.
 
@@ -85,6 +126,13 @@ def solve_allocation(
     campaign measures the dependence ratio at 0.93, so the real joint failure is
     slightly *better* than this predicts and the cost reported here is, again,
     marginally conservative.
+
+    **Decisions are made on ``vlc_belief`` and scored on ``vlc_risk``.** A
+    vehicle chooses with what it can observe and then lives with what the
+    channel actually does, and collapsing the two would report an allocation
+    nobody could have made. Defaulting the belief to the truth recovers the
+    oracle, which is the right upper bound to quote a realistic estimator
+    against -- the gap between them is the cost of not knowing.
     """
 
     rf = np.asarray(rf_risk, dtype=np.float64)
@@ -100,9 +148,20 @@ def solve_allocation(
     if not 0.0 < budget < 1.0:
         raise AllocationError("budget must lie in (0, 1)", context={"budget": budget})
 
-    on_rf = rf <= vlc
+    belief = vlc if vlc_belief is None else np.asarray(vlc_belief, dtype=np.float64)
+    if belief.shape != vlc.shape:
+        raise AllocationError(
+            "belief must describe the same packets as the outcome",
+            context={"belief": belief.shape, "vlc": vlc.shape},
+        )
+
+    # Chosen on the belief, paid on the truth.
+    on_rf = rf <= belief
     single = np.where(on_rf, rf, vlc)
     joint = rf * vlc
+    # The upgrade is ranked by the reduction the vehicle *expects*, since that
+    # is the number it has, but every reported total is the realized one.
+    expected_single = np.where(on_rf, rf, belief)
 
     total = float(np.sum(single))
     if total / n <= budget:
@@ -116,9 +175,9 @@ def solve_allocation(
         )
 
     # Upgrade in order of decreasing benefit until the mean clears the budget.
-    reduction = single - joint
+    reduction = expected_single - rf * belief
     order = np.argsort(reduction)[::-1]
-    running = total - np.cumsum(reduction[order])
+    running = total - np.cumsum((single - joint)[order])
     cleared = np.flatnonzero(running <= budget * n)
     if cleared.size == 0:
         upgrades = n
@@ -217,6 +276,7 @@ def solve_equilibrium(
     attempt_airtime_s: float,
     template: CollisionParameters,
     sensed_fraction: float = 1.0,
+    vlc_belief: np.ndarray | None = None,
     damping: float = 1.0,
     tolerance: float = 1e-5,
     max_iterations: int = 50,
@@ -281,7 +341,9 @@ def solve_equilibrium(
                 attempts=attempts,
                 sensed_fraction=sensed_fraction,
             )
-            allocation = solve_allocation(rf_risk, vlc_risk, budget)
+            allocation = solve_allocation(
+                rf_risk, vlc_risk, budget, vlc_belief=vlc_belief
+            )
             moved = abs(allocation.rf_fraction - fraction)
             fraction = (1.0 - damping) * fraction + damping * allocation.rf_fraction
             if moved < tolerance:
@@ -327,6 +389,8 @@ __all__ = [
     "Allocation",
     "AllocationError",
     "Equilibrium",
+    "apply_risk_estimate",
+    "fit_risk_estimate",
     "rf_packet_risk",
     "solve_allocation",
     "solve_equilibrium",
