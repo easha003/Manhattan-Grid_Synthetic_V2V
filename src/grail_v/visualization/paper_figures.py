@@ -228,14 +228,28 @@ def headlamp_pattern(out: Path, *, artifacts: Path) -> None:
 # Figure: the reliability-cost frontier
 # --------------------------------------------------------------------------
 
-def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: float) -> None:
+def reliability_cost_frontier(out: Path, *, wide: Path, budget: float,
+                              narrow: Path | None = None) -> None:
     """Where every strategy sits in the feasible region.
 
     This is the figure that turns "our method beats the baselines" into a
     statement about what is achievable at all. The frontier is the cheapest
     mean activation cost attaining each miss rate, given perfect knowledge of
-    per-packet risk but no knowledge of outcomes; the band between the two
-    headlamp variants is the part of the answer the regulation does not fix.
+    per-packet risk but no knowledge of outcomes.
+
+    ``narrow`` is optional and draws the band between the two headlamp variants,
+    which is the part of the answer UN R112 does not fix. Without it the figure
+    still reads; it just stops claiming anything about beam width, which is
+    honest when only one variant has been run.
+
+    **The allocation is plotted, and it sits below the frontier.** That is not a
+    violated bound. The frontier is the cheapest policy on the channel the
+    campaign measured, where every vehicle puts a copy on the radio; the
+    allocation is on the channel its own offload produced, with the contention
+    that follows from a third to a half of the traffic leaving the radio
+    entirely. The bound answers "cheapest policy on this channel" and the
+    allocation changed the channel, so the gap between them is the value of
+    load relief rather than an error in either.
     """
 
     import matplotlib.pyplot as plt
@@ -244,7 +258,8 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
         d = json.load(open(path))
         return {int(g["density_veh_per_lane_km"]): g for g in d["densities"]}
 
-    W, N = load(wide), load(narrow)
+    W = load(wide)
+    N = load(narrow) if narrow is not None else None
     densities = sorted(W)
     reached: list[tuple[float, float]] = []
     shades = {10: 0.42, 20: 0.68, 30: 1.0}
@@ -253,18 +268,27 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
     for rho in densities:
         alpha = shades[rho]
         fw = [(f["mean_cost"], f["achieved"]) for f in W[rho]["targeting"]["frontier"]]
-        fn = [(f["mean_cost"], f["achieved"]) for f in N[rho]["targeting"]["frontier"]]
         cw, aw = zip(*sorted(fw), strict=True)
-        cn, an = zip(*sorted(fn), strict=True)
         reached.extend(fw)
-        reached.extend(fn)
-        ax.fill_betweenx(aw, cw, cn, color=BOUND, alpha=0.10 * alpha + 0.05, lw=0)
+        if N is not None and rho in N:
+            fn = [(f["mean_cost"], f["achieved"])
+                  for f in N[rho]["targeting"]["frontier"]]
+            cn, _ = zip(*sorted(fn), strict=True)
+            reached.extend(fn)
+            ax.fill_betweenx(aw, cw, cn, color=BOUND, alpha=0.10 * alpha + 0.05, lw=0)
         ax.plot(cw, aw, color=BOUND, alpha=alpha, label=rf"frontier, $\rho{{=}}{rho}$")
 
-        rf_pt = W[rho]["policies"]["RF"]["expected_miss_rate"]
-        dup_pt = W[rho]["policies"]["DUP"]["expected_miss_rate"]
-        ax.plot(1.0, rf_pt, marker="o", ms=3.4, color=RF, alpha=alpha, ls="none")
-        ax.plot(2.0, dup_pt, marker="s", ms=3.4, color=DUP, alpha=alpha, ls="none")
+        policies = W[rho]["policies"]
+        ax.plot(1.0, policies["RF"]["expected_miss_rate"], marker="o", ms=3.4,
+                color=RF, alpha=alpha, ls="none")
+        ax.plot(2.0, policies["DUP"]["expected_miss_rate"], marker="s", ms=3.4,
+                color=DUP, alpha=alpha, ls="none")
+        if "EQUILIBRIUM" in policies:
+            settled = policies["EQUILIBRIUM"]
+            reached.append((settled["mean_cost"], settled["expected_miss_rate"]))
+            ax.plot(settled["mean_cost"], settled["expected_miss_rate"],
+                    marker="D", ms=4.0, color=DUP, alpha=alpha, ls="none",
+                    markeredgecolor="white", markeredgewidth=0.6, zorder=5)
 
     ax.axhline(budget, color=BUDGET, lw=0.9, ls="--")
     exponent = int(round(math.log10(budget)))
@@ -273,6 +297,9 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
 
     ax.plot([], [], marker="o", ms=3.4, color=RF, ls="none", label="RF only")
     ax.plot([], [], marker="s", ms=3.4, color=DUP, ls="none", label="duplicate all")
+    if any("EQUILIBRIUM" in W[r]["policies"] for r in densities):
+        ax.plot([], [], marker="D", ms=4.0, color=DUP, ls="none",
+                markeredgecolor="white", markeredgewidth=0.6, label="allocated")
     ax.set_xlabel("mean activation cost")
     ax.set_ylabel("expected miss rate")
     ax.set_yscale("log")
@@ -283,8 +310,12 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
     # thing this figure exists to show. A decade of air under the lower of the
     # budget and the data keeps the line inside the plot at either target.
     floor = min(budget, min(a for _, a in reached if a > 0.0)) / 10.0
+    # A decade of air under the lowest point, and the legend put there. Six
+    # entries at upper right covered the markers they name once the allocation
+    # joined them.
     ax.set_ylim(floor, 1e-3)
-    ax.legend(loc="upper right", ncol=1)
+    ax.legend(loc="lower left", ncol=2, fontsize=5.8, handlelength=1.2,
+              columnspacing=0.9, borderpad=0.4, framealpha=0.92)
     style.save(fig, out)
 
 
