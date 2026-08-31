@@ -29,7 +29,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grail_v.config import load_headline_config
+from grail_v.config import headline_config_layers, load_config
 from grail_v.core.geometry import Segment
 from grail_v.core.link_endpoints import optical_link_path
 from grail_v.core.pair_geometry import pair_geometry
@@ -124,10 +124,20 @@ def main() -> int:
     ap.add_argument("--densities", type=int, nargs="+", default=[10, 20, 30])
     ap.add_argument("--out", type=Path,
                     default=Path("artifacts/evaluations/geometry-distributions.json"))
+    ap.add_argument(
+        "--config", type=Path, nargs="+", default=None,
+        help="explicit config layers, in order; defaults to the frozen headline stack. "
+             "Pass configs/service/ev2x_300B_3ms_1e-5.yaml in place of the "
+             "1e-4 layer to run the eV2X row.",
+    )
     args = ap.parse_args()
 
     root = Path.cwd()
-    config = load_headline_config(root)
+    _root = root
+    config = load_config(
+        tuple(args.config) if args.config else headline_config_layers(_root),
+        project_root=_root,
+    )
     fov = math.radians(config.vlc.receiver_fov_deg)
 
     payload = {"split": args.split, "replicate": args.replicate,

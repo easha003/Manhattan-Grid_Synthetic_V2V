@@ -247,6 +247,7 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
 
     W, N = load(wide), load(narrow)
     densities = sorted(W)
+    reached: list[tuple[float, float]] = []
     shades = {10: 0.42, 20: 0.68, 30: 1.0}
 
     fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.6))
@@ -254,8 +255,10 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
         alpha = shades[rho]
         fw = [(f["mean_cost"], f["achieved"]) for f in W[rho]["targeting"]["frontier"]]
         fn = [(f["mean_cost"], f["achieved"]) for f in N[rho]["targeting"]["frontier"]]
-        cw, aw = zip(*sorted(fw))
-        cn, an = zip(*sorted(fn))
+        cw, aw = zip(*sorted(fw), strict=True)
+        cn, an = zip(*sorted(fn), strict=True)
+        reached.extend(fw)
+        reached.extend(fn)
         ax.fill_betweenx(aw, cw, cn, color=BOUND, alpha=0.10 * alpha + 0.05, lw=0)
         ax.plot(cw, aw, color=BOUND, alpha=alpha, label=rf"frontier, $\rho{{=}}{rho}$")
 
@@ -265,7 +268,9 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
         ax.plot(2.0, dup_pt, marker="s", ms=3.4, color=DUP, alpha=alpha, ls="none")
 
     ax.axhline(budget, color=BUDGET, lw=0.9, ls="--")
-    ax.text(1.02, budget * 1.18, r"budget $10^{-4}$", color=BUDGET, fontsize=6.5, va="bottom")
+    exponent = int(round(math.log10(budget)))
+    ax.text(1.02, budget * 1.18, rf"budget $10^{{{exponent}}}$", color=BUDGET,
+            fontsize=6.5, va="bottom")
 
     ax.plot([], [], marker="o", ms=3.4, color=RF, ls="none", label="RF only")
     ax.plot([], [], marker="s", ms=3.4, color=DUP, ls="none", label="duplicate all")
@@ -273,7 +278,13 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
     ax.set_ylabel("expected miss rate")
     ax.set_yscale("log")
     ax.set_xlim(0.95, 2.08)
-    ax.set_ylim(1e-5, 1e-3)
+    # Derived, not fixed. The limits were 1e-5 to 1e-3, chosen when the budget
+    # was 1e-4; at 1e-5 that put the budget line exactly on the axis floor,
+    # where a reader cannot see which side of it anything falls -- the one
+    # thing this figure exists to show. A decade of air under the lower of the
+    # budget and the data keeps the line inside the plot at either target.
+    floor = min(budget, min(a for _, a in reached if a > 0.0)) / 10.0
+    ax.set_ylim(floor, 1e-3)
     ax.legend(loc="upper right", ncol=1)
     style.save(fig, out)
 

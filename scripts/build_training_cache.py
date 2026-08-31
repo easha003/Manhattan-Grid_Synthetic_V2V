@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from grail_v.agents.cache import ColumnPlan, TransitionCache
-from grail_v.config import load_headline_config
+from grail_v.config import headline_config_layers, load_config
 from grail_v.core.enums import Link
 from grail_v.env.assembly import build_rollout
 from grail_v.env.episodes import TraceSource, iter_pair_instants
@@ -164,9 +164,19 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("artifacts/caches"))
     ap.add_argument("--force", action="store_true",
                     help="overwrite an existing cache instead of skipping it")
+    ap.add_argument(
+        "--config", type=Path, nargs="+", default=None,
+        help="explicit config layers, in order; defaults to the frozen headline stack. "
+             "Pass configs/service/ev2x_300B_3ms_1e-5.yaml in place of the "
+             "1e-4 layer to run the eV2X row.",
+    )
     args = ap.parse_args()
 
-    config = load_headline_config(Path.cwd())
+    _root = Path.cwd()
+    config = load_config(
+        tuple(args.config) if args.config else headline_config_layers(_root),
+        project_root=_root,
+    )
     for density in args.densities:
         out = args.out / f"{args.split}-d{density}-{args.replicate:03d}"
         if (out / "manifest.json").exists() and not args.force:

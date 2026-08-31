@@ -57,7 +57,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grail_v.config import load_headline_config
+from grail_v.config import headline_config_layers, load_config
 from grail_v.env.assembly import build_rollout
 from grail_v.env.campaign import TargetingBound
 from grail_v.env.episodes import TraceSource, iter_pair_instants
@@ -197,9 +197,19 @@ def main() -> int:
                     choices=("optimistic", "nominal", "pessimistic"))
     ap.add_argument("--out", type=Path,
                     default=Path("artifacts/evaluations/fitted-risk.json"))
+    ap.add_argument(
+        "--config", type=Path, nargs="+", default=None,
+        help="explicit config layers, in order; defaults to the frozen headline stack. "
+             "Pass configs/service/ev2x_300B_3ms_1e-5.yaml in place of the "
+             "1e-4 layer to run the eV2X row.",
+    )
     args = ap.parse_args()
 
-    config = load_headline_config(Path.cwd())
+    _root = Path.cwd()
+    config = load_config(
+        tuple(args.config) if args.config else headline_config_layers(_root),
+        project_root=_root,
+    )
     budget = config.service.miss_budget
     print(f"density {args.density}, up to {args.packets:,} packets, budget {budget:.0e}")
 

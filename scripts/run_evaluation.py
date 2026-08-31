@@ -76,6 +76,12 @@ def parse_args() -> argparse.Namespace:
              "nothing beyond 9L/9R, so results that depend on that region are "
              "a band across the two rather than a single number.",
     )
+    parser.add_argument(
+        "--config", type=Path, nargs="+", default=None,
+        help="explicit config layers, in order; defaults to the frozen headline stack. "
+             "Pass configs/service/ev2x_300B_3ms_1e-5.yaml in place of the "
+             "1e-4 layer to run the eV2X row.",
+    )
     return parser.parse_args()
 
 
@@ -159,7 +165,10 @@ def report_to_dict(
 def main() -> int:
     args = parse_args()
     root = Path.cwd()
-    config = load_config(headline_config_layers(root), project_root=root)
+    config = load_config(
+        tuple(args.config) if args.config else headline_config_layers(root),
+        project_root=root,
+    )
     if args.pattern_variant:
         artifact = (root / "artifacts" / "calibration" / "vlc"
                     / f"headlamp-r112-compliant-{args.pattern_variant}-v2")

@@ -25,15 +25,23 @@ from grail_v.channels.rf.collision import (
     resource_demand,
 )
 
-#: Neighbours within 200 m, measured on the completed campaign.
-MEASURED_NEIGHBOURS = {10: 44, 20: 100, 30: 159}
-#: V-VLC geometric outage from the same campaign, for the comparisons below.
-#: NOTE: pinned against the superseded test-point headlamp artifact. The
-#: rebuilt R112-compliant beam and the 0.55 m photodiode change these, and
-#: they are re-measured by the campaign re-run. The RF conclusions this file
-#: draws are insensitive to the exact value -- it enters as a scale factor --
-#: but the absolute magnitudes below move with it.
-MEASURED_VLC_OUTAGE = {10: 0.0959, 20: 0.0917, 30: 0.0726}
+#: Median contenders within 200 m, from
+#: ``artifacts/evaluations/geometry-distributions.json``.
+#:
+#: Copied rather than read, so these tests run without the artifact tree, and
+#: guarded by ``test_the_pinned_campaign_figures_still_match_the_artifacts``
+#: below -- which is what stops a copy from quietly ageing past the thing it
+#: copied. The previous values, 44/100/159, predated the re-run that produced
+#: the current campaign and had drifted by up to 8%.
+MEASURED_NEIGHBOURS = {10: 47, 20: 108, 30: 162}
+#: V-VLC geometric outage from ``campaign-test-wide-1000000.json``, for the
+#: comparisons below. The RF conclusions this file draws are insensitive to the
+#: exact value -- it enters as a scale factor -- but the absolute magnitudes
+#: move with it. The previous values, 0.0959/0.0917/0.0726, were pinned against
+#: the superseded test-point headlamp artifact and were already flagged here as
+#: superseded; the rebuilt R112-compliant beam and the 0.55 m photodiode roughly
+#: doubled them.
+MEASURED_VLC_OUTAGE = {10: 0.1560, 20: 0.1462, 30: 0.1187}
 
 
 # -- scope --------------------------------------------------------------------
@@ -67,7 +75,7 @@ def test_invalid_scopes_are_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    ("density", "expected"), [(10, 0.330), (20, 0.750), (30, 1.0)]
+    ("density", "expected"), [(10, 0.3525), (20, 0.8100), (30, 1.0)]
 )
 def test_channel_busy_ratio_tracks_the_measured_neighbour_counts(
     density: int, expected: float
@@ -136,7 +144,7 @@ def test_half_duplex_is_the_receiver_duty_cycle() -> None:
 
 @pytest.mark.parametrize(
     ("density", "optimistic", "nominal", "pessimistic"),
-    [(10, 2.04, 3.11, 4.70), (20, 2.73, 5.13, 8.63), (30, 3.44, 7.21, 12.59)],
+    [(10, 2.08, 3.22, 4.92), (20, 2.82, 5.41, 9.17), (30, 3.48, 7.31, 12.78)],
 )
 def test_the_declared_band_at_each_trained_density(
     density: int, optimistic: float, nominal: float, pessimistic: float
@@ -212,10 +220,10 @@ def test_a_single_rf_attempt_cannot_meet_the_budget_at_any_density() -> None:
 def test_duplication_needs_two_hopped_rf_attempts_to_reach_the_budget() -> None:
     """The measurement that settles a frozen service parameter.
 
-    With one RF attempt, DUP at rho = 20 nominal gives 4.65% x 9.17% = 4.3e-3,
-    which is 43x over budget. A second attempt on the other subchannel is
+    With one RF attempt, DUP at rho = 20 nominal gives 5.41% x 14.62% = 7.9e-3,
+    which is 79x over budget. A second attempt on the other subchannel is
     near-independent for collision -- a different resource is drawn -- so the RF
-    leg becomes 2.2e-3 and DUP lands near 2.0e-4. Still over.
+    leg becomes 2.9e-3 and DUP lands near 4.3e-4. Still over.
 
     Independence across attempts is the optimistic reading, and even it does
     not clear 10^-4 at the nominal band. The conclusion is not that two
@@ -229,13 +237,13 @@ def test_duplication_needs_two_hopped_rf_attempts_to_reach_the_budget() -> None:
     single = failure_probability(MEASURED_NEIGHBOURS[20], parameters)
 
     one_attempt = single * optical
-    assert one_attempt == pytest.approx(4.7e-3, rel=0.1)
+    assert one_attempt == pytest.approx(7.9e-3, rel=0.1)
     assert one_attempt > 1e-4, "one RF attempt cannot reach the budget under DUP"
 
     two_attempts = single**2 * optical
-    assert two_attempts == pytest.approx(2.4e-4, rel=0.15)
+    assert two_attempts == pytest.approx(4.3e-4, rel=0.15)
     assert two_attempts > 1e-4, "even two attempts do not clear it at nominal"
-    assert two_attempts < one_attempt / 10.0, "but a second attempt is worth 20x"
+    assert two_attempts < one_attempt / 10.0, "but a second attempt is worth 18x"
 
 
 def test_half_duplex_is_tied_to_the_profile_rather_than_to_a_constant() -> None:
@@ -327,7 +335,7 @@ def test_the_headline_profile_oversubscribes_the_pool_at_the_densest_condition()
     assert resource_demand(MEASURED_NEIGHBOURS[10], parameters) < 1.0
     assert resource_demand(MEASURED_NEIGHBOURS[30], parameters) > 1.0
     assert resource_demand(MEASURED_NEIGHBOURS[30], parameters) == pytest.approx(
-        159 * 3 / 400.0
+        162 * 3 / 400.0
     )
 
     # And the collision model is untroubled by it, which is the point.
@@ -358,3 +366,35 @@ def test_resource_demand_counts_attempts_against_the_candidate_pool() -> None:
 def test_resource_demand_rejects_a_negative_headcount() -> None:
     with pytest.raises(CollisionError):
         resource_demand(-1, headline_parameters())
+
+
+def test_the_pinned_campaign_figures_still_match_the_artifacts() -> None:
+    """The guard that keeps a copied measurement from ageing past its source.
+
+    ``MEASURED_NEIGHBOURS`` and ``MEASURED_VLC_OUTAGE`` are copied into this
+    file so the tests run without the artifact tree. That copy is only safe
+    while it agrees with what the campaign actually measured, and the previous
+    values had drifted 8% and a factor of two respectively without anything
+    noticing.
+    """
+
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "artifacts" / "evaluations"
+    geometry = root / "geometry-distributions.json"
+    campaign_file = root / "campaign-test-wide-1000000.json"
+    if not (geometry.exists() and campaign_file.exists()):
+        pytest.skip("evaluation artifacts are not present in this checkout")
+
+    measured = json.loads(geometry.read_text())["densities"]
+    for density, pinned in MEASURED_NEIGHBOURS.items():
+        actual = measured[str(density)]["contenders"]["quantiles"]["50"]
+        assert round(actual) == pinned
+
+    blocks = json.loads(campaign_file.read_text())["densities"]
+    for block in blocks:
+        density = int(block["density_veh_per_lane_km"])
+        assert block["optical"]["geometric_outage"] == pytest.approx(
+            MEASURED_VLC_OUTAGE[density], abs=5e-4
+        )

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from grail_v.agents.cache import TransitionCache
 from grail_v.agents.trainer import build_trainer
-from grail_v.config import load_headline_config
+from grail_v.config import headline_config_layers, load_config
 from grail_v.observation.builder import ObservationSchema
 
 
@@ -68,9 +68,19 @@ def main() -> int:
                          "violation -- so a run that ends with lambda still climbing "
                          "has not converged, it has run out of updates")
     ap.add_argument("--out", type=Path, default=Path("artifacts/policies"))
+    ap.add_argument(
+        "--config", type=Path, nargs="+", default=None,
+        help="explicit config layers, in order; defaults to the frozen headline stack. "
+             "Pass configs/service/ev2x_300B_3ms_1e-5.yaml in place of the "
+             "1e-4 layer to run the eV2X row.",
+    )
     args = ap.parse_args()
 
-    config = load_headline_config(Path.cwd())
+    _root = Path.cwd()
+    config = load_config(
+        tuple(args.config) if args.config else headline_config_layers(_root),
+        project_root=_root,
+    )
     schema = ObservationSchema(
         features=tuple(config.observation.features),
         history_packets=int(config.observation.history_packets),
