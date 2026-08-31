@@ -203,6 +203,63 @@ def main() -> int:
     budget = config.service.miss_budget
     per_replicate = max(1, args.packets // args.replicates)
 
+    # Named and guarded before anything runs, because the artifact is now
+    # written after every density rather than once at the end. A nine-hour run
+    # lost two finished densities when the third crashed mid-pass: completed
+    # work should survive whatever comes after it. The packet count stays in the
+    # name because a smoke run and a publication run must not share a path --
+    # one did, and a 6,000 packet check overwrote a 3,000,000 packet result.
+    parts = []
+    # The service profile decides the answer and did not appear in the name, so
+    # a 1e-5 run and a 1e-4 run at the same packet count and pattern collided on
+    # one path. Omitted for the headline so existing artifacts keep their names.
+    if config.project.experiment != "headline":
+        parts.append(config.project.experiment.replace("_", "-"))
+    parts.append(args.pattern_variant or "config")
+    if args.band:
+        parts.append(args.band)
+    if args.fov_deg is not None:
+        parts.append(f"fov{args.fov_deg:g}")
+    if args.ambient:
+        parts.append(args.ambient)
+    destination = (args.out
+                   / f"campaign-{args.split}-{'-'.join(parts)}-{args.packets}.json")
+    if destination.exists() and not args.force:
+        print(
+            f"refusing to overwrite {destination}\n"
+            f"  it holds a completed run; pass --force if that is what you want",
+            file=sys.stderr,
+        )
+        return 1
+
+    def write(entries: list) -> Path:
+        """Persist every finished density, so a later crash cannot erase them."""
+
+        args.out.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps({
+            "budget": budget,
+            "split": args.split,
+            "warmup_s": WARMUP_S,
+            "packets_requested_per_density": args.packets,
+            "bootstrap_replicates": args.bootstrap,
+            "confidence_level": config.evaluation.confidence_level,
+            "one_sided_upper_bound": True,
+            "normal_quantile_z": _normal_quantile(config.evaluation.confidence_level),
+            "interval_method": "trajectory_block_bootstrap",
+            "root_seed": args.seed,
+            "headlamp_pattern_variant": args.pattern_variant or "as configured",
+            "collision_band": args.band or "nominal",
+            "receiver_fov_deg": config.vlc.receiver_fov_deg,
+            "ambient_condition": config.vlc.ambient_condition,
+            "config_hash": scope_hash(config, "mobility"),
+            # Which densities this file holds against which were asked for, so a
+            # partial artifact cannot be read as a complete one.
+            "densities_requested": list(args.densities),
+            "densities_complete": [e["density_veh_per_lane_km"] for e in entries],
+            "densities": entries,
+        }, indent=2))
+        return destination
+
     results = []
     for density in args.densities:
         report = campaign.DensityReport(density=float(density))
@@ -284,57 +341,13 @@ def main() -> int:
         entry["traces"] = used
         entry["split"] = args.split
         results.append(entry)
+        print(f"  -> wrote {write(results)}  "
+              f"({len(results)} of {len(args.densities)} densities)\n", flush=True)
 
     if not results:
         print("nothing evaluated", file=sys.stderr)
         return 1
 
-    payload = {
-        "budget": budget,
-        "split": args.split,
-        "warmup_s": WARMUP_S,
-        "packets_requested_per_density": args.packets,
-        "bootstrap_replicates": args.bootstrap,
-        "confidence_level": config.evaluation.confidence_level,
-        "one_sided_upper_bound": True,
-        "normal_quantile_z": _normal_quantile(config.evaluation.confidence_level),
-        "interval_method": "trajectory_block_bootstrap",
-        "root_seed": args.seed,
-        "headlamp_pattern_variant": args.pattern_variant or "as configured",
-        "collision_band": args.band or "nominal",
-        "receiver_fov_deg": config.vlc.receiver_fov_deg,
-        "ambient_condition": config.vlc.ambient_condition,
-        "config_hash": scope_hash(config, "mobility"),
-        "densities": results,
-    }
-    args.out.mkdir(parents=True, exist_ok=True)
-    # The packet count is in the filename because a smoke run and a publication
-    # run are different artifacts and must not share a path. One did: a 6,000
-    # packet check overwrote a 3,000,000 packet result that had taken five
-    # hours. The guard below is the second line of defence.
-    parts = []
-    # The service profile decides the answer and did not appear in the name, so
-    # a 1e-5 run and a 1e-4 run at the same packet count and pattern collided on
-    # one path. Omitted for the headline so existing artifacts keep their names.
-    if config.project.experiment != "headline":
-        parts.append(config.project.experiment.replace("_", "-"))
-    parts.append(args.pattern_variant or "config")
-    if args.band:
-        parts.append(args.band)
-    if args.fov_deg is not None:
-        parts.append(f"fov{args.fov_deg:g}")
-    if args.ambient:
-        parts.append(args.ambient)
-    variant = "-".join(parts)
-    destination = args.out / f"campaign-{args.split}-{variant}-{args.packets}.json"
-    if destination.exists() and not args.force:
-        print(
-            f"refusing to overwrite {destination}\n"
-            f"  it holds a completed run; pass --force if that is what you want",
-            file=sys.stderr,
-        )
-        return 1
-    destination.write_text(json.dumps(payload, indent=2))
     print(f"wrote {destination}")
     return 0
 

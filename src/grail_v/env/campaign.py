@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -30,6 +30,7 @@ from grail_v.config.models import ProjectConfig
 from grail_v.core.enums import FailureCause
 from grail_v.env.episodes import PairInstant, TraceSource
 from grail_v.env.packet import ACTIONS, DUP, RF_ONLY, VLC_ONLY, PacketOutcome
+from grail_v.env.perception import Perception, build_perception
 from grail_v.env.rollout import Rollout, always, best_action
 from grail_v.env.statistics import (
     MIN_CLUSTERS,
@@ -48,6 +49,13 @@ ORACLE = "ORACLE"
 #: either: it is a per-packet choice made against the contention the choice
 #: itself produces.
 EQUILIBRIUM = "EQUILIBRIUM"
+
+#: The same allocation chosen on observables rather than on the truth.
+PREDICTED = "PREDICTED"
+
+#: A belief maps the causal observation vectors and the noisy tracked
+#: separations of a surveyed population to a believed optical risk per packet.
+BeliefFn = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 #: Budgets the frontier is swept over: the headline 1e-4, the exploratory
 #: 1e-5 frontier, and enough points either side to draw a curve.
@@ -409,6 +417,8 @@ def run_equilibrium(
     max_packets: int | None = None,
     warmup_s: float = 0.0,
     generation_period_s: float,
+    belief: BeliefFn | None = None,
+    policy_name: str = EQUILIBRIUM,
     into: DensityReport | None = None,
 ) -> DensityReport:
     """Score the mean-field allocation, which needs two passes over the traces.
@@ -434,6 +444,18 @@ def run_equilibrium(
     allocation actually delivered. The tape is derived from packet identity, so
     the second pass sees the same realized channel as the first up to the
     contention that legitimately changed.
+
+    **What the allocation is allowed to know.** With ``belief`` unset the
+    offload is chosen on the packet's *true* optical risk, which makes this an
+    upper bound rather than a policy: no vehicle knows that number. It is still
+    weaker than :data:`ORACLE`, which knows the realization and not merely the
+    risk, and it is the right bound to quote a realistic selector against.
+    Passing ``belief`` supplies one -- a function from the causal observation
+    vector and the noisy tracked separation to a believed optical risk -- and
+    the allocation is then chosen on what a vehicle could actually see, while
+    every reported number still comes from what the channel did. The gap between
+    the two runs is the cost of not knowing, and it is the number worth
+    reporting.
     """
 
     from grail_v.env.allocation import (
@@ -447,7 +469,9 @@ def run_equilibrium(
 
     report = into if into is not None else DensityReport(density=density)
 
-    def passes(usage: float) -> Iterator[tuple[Rollout, PairInstant]]:
+    def passes(
+        usage: float,
+    ) -> Iterator[tuple[Rollout, Perception | None, PairInstant]]:
         """One rollout per trace, at a fixed radio usage fraction.
 
         A fresh rollout per source because shadowing and fading state must not
@@ -460,17 +484,24 @@ def run_equilibrium(
         """
 
         for index, source in enumerate(sources):
+            seed = root_seed + index
             rollout = build_rollout(
-                config, buildings=(), root_seed=root_seed + index, band=band,
+                config, buildings=(), root_seed=seed, band=band,
                 rf_usage_fraction=usage,
             )
+            # Perception only where a belief will read it: it maintains noisy
+            # tracks for every vehicle in frame and costs more than the channel
+            # evaluation it accompanies.
+            seeing = build_perception(config, root_seed=seed) if belief else None
             for instant in iter_pair_instants(
                 source, generation_period_s=generation_period_s,
                 max_packets=max_packets, warmup_s=warmup_s,
             ):
-                yield rollout, instant
+                yield rollout, seeing, instant
                 if instant.final:
                     rollout.release(instant.pair_id)
+                    if seeing is not None:
+                        seeing.release(instant.pair_id)
 
     # -- pass one: what each packet costs, at full radio use ------------------
     neighbours: list[int] = []
@@ -478,8 +509,16 @@ def run_equilibrium(
     optical: list[float] = []
     keys: list[tuple[str, str, int]] = []
     template: CollisionParameters | None = None
-    for survey, instant in passes(1.0):
+    seen: list[np.ndarray] = []
+    for survey, seeing, instant in passes(1.0):
         template = survey.lifecycle.rf.collision
+        if seeing is not None:
+            observation = seeing.observe(instant)
+            if observation is None:
+                # No track yet, so no belief can be formed; the packet stays on
+                # the radio rather than being offloaded on a guess.
+                continue
+            seen.append(np.asarray(observation, dtype=np.float64))
         _, context, alternatives = survey.evaluate_instant(
             trace_id=instant.trace_id, pair_id=instant.pair_id, index=instant.index,
             density=density, time_s=instant.time_s,
@@ -524,9 +563,19 @@ def run_equilibrium(
                 rf_usage_fraction=fraction),
         attempts=config.service.rf_attempts_per_packet,
     )
-    final = solve_allocation(at_equilibrium, vlc_risk, budget)
-    on_rf = at_equilibrium <= vlc_risk
-    reduction = np.where(on_rf, at_equilibrium, vlc_risk) - at_equilibrium * vlc_risk
+    believed = (
+        vlc_risk if belief is None
+        else np.asarray(belief(np.vstack(seen), np.asarray(separations)),
+                        dtype=np.float64)
+    )
+    if believed.shape != vlc_risk.shape:
+        raise ValueError("a belief must cover exactly the surveyed packets")
+    final = solve_allocation(
+        at_equilibrium, vlc_risk, budget,
+        vlc_belief=None if belief is None else believed,
+    )
+    on_rf = at_equilibrium <= believed
+    reduction = np.where(on_rf, at_equilibrium, believed) - at_equilibrium * believed
     upgrades = int(round(final.dup_fraction * len(keys)))
     duplicated = np.zeros(len(keys), dtype=bool)
     if upgrades:
@@ -538,7 +587,7 @@ def run_equilibrium(
 
     # -- pass two: what it delivered, on the channel it produced --------------
     expected = dict(zip(keys, at_equilibrium * vlc_risk, strict=True))
-    for scored, instant in passes(fraction):
+    for scored, _, instant in passes(fraction):
         key = (instant.trace_id, instant.pair_id, instant.index)
         action = decision[key]
         outcome, _, _ = scored.evaluate_instant(
@@ -551,7 +600,7 @@ def run_equilibrium(
         risk = (expected[key] if action is DUP
                 else (outcome.rf_failure_probability if action is RF_ONLY
                       else outcome.vlc_failure_probability))
-        report.policy(EQUILIBRIUM).observe(
+        report.policy(policy_name).observe(
             outcome, risk, f"{instant.trace_id}|{instant.pair_id}"
         )
         report.packets += 1
@@ -767,6 +816,7 @@ def format_report(
 __all__ = [
     "BASELINES",
     "EQUILIBRIUM",
+    "PREDICTED",
     "DEFAULT_FRONTIER_BUDGETS",
     "ORACLE",
     "DensityReport",
