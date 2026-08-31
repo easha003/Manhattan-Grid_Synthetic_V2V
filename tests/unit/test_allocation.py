@@ -267,3 +267,33 @@ def test_a_mean_risk_estimate_cannot_beat_a_bimodal_truth() -> None:
     rf = np.full(1000, 4.5e-5)
     allocation = solve_allocation(rf, truth, budget=1e-5, vlc_belief=belief)
     assert allocation.vlc_only_fraction == 0.0
+
+
+def test_occlusion_in_flight_is_bounded_below_the_cut_in_gap() -> None:
+    """A third vehicle needs 9.5 m to insert, so below it the event cannot occur.
+
+    Measured as zero onsets in 8,629 s. The bound uses the rule of three rather
+    than that zero, so the term is 8% of a 1e-5 budget rather than nothing --
+    and it is *per packet from its own separation*, because a fleet-wide rate
+    charges long-separation exposure against short-separation candidates.
+    """
+
+    from grail_v.env.allocation import occlusion_in_flight_risk
+
+    risk = occlusion_in_flight_risk(np.array([3.0, 8.0, 9.0]), airtime_s=0.0024)
+    assert np.all(risk < 1e-6)
+    assert np.all(risk == risk[0])
+
+    far = occlusion_in_flight_risk(np.array([10.0, 14.0, 20.0, 40.0]), airtime_s=0.0024)
+    assert np.all(np.diff(far) > 0)          # rises monotonically with separation
+    assert far[-1] > 1e-4                    # and is nineteen budgets at the far end
+    assert far[0] / risk[0] > 50             # the conditioning is what decides it
+
+
+def test_a_longer_optical_packet_is_exposed_for_longer() -> None:
+    from grail_v.env.allocation import occlusion_in_flight_risk
+
+    sep = np.array([20.0])
+    assert occlusion_in_flight_risk(sep, airtime_s=0.0048)[0] == pytest.approx(
+        2.0 * occlusion_in_flight_risk(sep, airtime_s=0.0024)[0]
+    )

@@ -232,6 +232,69 @@ def rf_packet_risk(
     return (table**attempts)[inverse]
 
 
+#: Occlusion onset rate per second of clear optical path, by pair separation,
+#: measured at rho = 30 over 11,741 s of clear path at 50 ms resolution.
+#:
+#: The first entry is a **bound, not an observation**: zero onsets occurred
+#: below 9.5 m in 8,629 s, and zero is not a rate, so the rule of three supplies
+#: the 95% upper bound 3/8629.
+OCCLUSION_SEPARATION_EDGES_M: tuple[float, ...] = (0.0, 9.5, 12.0, 16.0, 25.0)
+OCCLUSION_ONSET_RATE_HZ: tuple[float, ...] = (
+    3.0 / 8629.0, 0.0241, 0.0333, 0.0441, 0.0800,
+)
+
+
+def occlusion_in_flight_risk(
+    separation_m: np.ndarray, *, airtime_s: float
+) -> np.ndarray:
+    """Chance a vehicle occludes the optical path *during* the transmission.
+
+    The static optical PER answers whether the path is clear at the instant of
+    the decision. A packet is in flight for its whole airtime, and the path can
+    close underneath it, so the two are different questions and only the first
+    is in the cached risk.
+
+    **Why the answer is negligible for the packets that matter, and why that is
+    a measurement rather than an assumption.** Occlusion of a following pair's
+    optical path requires a third vehicle to insert itself between them, and
+    insertion needs 9.5 m of longitudinal gap -- a 4.5 m body plus the 2.5 m
+    minimum spacing the car-following model enforces at each end. Below that
+    separation there is nowhere to go, so the event is not rare, it is
+    geometrically impossible. The measurement agrees exactly: across 8,629 s of
+    clear path below 9.5 m, zero onsets; the first appear in the 9.5-12 m bin,
+    and the rate climbs monotonically with separation from there.
+
+    That is what licenses treating optical availability as constant over a
+    transmission *for offloaded packets*, which are selected for short clear
+    paths. It does not license it in general -- beyond 25 m the rate is 0.08/s
+    and a 2.4 ms exposure is 1.9e-4, nineteen budgets. The risk is returned per
+    packet from its own separation rather than as a fleet-wide constant, because
+    a fleet-wide rate charges long-separation pairs' exposure against short-
+    separation candidates and gets the answer wrong by orders of magnitude.
+
+    Two conservatisms remain, both stated. The bound below 9.5 m uses the rule
+    of three rather than the observed zero, so the term is 8.3e-7 at a 2.4 ms
+    airtime -- 8% of a 1e-5 budget -- rather than nothing. And the occlusion
+    model this was measured through is binary (``complete_blockage_main``), so a
+    vehicle edge entering the beam kills the link instantly; a real beam has
+    spatial extent and would degrade over some milliseconds, which would make
+    the true term smaller still.
+
+    Measured at rho = 30, the densest trained condition. The 9.5 m threshold is
+    geometric and therefore density-independent, and denser traffic means
+    shorter gaps, so this is the least favourable density at which to measure
+    it.
+    """
+
+    if airtime_s <= 0.0:
+        raise AllocationError("airtime must be positive",
+                              context={"airtime_s": airtime_s})
+    edges = np.asarray(OCCLUSION_SEPARATION_EDGES_M)
+    rates = np.asarray(OCCLUSION_ONSET_RATE_HZ)
+    index = np.clip(np.digitize(np.asarray(separation_m), edges) - 1, 0, rates.size - 1)
+    return np.asarray(rates[index] * airtime_s, dtype=np.float64)
+
+
 @dataclass(frozen=True, slots=True)
 class Equilibrium:
     """The allocation and the channel that produce each other."""
@@ -390,7 +453,10 @@ __all__ = [
     "AllocationError",
     "Equilibrium",
     "apply_risk_estimate",
+    "OCCLUSION_ONSET_RATE_HZ",
+    "OCCLUSION_SEPARATION_EDGES_M",
     "fit_risk_estimate",
+    "occlusion_in_flight_risk",
     "rf_packet_risk",
     "solve_allocation",
     "solve_equilibrium",
