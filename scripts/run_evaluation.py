@@ -224,39 +224,69 @@ def main() -> int:
         parts.append(args.ambient)
     destination = (args.out
                    / f"campaign-{args.split}-{'-'.join(parts)}-{args.packets}.json")
-    if destination.exists() and not args.force:
-        print(
-            f"refusing to overwrite {destination}\n"
-            f"  it holds a completed run; pass --force if that is what you want",
-            file=sys.stderr,
-        )
-        return 1
+
+    # What has to match for two runs to belong in one artifact. The filename
+    # already separates packet count, pattern, band, FOV and ambient; this
+    # catches the rest, so densities measured on different seeds or a different
+    # config cannot be merged into something that reads as one campaign.
+    provenance = {
+        "budget": budget,
+        "split": args.split,
+        "root_seed": args.seed,
+        "packets_requested_per_density": args.packets,
+        "bootstrap_replicates": args.bootstrap,
+        "collision_band": args.band or "nominal",
+        "config_hash": scope_hash(config, "mobility"),
+    }
+    prior: list = []
+    if destination.exists():
+        held = json.loads(destination.read_text())
+        clash = {k: (held.get(k), v) for k, v in provenance.items()
+                 if held.get(k) != v}
+        if clash and not args.force:
+            print(
+                f"refusing to merge into {destination}\n"
+                f"  it holds a run this one does not match: {clash}\n"
+                f"  pass --force if that is what you want",
+                file=sys.stderr,
+            )
+            return 1
+        prior = [] if clash else held.get("densities", [])
+        if prior:
+            print(f"merging into {destination}, which already holds densities "
+                  f"{[e['density_veh_per_lane_km'] for e in prior]}")
 
     def write(entries: list) -> Path:
-        """Persist every finished density, so a later crash cannot erase them."""
+        """Persist every finished density, merged with any already on disk.
 
+        Densities are measured one at a time and a run can cover a subset, so a
+        later run has to compose with an earlier one rather than replace it --
+        otherwise finishing the campaign in two sittings means keeping the
+        answer in two files. Entries from this run win over stored ones for the
+        same density, which is what a deliberate re-measurement should do.
+        """
+
+        fresh = {e["density_veh_per_lane_km"] for e in entries}
+        merged = sorted(
+            [e for e in prior if e["density_veh_per_lane_km"] not in fresh] + entries,
+            key=lambda e: e["density_veh_per_lane_km"],
+        )
         args.out.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps({
-            "budget": budget,
-            "split": args.split,
+            **provenance,
             "warmup_s": WARMUP_S,
-            "packets_requested_per_density": args.packets,
-            "bootstrap_replicates": args.bootstrap,
             "confidence_level": config.evaluation.confidence_level,
             "one_sided_upper_bound": True,
             "normal_quantile_z": _normal_quantile(config.evaluation.confidence_level),
             "interval_method": "trajectory_block_bootstrap",
-            "root_seed": args.seed,
             "headlamp_pattern_variant": args.pattern_variant or "as configured",
-            "collision_band": args.band or "nominal",
             "receiver_fov_deg": config.vlc.receiver_fov_deg,
             "ambient_condition": config.vlc.ambient_condition,
-            "config_hash": scope_hash(config, "mobility"),
             # Which densities this file holds against which were asked for, so a
             # partial artifact cannot be read as a complete one.
             "densities_requested": list(args.densities),
-            "densities_complete": [e["density_veh_per_lane_km"] for e in entries],
-            "densities": entries,
+            "densities_complete": [e["density_veh_per_lane_km"] for e in merged],
+            "densities": merged,
         }, indent=2))
         return destination
 
@@ -341,8 +371,11 @@ def main() -> int:
         entry["traces"] = used
         entry["split"] = args.split
         results.append(entry)
-        print(f"  -> wrote {write(results)}  "
-              f"({len(results)} of {len(args.densities)} densities)\n", flush=True)
+        written = write(results)
+        held = json.loads(written.read_text())["densities_complete"]
+        print(f"  -> wrote {written}  "
+              f"({len(results)} of {len(args.densities)} this run; "
+              f"file now holds {held})\n", flush=True)
 
     if not results:
         print("nothing evaluated", file=sys.stderr)
