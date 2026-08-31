@@ -274,7 +274,13 @@ def main() -> int:
     # run are different artifacts and must not share a path. One did: a 6,000
     # packet check overwrote a 3,000,000 packet result that had taken five
     # hours. The guard below is the second line of defence.
-    parts = [args.pattern_variant or "config"]
+    parts = []
+    # The service profile decides the answer and did not appear in the name, so
+    # a 1e-5 run and a 1e-4 run at the same packet count and pattern collided on
+    # one path. Omitted for the headline so existing artifacts keep their names.
+    if config.project.experiment != "headline":
+        parts.append(config.project.experiment.replace("_", "-"))
+    parts.append(args.pattern_variant or "config")
     if args.band:
         parts.append(args.band)
     if args.fov_deg is not None:

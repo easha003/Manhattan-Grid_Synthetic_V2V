@@ -19,14 +19,17 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass, field, replace
 
-from grail_v.channels.rf.collision import CollisionParameters
+import numpy as np
+
+from grail_v.channels.rf.collision import CollisionParameters, SensitivityBand
 from grail_v.channels.rf.collision import resource_demand as _pool_claim
+from grail_v.config.models import ProjectConfig
 from grail_v.core.enums import FailureCause
-from grail_v.env.episodes import PairInstant
-from grail_v.env.packet import ACTIONS, PacketOutcome
+from grail_v.env.episodes import PairInstant, TraceSource
+from grail_v.env.packet import ACTIONS, DUP, RF_ONLY, VLC_ONLY, PacketOutcome
 from grail_v.env.rollout import Rollout, always, best_action
 from grail_v.env.statistics import (
     MIN_CLUSTERS,
@@ -40,6 +43,11 @@ BASELINES = tuple(action.name for action in ACTIONS)
 
 #: The oracle is not an action, it is a per-packet choice among them.
 ORACLE = "ORACLE"
+
+#: The mean-field allocation, scored like any other policy.  Not an action
+#: either: it is a per-packet choice made against the contention the choice
+#: itself produces.
+EQUILIBRIUM = "EQUILIBRIUM"
 
 #: Budgets the frontier is swept over: the headline 1e-4, the exploratory
 #: 1e-5 frontier, and enough points either side to draw a curve.
@@ -390,6 +398,161 @@ class DensityReport:
         return self.rf_lost_vlc_saved / self.packets if self.packets else 0.0
 
 
+def run_equilibrium(
+    config: ProjectConfig,
+    *,
+    sources: Sequence[TraceSource],
+    density: float,
+    budget: float,
+    root_seed: int,
+    band: SensitivityBand | None = None,
+    max_packets: int | None = None,
+    warmup_s: float = 0.0,
+    generation_period_s: float,
+    into: DensityReport | None = None,
+) -> DensityReport:
+    """Score the mean-field allocation, which needs two passes over the traces.
+
+    Every other policy here is a rule the rollout can apply as it goes. This one
+    is not, for two reasons that both force a second pass.
+
+    The allocation and the channel determine each other. A packet carried by
+    light returns its share of the pool, so the contention the *remaining* radio
+    packets face is a consequence of how many left -- and
+    :meth:`Rollout.evaluate_instant` draws its outcomes against collision
+    parameters fixed when the rollout was built. Scoring the equilibrium against
+    the profile's contention would report an allocation nobody made, on a
+    channel it would never have produced.
+
+    And the duplication set is global: the cheapest feasible mix upgrades
+    packets in order of the risk they shed, which cannot be decided while
+    streaming, because the ordering is not known until the last packet is seen.
+
+    So: one pass at full radio use to collect each packet's risk, the fixed
+    point solved on those, then the rollout rebuilt at the settled usage
+    fraction and a second pass that replays the same packets and scores what the
+    allocation actually delivered. The tape is derived from packet identity, so
+    the second pass sees the same realized channel as the first up to the
+    contention that legitimately changed.
+    """
+
+    from grail_v.env.allocation import (
+        occlusion_in_flight_risk,
+        rf_packet_risk,
+        solve_allocation,
+        solve_equilibrium,
+    )
+    from grail_v.env.assembly import build_rollout
+    from grail_v.env.episodes import iter_pair_instants
+
+    report = into if into is not None else DensityReport(density=density)
+
+    def instants() -> Iterator[PairInstant]:
+        for source in sources:
+            yield from iter_pair_instants(
+                source, generation_period_s=generation_period_s,
+                max_packets=max_packets, warmup_s=warmup_s,
+            )
+
+    # -- pass one: what each packet costs, at full radio use ------------------
+    neighbours: list[int] = []
+    separations: list[float] = []
+    optical: list[float] = []
+    keys: list[tuple[str, str, int]] = []
+    survey = build_rollout(config, buildings=(), root_seed=root_seed, band=band)
+    for instant in instants():
+        _, context, alternatives = survey.evaluate_instant(
+            trace_id=instant.trace_id, pair_id=instant.pair_id, index=instant.index,
+            density=density, time_s=instant.time_s,
+            transmitter=instant.transmitter, receiver=instant.receiver,
+            neighbours=instant.neighbours, index_of_frame=instant.index_of_frame,
+            choose=always(ACTIONS[0]), counterfactual=True,
+        )
+        assert alternatives is not None
+        neighbours.append(context.neighbour_count)
+        separations.append(context.separation_m)
+        optical.append(alternatives["VLC"].vlc_failure_probability)
+        keys.append((instant.trace_id, instant.pair_id, instant.index))
+        if instant.final:
+            survey.release(instant.pair_id)
+
+    if not keys:
+        return report
+
+    counts = np.asarray(neighbours)
+    vlc_risk = 1.0 - (1.0 - np.asarray(optical)) * (
+        1.0 - occlusion_in_flight_risk(
+            np.asarray(separations),
+            airtime_s=config.vlc.timing.airtime_s,
+            density=density,
+        )
+    )
+
+    settled = solve_equilibrium(
+        neighbour_counts=counts, vlc_risk=vlc_risk, budget=budget,
+        attempts=config.service.rf_attempts_per_packet,
+        attempt_airtime_s=config.rf.timing.airtime_s,
+        template=survey.lifecycle.rf.collision,
+        damping=0.25, max_iterations=400,
+    )
+
+    # -- the decision, taken once the whole population is known ---------------
+    fraction = settled.allocation.rf_fraction
+    at_equilibrium = rf_packet_risk(
+        counts,
+        replace(survey.lifecycle.rf.collision,
+                airtime_s=config.rf.timing.airtime_s
+                * config.service.rf_attempts_per_packet,
+                rf_usage_fraction=fraction),
+        attempts=config.service.rf_attempts_per_packet,
+    )
+    final = solve_allocation(at_equilibrium, vlc_risk, budget)
+    on_rf = at_equilibrium <= vlc_risk
+    reduction = np.where(on_rf, at_equilibrium, vlc_risk) - at_equilibrium * vlc_risk
+    upgrades = int(round(final.dup_fraction * len(keys)))
+    duplicated = np.zeros(len(keys), dtype=bool)
+    if upgrades:
+        duplicated[np.argsort(reduction)[::-1][:upgrades]] = True
+    decision = {
+        key: (DUP if dup else (RF_ONLY if rf else VLC_ONLY))
+        for key, rf, dup in zip(keys, on_rf, duplicated, strict=True)
+    }
+
+    # -- pass two: what it delivered, on the channel it produced --------------
+    scored = build_rollout(config, buildings=(), root_seed=root_seed, band=band,
+                           rf_usage_fraction=fraction)
+    expected = dict(zip(keys, at_equilibrium * vlc_risk, strict=True))
+    for instant in instants():
+        key = (instant.trace_id, instant.pair_id, instant.index)
+        action = decision[key]
+        outcome, _, _ = scored.evaluate_instant(
+            trace_id=instant.trace_id, pair_id=instant.pair_id, index=instant.index,
+            density=density, time_s=instant.time_s,
+            transmitter=instant.transmitter, receiver=instant.receiver,
+            neighbours=instant.neighbours, index_of_frame=instant.index_of_frame,
+            choose=always(action),
+        )
+        risk = (expected[key] if action is DUP
+                else (outcome.rf_failure_probability if action is RF_ONLY
+                      else outcome.vlc_failure_probability))
+        report.policy(EQUILIBRIUM).observe(
+            outcome, risk, f"{instant.trace_id}|{instant.pair_id}"
+        )
+        report.packets += 1
+        if report.collision is None:
+            report.collision = scored.lifecycle.rf.collision
+        if instant.final:
+            scored.release(instant.pair_id)
+
+    # Contenders come from the survey pass, which measured the count *within
+    # range* through the geometry. The frame's neighbour list is every vehicle
+    # the source handed over, several times larger, and using it reported a pool
+    # claim of 5.38 where the truth was 0.77.
+    report.contender_total += int(counts.sum())
+
+    return report
+
+
 def run(
     rollout: Rollout,
     instants: Iterable[PairInstant],
@@ -584,6 +747,7 @@ def format_report(
 
 __all__ = [
     "BASELINES",
+    "EQUILIBRIUM",
     "DEFAULT_FRONTIER_BUDGETS",
     "ORACLE",
     "DensityReport",

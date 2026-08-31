@@ -33,7 +33,10 @@ _AMBIENT: dict[str, AmbientCondition] = {
 
 
 def build_rf_channel(
-    config: ProjectConfig, *, band: SensitivityBand | None = None
+    config: ProjectConfig,
+    *,
+    band: SensitivityBand | None = None,
+    rf_usage_fraction: float = 1.0,
 ) -> NRV2XChannel:
     """The radio façade for this profile.
 
@@ -58,6 +61,13 @@ def build_rf_channel(
             # What this profile actually commits per packet, not a default.
             committed_airtime_s=config.rf.timing.airtime_s
             * config.service.rf_attempts_per_packet,
+            # One means every packet puts a copy on the radio, which is what a
+            # single-medium profile does. Below one the radio is carrying only
+            # part of the offered traffic because the rest went by light, and
+            # the contention, the half-duplex term and the pool claim all fall
+            # together. A caller scoring an allocation has to build the channel
+            # that allocation produces, not the one it started from.
+            rf_usage_fraction=rf_usage_fraction,
         ),
     )
 
@@ -106,12 +116,15 @@ def build_timing(config: ProjectConfig) -> Timing:
 
 
 def build_lifecycle(
-    config: ProjectConfig, *, band: SensitivityBand | None = None
+    config: ProjectConfig,
+    *,
+    band: SensitivityBand | None = None,
+    rf_usage_fraction: float = 1.0,
 ) -> PacketLifecycle:
     """Both façades and the deadline, assembled and checked for feasibility."""
 
     return PacketLifecycle(
-        rf=build_rf_channel(config, band=band),
+        rf=build_rf_channel(config, band=band, rf_usage_fraction=rf_usage_fraction),
         vlc=build_vlc_channel(config),
         timing=build_timing(config),
     )
@@ -123,6 +136,7 @@ def build_rollout(
     buildings,
     root_seed: int = 0,
     band: SensitivityBand | None = None,
+    rf_usage_fraction: float = 1.0,
 ):
     """A rollout wired to this profile, including the receiver's acceptance cone.
 
@@ -133,7 +147,9 @@ def build_rollout(
     from grail_v.env.rollout import Rollout
 
     return Rollout(
-        lifecycle=build_lifecycle(config, band=band),
+        lifecycle=build_lifecycle(
+            config, band=band, rf_usage_fraction=rf_usage_fraction
+        ),
         buildings=tuple(buildings),
         root_seed=root_seed,
         fov_half_angle_rad=np.deg2rad(config.vlc.receiver_fov_deg),

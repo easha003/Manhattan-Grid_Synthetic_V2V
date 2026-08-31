@@ -287,3 +287,68 @@ def test_the_pool_claim_is_absent_rather_than_wrong_before_any_packet() -> None:
     empty = DensityReport(density=30.0)
     assert empty.mean_contenders == 0.0
     assert empty.resource_demand == 0.0
+
+
+# -- the equilibrium, scored --------------------------------------------------
+
+
+def test_the_equilibrium_is_scored_on_the_channel_its_own_allocation_produces() -> None:
+    """Two passes, and the second one is the point.
+
+    Scoring the allocation against the profile's contention would report a
+    policy nobody could run: the packets carried by light return their share of
+    the pool, so the radio the remaining packets face is not the radio the
+    survey pass measured. The pool claim is the check -- at rho = 30 four
+    attempts claim 1.60 at full radio use, and the equilibrium has to come back
+    under one or the allocation it describes was never deliverable.
+    """
+
+    from pathlib import Path
+
+    from grail_v.config.loader import headline_config_layers, load_config
+    from grail_v.env.episodes import TraceSource
+
+    root = Path(__file__).resolve().parents[2]
+    trace = root / "artifacts" / "traces" / "synthetic-d30-test-000"
+    if not trace.exists():
+        pytest.skip("mobility traces are not present in this checkout")
+
+    layers = list(headline_config_layers(root))
+    layers[2] = root / "configs" / "service" / "ev2x_300B_3ms_1e-5.yaml"
+    layers.insert(-1, root / "configs" / "training" / "primal_dual_ppo_ultra.yaml")
+    layers[-1] = root / "configs" / "evaluation" / "ultra_reliability.yaml"
+    config = load_config(tuple(layers), project_root=root)
+
+    report = campaign.run_equilibrium(
+        config, sources=[TraceSource.discover(trace)], density=30.0, budget=1e-5,
+        root_seed=11, max_packets=8000, warmup_s=400.0,
+        generation_period_s=config.service.generation_period_s,
+    )
+    stats = report.policies[campaign.EQUILIBRIUM]
+
+    # Contenders come from the survey pass, not the frame's neighbour list --
+    # the latter is several times larger and reported a claim of 5.38.
+    assert 140 < report.mean_contenders < 190
+    assert report.resource_demand < 1.0
+    assert report.deliverable
+
+    # Both media carry packets, which is the claim the policy exists to make.
+    assert stats.choices["RF"] > 0
+    assert stats.choices["VLC"] > 0
+    assert stats.expected_miss_rate < 1e-5
+    assert 1.0 <= stats.mean_cost <= 2.0
+
+
+def test_scoring_the_equilibrium_needs_traces_rather_than_a_rule() -> None:
+    """It cannot be expressed as a chooser, and the signature says so.
+
+    Every other policy here is a per-packet rule the rollout applies as it goes.
+    This one needs the whole population twice: the duplication set is ranked
+    globally, and the contention is a consequence of the allocation.
+    """
+
+    import inspect
+
+    parameters = inspect.signature(campaign.run_equilibrium).parameters
+    assert "sources" in parameters
+    assert "budget" in parameters
