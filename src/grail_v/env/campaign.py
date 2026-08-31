@@ -22,10 +22,12 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
+from grail_v.channels.rf.collision import CollisionParameters
+from grail_v.channels.rf.collision import resource_demand as _pool_claim
 from grail_v.core.enums import FailureCause
 from grail_v.env.episodes import PairInstant
 from grail_v.env.packet import ACTIONS, PacketOutcome
-from grail_v.env.rollout import PacketContext, Rollout, always, best_action
+from grail_v.env.rollout import Rollout, always, best_action
 from grail_v.env.statistics import (
     MIN_CLUSTERS,
     ClusteredRate,
@@ -283,8 +285,42 @@ class DensityReport:
     #: duplication buys nothing a further RF attempt would not buy cheaper.
     rf_lost_vlc_saved: int = 0
     vlc_lost_rf_saved: int = 0
+    #: Contenders summed over packets, so the report can state what the
+    #: population asked of the resource pool rather than only what it achieved.
+    contender_total: int = 0
+    #: The collision profile these packets were evaluated under, recorded by
+    #: :func:`run` because the pool claim is a property of the profile and the
+    #: traffic together, and the report only has the traffic.
+    collision: CollisionParameters | None = None
     #: The bound a learned policy is actually competing against.
     targeting: TargetingBound = field(default_factory=TargetingBound)
+
+    @property
+    def mean_contenders(self) -> float:
+        return self.contender_total / self.packets if self.packets else 0.0
+
+    @property
+    def resource_demand(self) -> float:
+        """Airtime this population claims, as a multiple of what the pool has.
+
+        **Above one no reliability number on this report is deliverable**, and
+        that is not visible anywhere else in it. The collision model asks where
+        one selection lands, not whether every selection can be honoured, so an
+        oversubscribed profile still reports a modest per-attempt failure and a
+        plausible miss rate. The frozen headline profile sits at 1.19 here at
+        the densest trained condition, which no previous version of this table
+        said out loud.
+        """
+
+        if self.collision is None or not self.packets:
+            return 0.0
+        return _pool_claim(int(round(self.mean_contenders)), self.collision)
+
+    @property
+    def deliverable(self) -> bool:
+        """Whether the pool can supply what this profile committed."""
+
+        return self.resource_demand <= 1.0
 
     def policy(self, name: str) -> PolicyStatistics:
         return self.policies.setdefault(name, PolicyStatistics())
@@ -396,6 +432,13 @@ def run(
         )
         assert alternatives is not None
         report.packets += 1
+        report.contender_total += context.neighbour_count
+        if report.collision is None:
+            report.collision = rollout.lifecycle.rf.collision
+        elif report.collision != rollout.lifecycle.rf.collision:
+            raise ValueError(
+                "cannot pool traces evaluated under different collision profiles"
+            )
 
         cluster = f"{instant.trace_id}|{instant.pair_id}"
         for name, outcome in alternatives.items():
@@ -449,8 +492,16 @@ def format_report(
         if report.optical_outage > 0
         else "no geometric floor observed"
     )
+    claim = report.resource_demand
+    verdict = (
+        "within the pool"
+        if claim <= 1.0
+        else "OVERSUBSCRIBED -- no miss rate below is deliverable"
+    )
     lines = [
         f"density {report.density:g} veh/km   packets {report.packets:,}",
+        f"  pool claim       demand = {claim:>7.2f} from {report.mean_contenders:,.0f} "
+        f"mean contenders ({verdict})",
         f"  optical outage   P_out = {report.optical_outage:>7.2%} geometric ({cap})",
         f"                         = {report.optical_failure_rate:>7.2%} including "
         f"out-of-range, which is what duplication actually pays for",

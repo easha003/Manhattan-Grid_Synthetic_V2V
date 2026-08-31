@@ -23,15 +23,15 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grail_v.config.loader import headline_config_layers, load_config
-from grail_v.config.hashing import scope_hash
-from grail_v.env import campaign
 from grail_v.channels.rf.collision import SensitivityBand
+from grail_v.config.hashing import scope_hash
+from grail_v.config.loader import headline_config_layers, load_config
+from grail_v.config.models import ProjectConfig
+from grail_v.env import campaign
 from grail_v.env.assembly import build_rollout
 from grail_v.env.episodes import TraceSource, iter_pair_instants
 from grail_v.env.statistics import MIN_CLUSTERS, _normal_quantile
@@ -79,7 +79,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def report_to_dict(report: campaign.DensityReport, budget: float, replicates: int) -> dict:
+def report_to_dict(
+    report: campaign.DensityReport,
+    budget: float,
+    replicates: int,
+    config: ProjectConfig,
+) -> dict:
     """Everything a table or a figure needs, with the raw counts kept.
 
     ``report_raw_counts`` is set in the evaluation profile for a reason: "36
@@ -110,6 +115,17 @@ def report_to_dict(report: campaign.DensityReport, budget: float, replicates: in
         "packets": report.packets,
         "clusters": report.cluster_count,
         "sufficient_clusters": report.cluster_count >= MIN_CLUSTERS,
+        # Recorded beside the miss rates because it can invalidate all of them.
+        # Above one the profile committed more airtime than the pool supplies,
+        # and every reliability number here was computed by a collision model
+        # that does not check whether the selections it prices can all be
+        # honoured.
+        "pool": {
+            "mean_contenders": report.mean_contenders,
+            "resource_demand": report.resource_demand,
+            "deliverable": report.deliverable,
+            "attempts_per_packet": config.service.rf_attempts_per_packet,
+        },
         "optical": {
             "geometric_outage": report.optical_outage,
             "total_failure_rate": report.optical_failure_rate,
@@ -217,7 +233,7 @@ def main() -> int:
         print(f"  traces: {', '.join(used)}")
         print(f"  [{time.time() - started:.0f}s]\n")
 
-        entry = report_to_dict(report, budget, args.bootstrap)
+        entry = report_to_dict(report, budget, args.bootstrap, config)
         entry["traces"] = used
         entry["split"] = args.split
         results.append(entry)

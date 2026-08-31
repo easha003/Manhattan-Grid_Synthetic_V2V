@@ -16,7 +16,7 @@ import pytest
 from grail_v.core.enums import FailureCause
 from grail_v.env import campaign
 from grail_v.env.campaign import ORACLE, DensityReport, PolicyStatistics, expected_failure_for
-from grail_v.env.packet import DUP, RF_ONLY, VLC_ONLY, PacketOutcome
+from grail_v.env.packet import DUP, RF_ONLY, PacketOutcome
 
 
 def outcome(action, *, delivered=True, rf=1e-4, vlc=0.2, cause=None):
@@ -244,3 +244,46 @@ def test_complementarity_is_never_printed_as_a_percentage() -> None:
     assert "%" not in line
     assert "1.200e-05" in line
     assert "6 packets the radio lost" in line
+
+
+# -- the pool claim -----------------------------------------------------------
+
+
+def test_the_report_states_what_the_population_asked_of_the_pool() -> None:
+    """A miss rate is only meaningful if the profile could have been delivered.
+
+    The headline profile at the densest trained condition commits three attempts
+    against a pool that supplies about two and a half, and nothing else on the
+    report says so: the collision model prices where one selection lands, not
+    whether every selection can be honoured, so the miss rates look ordinary.
+    """
+
+    from grail_v.channels.rf.collision import headline_parameters
+
+    report = DensityReport(density=30.0, collision=headline_parameters())
+    report.packets = 1_000
+    report.contender_total = 159_000  # 159 contenders on every packet
+
+    assert report.mean_contenders == pytest.approx(159.0)
+    assert report.resource_demand == pytest.approx(159 * 3 / 400.0)
+    assert report.resource_demand > 1.0
+    assert not report.deliverable
+
+
+def test_a_sparse_population_fits_the_pool() -> None:
+    from grail_v.channels.rf.collision import headline_parameters
+
+    report = DensityReport(density=10.0, collision=headline_parameters())
+    report.packets = 1_000
+    report.contender_total = 47_000
+
+    assert report.resource_demand == pytest.approx(47 * 3 / 400.0)
+    assert report.deliverable
+
+
+def test_the_pool_claim_is_absent_rather_than_wrong_before_any_packet() -> None:
+    """An empty report must not read as a comfortably empty pool."""
+
+    empty = DensityReport(density=30.0)
+    assert empty.mean_contenders == 0.0
+    assert empty.resource_demand == 0.0
