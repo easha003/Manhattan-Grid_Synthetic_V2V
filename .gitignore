@@ -80,3 +80,4 @@ docs/report/*.aux
 docs/report/*.log
 docs/report/*.out
 docs/report/*.toc
+artifacts/logs/

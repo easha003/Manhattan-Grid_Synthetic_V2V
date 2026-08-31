@@ -447,20 +447,39 @@ def run_equilibrium(
 
     report = into if into is not None else DensityReport(density=density)
 
-    def instants() -> Iterator[PairInstant]:
-        for source in sources:
-            yield from iter_pair_instants(
+    def passes(usage: float) -> Iterator[tuple[Rollout, PairInstant]]:
+        """One rollout per trace, at a fixed radio usage fraction.
+
+        A fresh rollout per source because shadowing and fading state must not
+        carry across traces, and ``pair_id`` is only unique within one -- which
+        is why clusters are keyed by ``trace_id|pair_id``. Iterating every
+        source through a single rollout would let one trace's fading state
+        decide another trace's outcomes. The seed is tied to the trace index so
+        a rerun of one replicate reproduces exactly, and the usage fraction is
+        shared across all of them because the pool is.
+        """
+
+        for index, source in enumerate(sources):
+            rollout = build_rollout(
+                config, buildings=(), root_seed=root_seed + index, band=band,
+                rf_usage_fraction=usage,
+            )
+            for instant in iter_pair_instants(
                 source, generation_period_s=generation_period_s,
                 max_packets=max_packets, warmup_s=warmup_s,
-            )
+            ):
+                yield rollout, instant
+                if instant.final:
+                    rollout.release(instant.pair_id)
 
     # -- pass one: what each packet costs, at full radio use ------------------
     neighbours: list[int] = []
     separations: list[float] = []
     optical: list[float] = []
     keys: list[tuple[str, str, int]] = []
-    survey = build_rollout(config, buildings=(), root_seed=root_seed, band=band)
-    for instant in instants():
+    template: CollisionParameters | None = None
+    for survey, instant in passes(1.0):
+        template = survey.lifecycle.rf.collision
         _, context, alternatives = survey.evaluate_instant(
             trace_id=instant.trace_id, pair_id=instant.pair_id, index=instant.index,
             density=density, time_s=instant.time_s,
@@ -473,11 +492,10 @@ def run_equilibrium(
         separations.append(context.separation_m)
         optical.append(alternatives["VLC"].vlc_failure_probability)
         keys.append((instant.trace_id, instant.pair_id, instant.index))
-        if instant.final:
-            survey.release(instant.pair_id)
 
     if not keys:
         return report
+    assert template is not None
 
     counts = np.asarray(neighbours)
     vlc_risk = 1.0 - (1.0 - np.asarray(optical)) * (
@@ -492,7 +510,7 @@ def run_equilibrium(
         neighbour_counts=counts, vlc_risk=vlc_risk, budget=budget,
         attempts=config.service.rf_attempts_per_packet,
         attempt_airtime_s=config.rf.timing.airtime_s,
-        template=survey.lifecycle.rf.collision,
+        template=template,
         damping=0.25, max_iterations=400,
     )
 
@@ -500,7 +518,7 @@ def run_equilibrium(
     fraction = settled.allocation.rf_fraction
     at_equilibrium = rf_packet_risk(
         counts,
-        replace(survey.lifecycle.rf.collision,
+        replace(template,
                 airtime_s=config.rf.timing.airtime_s
                 * config.service.rf_attempts_per_packet,
                 rf_usage_fraction=fraction),
@@ -519,10 +537,8 @@ def run_equilibrium(
     }
 
     # -- pass two: what it delivered, on the channel it produced --------------
-    scored = build_rollout(config, buildings=(), root_seed=root_seed, band=band,
-                           rf_usage_fraction=fraction)
     expected = dict(zip(keys, at_equilibrium * vlc_risk, strict=True))
-    for instant in instants():
+    for scored, instant in passes(fraction):
         key = (instant.trace_id, instant.pair_id, instant.index)
         action = decision[key]
         outcome, _, _ = scored.evaluate_instant(
@@ -541,8 +557,6 @@ def run_equilibrium(
         report.packets += 1
         if report.collision is None:
             report.collision = scored.lifecycle.rf.collision
-        if instant.final:
-            scored.release(instant.pair_id)
 
     # Contenders come from the survey pass, which measured the count *within
     # range* through the geometry. The frame's neighbour list is every vehicle
@@ -692,7 +706,12 @@ def format_report(
         f"  {'policy':<8} {'cost':>6} {'E[miss]':>10} {'E up':>10} "
         f"{'holds':>6} {'realized':>10} {'R up':>10}",
     ]
-    for name in (*BASELINES, ORACLE):
+    # EQUILIBRIUM only when it was scored -- the run is optional, and an
+    # empty row would read as a policy that missed nothing.
+    ordered = (*BASELINES, ORACLE)
+    if EQUILIBRIUM in report.policies:
+        ordered = (*ordered, EQUILIBRIUM)
+    for name in ordered:
         stats = report.policies.get(name)
         if stats is None or not stats.packets:
             continue

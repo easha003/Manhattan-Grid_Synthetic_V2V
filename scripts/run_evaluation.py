@@ -77,6 +77,11 @@ def parse_args() -> argparse.Namespace:
              "a band across the two rather than a single number.",
     )
     parser.add_argument(
+        "--no-equilibrium", action="store_true",
+        help="skip the mean-field allocation, which costs a second pass over "
+             "every trace",
+    )
+    parser.add_argument(
         "--config", type=Path, nargs="+", default=None,
         help="explicit config layers, in order; defaults to the frozen headline stack. "
              "Pass configs/service/ev2x_300B_3ms_1e-5.yaml in place of the "
@@ -202,6 +207,7 @@ def main() -> int:
     for density in args.densities:
         report = campaign.DensityReport(density=float(density))
         used = []
+        sources = []
         started = time.time()
         for replicate in range(args.replicates):
             trace_id = f"synthetic-d{density}-{args.split}-{replicate:03d}"
@@ -210,6 +216,7 @@ def main() -> int:
                 print(f"  ! missing {trace_id}, skipping", flush=True)
                 continue
             source = TraceSource.discover(path)
+            sources.append(source)
             # A fresh rollout per trace: shadowing and fading state must not
             # carry across traces, and the seed is tied to the trace so a rerun
             # of one replicate reproduces exactly.
@@ -236,6 +243,27 @@ def main() -> int:
             print(f"density {density}: no traces found for split {args.split!r}")
             continue
 
+        # The allocation, scored on the channel it produces, into its own
+        # report: run_equilibrium counts its own packets and contenders, and
+        # pooling those into the baseline report would double every denominator
+        # on it. Only the policy's statistics cross over, so format_report
+        # prints it beside the baselines it has to be judged against.
+        equilibrium = None
+        if sources and not args.no_equilibrium:
+            started_eq = time.time()
+            equilibrium = campaign.run_equilibrium(
+                config, sources=sources, density=float(density), budget=budget,
+                root_seed=args.seed + density * 10, band=band,
+                max_packets=per_replicate, warmup_s=WARMUP_S,
+                generation_period_s=config.service.generation_period_s,
+            )
+            report.policies[campaign.EQUILIBRIUM] = equilibrium.policies[
+                campaign.EQUILIBRIUM
+            ]
+            print(f"  equilibrium: {equilibrium.packets:,} packets, pool claim "
+                  f"{equilibrium.resource_demand:.2f} "
+                  f"({time.time() - started_eq:.0f}s)", flush=True)
+
         print()
         print(campaign.format_report(report, budget=budget,
                                      bootstrap_replicates=args.bootstrap))
@@ -243,6 +271,16 @@ def main() -> int:
         print(f"  [{time.time() - started:.0f}s]\n")
 
         entry = report_to_dict(report, budget, args.bootstrap, config)
+        if equilibrium is not None:
+            # Its own pool claim, which is the whole point: the baseline block
+            # above reports what the profile asks at full radio use, and this
+            # reports what is left once the optical leg has taken its share.
+            entry["equilibrium"] = {
+                "packets": equilibrium.packets,
+                "mean_contenders": equilibrium.mean_contenders,
+                "resource_demand": equilibrium.resource_demand,
+                "deliverable": equilibrium.deliverable,
+            }
         entry["traces"] = used
         entry["split"] = args.split
         results.append(entry)
