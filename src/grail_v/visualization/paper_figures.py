@@ -285,56 +285,74 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
 # Figure: the ceiling the radio cannot buy its way past
 # --------------------------------------------------------------------------
 
-def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts_needed:
-                 dict[int, int], pool: int, max_attempts: int = 8) -> None:
-    """What the population asks of the resource pool, against what it holds.
+def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts: int,
+                 pool: int, at_equilibrium: dict[int, float],
+                 max_attempts: int = 8) -> None:
+    """What the population asks of the resource pool, and what offload returns.
 
-    The figure the feasibility claim rests on, and the one quantity no other
-    plot in this paper shows. Reliability here is bought with retransmissions,
-    retransmissions are drawn from a pool of ``pool`` resources per generation
-    period, and every vehicle draws from the same one -- so ``n * N <= pool`` is
-    a supply constraint, not a performance one. Above the line there is no
-    assignment of contenders to resources that gives each what it asked for, and
-    the collision model cannot see it: it prices where one selection lands, not
-    whether every selection can be honoured.
+    Reliability is bought with retransmissions, retransmissions are drawn from a
+    pool of ``pool`` resources per generation period, and every vehicle draws
+    from the same one -- so ``n * N <= pool`` is a supply constraint rather than
+    a performance one. Above the line no assignment gives every vehicle what it
+    asked for, and the collision model cannot see it: it prices where one
+    selection lands, not whether every selection can be honoured.
 
-    Each density's marker sits at the attempt count that density needs to reach
-    the budget. A marker above the line is the whole result -- the radio needs
-    more of the pool than exists, and no amount of margin elsewhere changes
-    that, because the deadline buys time and this is not a shortage of time.
+    Each line is the claim at *full* radio use. The arrow drops to the claim at
+    equilibrium, once the packets with a short clear optical path are carried by
+    light and stop drawing on the pool at all. That descent is the mechanism the
+    whole result rests on: at the two denser conditions the radio cannot afford
+    the attempts it needs until the optical leg gives some of the pool back.
     """
 
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.5))
+    fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.6))
     counts = np.arange(1, max_attempts + 1)
     shades = {10: 0.42, 20: 0.68, 30: 1.0}
 
     for rho in sorted(contenders):
         demand = contenders[rho] * counts / pool
         ax.plot(counts, demand, color=RF, alpha=shades[rho], lw=1.3)
-        # Labelled on the line rather than in a legend: three lines in a
-        # single-column figure spend more on a legend box than the labels are
-        # worth, and the box lands on the steepest line.
-        edge = int(np.searchsorted(demand, 1.9))
-        edge = max_attempts if edge == 0 else min(edge, max_attempts)
-        ax.annotate(rf"$\rho{{=}}{rho}$", (edge, demand[edge - 1]),
-                    textcoords="offset points", xytext=(4, 0), fontsize=6.5,
-                    color=RF, alpha=shades[rho], va="center")
-        need = attempts_needed[rho]
-        at = contenders[rho] * need / pool
-        ax.plot(need, at, marker="o" if at <= 1.0 else "X", ms=5.5,
-                color=BOUND if at <= 1.0 else BUDGET, zorder=5,
+        # Label the line where it is still inside the axes, and never within
+        # reach of the marker cluster -- every density's descent happens at the
+        # same attempt count, so that is the one place a label cannot go.
+        visible = np.flatnonzero(demand <= 1.75)
+        spot = int(counts[visible[-1]]) if visible.size else max_attempts
+        if abs(spot - attempts) < 1.2:
+            spot = max(1, attempts - 2)
+        ax.annotate(rf"$\rho{{=}}{rho}$", (spot, contenders[rho] * spot / pool),
+                    textcoords="offset points", xytext=(4, 1), fontsize=6.5,
+                    color=RF, alpha=shades[rho], va="bottom")
+
+        # Nudged apart in x: all three descents happen at the same attempt
+        # count, and drawn on one vertical they read as a single arrow.
+        at = attempts + 0.16 * (sorted(contenders).index(rho) - 1)
+        full = contenders[rho] * attempts / pool
+        settled = at_equilibrium[rho]
+        # Only draw the descent where it is the point; a marginal one is noise.
+        if settled < full - 0.10:
+            ax.annotate("", xy=(at, settled), xytext=(at, full),
+                        arrowprops=dict(arrowstyle="-|>", color=VLC, lw=1.1,
+                                        alpha=shades[rho], shrinkA=1.5, shrinkB=1.5))
+        ax.plot(at, full, marker="X" if full > 1.0 else "o", ms=5.0,
+                color=BUDGET if full > 1.0 else BOUND, zorder=5,
+                markeredgecolor="white", markeredgewidth=0.7)
+        ax.plot(at, settled, marker="o", ms=5.0, color=BOUND, zorder=6,
                 markeredgecolor="white", markeredgewidth=0.7)
 
     ax.axhline(1.0, color=BUDGET, lw=0.9, ls="--")
     ax.text(0.95, 1.04, "pool exhausted", color=BUDGET, fontsize=6.5,
             ha="left", va="bottom")
+    ax.plot([], [], marker="X", ms=5.0, color=BUDGET, ls="none",
+            label="radio alone")
+    ax.plot([], [], marker="o", ms=5.0, color=BOUND, ls="none",
+            label="after optical offload")
     ax.set_xlabel("RF attempts per packet")
     ax.set_ylabel("pool claim  $nN/M$")
     ax.set_xlim(0.9, max_attempts + 0.45)
     ax.set_ylim(0, 2.0)
     ax.set_xticks(counts)
+    ax.legend(loc="upper left", fontsize=6.0, handlelength=1.0)
     style.save(fig, out)
 
 
@@ -343,20 +361,18 @@ def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts_needed:
 # --------------------------------------------------------------------------
 
 def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
-                         attempts: dict[int, int], budget: float) -> None:
+                         budget: float) -> None:
     """The best each strategy reaches using every attempt the pool affords.
 
-    The companion to :func:`pool_ceiling`, and the reason that figure matters.
-    Reliability is bought with retransmissions until the pool runs out, so each
-    density is evaluated at *its own* ceiling rather than at a common attempt
-    count -- ``rho = 10`` gets eight attempts, ``rho = 30`` gets two, and that
-    asymmetry is the finding rather than an inconsistency in the experiment.
+    The companion to :func:`pool_ceiling`, evaluated at the equilibrium that
+    figure's arrows land on -- so every bar here is a configuration the pool can
+    actually deliver, at one attempt count across all three densities.
 
-    Read across the budget line: the radio alone clears it by five orders where
-    the pool is empty enough, and nothing clears it at either denser condition.
-    Duplication does not rescue them, because a duplicated packet still spends
-    the radio resources that were the binding constraint, and the optical leg
-    carries a static outage no transmit power reaches.
+    Read across the budget line. The radio alone clears it at the sparsest
+    condition and misses at both denser ones, where the pool will not fund the
+    attempts it would need. Light alone misses everywhere by four orders, on a
+    geometric outage no transmit power reaches. The pair clears it at every
+    density -- and above the threshold that is the only thing that does.
     """
 
     import matplotlib.pyplot as plt
@@ -368,7 +384,7 @@ def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
 
     fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.5))
     width = 0.26
-    for offset, key in zip((-width, 0.0, width), order):
+    for offset, key in zip((-width, 0.0, width), order, strict=True):
         ax.bar([i + offset for i in range(len(rhos))],
                [achieved[r][key] for r in rhos], width,
                color=colour[key], label=label[key], zorder=3)
@@ -379,9 +395,9 @@ def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
             fontsize=6.5, ha="left", va="bottom")
     ax.set_yscale("log")
     ax.set_xticks(range(len(rhos)))
-    ax.set_xticklabels([rf"$\rho{{=}}{r}$" + "\n" + f"{attempts[r]} attempts" for r in rhos])
+    ax.set_xticklabels([rf"$\rho{{=}}{r}$" for r in rhos])
     ax.set_ylabel("miss rate")
-    ax.set_ylim(1e-11, 5.0)
+    ax.set_ylim(1e-7, 5.0)
     ax.legend(loc="upper left", fontsize=6.0, ncol=3, columnspacing=0.8,
               handlelength=1.2)
     style.save(fig, out)
