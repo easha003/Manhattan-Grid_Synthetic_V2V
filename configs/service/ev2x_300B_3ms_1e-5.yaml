@@ -1,6 +1,54 @@
+# The full 3GPP TR 38.913 eV2X reference row: 300 B, 3-10 ms, 1e-5.
+#
+# The headline profile in ev2x_300B_3ms_1e-4.yaml takes its miss budget from
+# the 99.99% class of TS 22.186 instead.  This one takes the eV2X row's own
+# 1e-5, and it is a *boundary* declaration rather than a target: measured, the
+# row is not reachable at the two denser trained conditions, and the arithmetic
+# below is what says so.
+#
+# Four attempts, not three, and not one.
+#
+#   One was here until 2026-08-31 and was never a candidate: collision alone
+#   puts a 2-6% floor on a single attempt, four orders above the budget.  It
+#   predates the amendment that moved the headline profile to three and was
+#   simply never updated.
+#
+#   Three reaches 3.9e-4 at rho = 30, still 39x over.
+#
+#   Four is the first count that reaches 1e-5 anywhere: 2.0e-6 at rho = 10 on
+#   the nominal collision band, and it is the same verdict on the optimistic
+#   and pessimistic bands, so it does not depend on the one quantity the
+#   collision model declares it does not know.
+#
+# Four attempts cost 2.0 ms of the 2.9 ms the 3 ms deadline leaves after the
+# pre-decision lead, so this fits the *tight* end of the standard's range.
+# That is deliberate.  The deadline is not what binds here, and stating the
+# result at 3 ms rather than 10 ms makes that checkable: relaxing to 10 ms buys
+# room for nineteen attempts in time and changes nothing, because the mode-2
+# pool supplies 400 (subchannel, slot) resources per 100 ms generation period
+# regardless of the deadline, and n vehicles each claiming N of them need
+# n*N <= 400.
+#
+# Against the measured contender counts that ceiling is:
+#
+#   rho = 10:  47 contenders, 8.5 attempts affordable, 4 needed  -> DELIVERABLE
+#   rho = 20: 108 contenders, 3.7 attempts affordable, 4 needed  -> oversubscribed 1.08
+#   rho = 30: 162 contenders, 2.5 attempts affordable, 4 needed  -> oversubscribed 1.62
+#
+# So the profile below is deliverable at rho = 10 and is not deliverable at
+# rho = 20 or 30, and no attempt count fixes that: fewer attempts fit the pool
+# and miss the budget, more meet the budget and do not fit.  The second medium
+# does not lift it either -- V-VLC carries 22-54% static optical outage and
+# cannot carry a packet alone, so duplication still spends the radio resources
+# that were the binding constraint.
+#
+# Recorded here rather than in a paper draft because this file is what the
+# loader reads, and a service profile that quietly encoded an unreachable
+# target would make every artifact stamped with it a claim nobody checked.
+
 project:
   experiment: "ev2x_300B_3ms_1e-5"
-  description: "Standards-oriented eV2X ultra-reliability frontier"
+  description: "TR 38.913 eV2X row as a measured feasibility boundary"
 
 service:
   payload_bytes: 300
@@ -9,7 +57,7 @@ service:
   miss_budget: 0.00001
   predecision_lead_s: 0.0001
   harq_enabled: false
-  rf_attempts_per_packet: 1
+  rf_attempts_per_packet: 4
   vlc_attempts_per_packet: 1
   dup_simultaneous: true
   rf_resource_assumption: "pre_reserved"

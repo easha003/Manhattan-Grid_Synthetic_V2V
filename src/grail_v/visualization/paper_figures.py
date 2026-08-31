@@ -282,6 +282,112 @@ def reliability_cost_frontier(out: Path, *, wide: Path, narrow: Path, budget: fl
 
 
 # --------------------------------------------------------------------------
+# Figure: the ceiling the radio cannot buy its way past
+# --------------------------------------------------------------------------
+
+def pool_ceiling(out: Path, *, contenders: dict[int, float], attempts_needed:
+                 dict[int, int], pool: int, max_attempts: int = 8) -> None:
+    """What the population asks of the resource pool, against what it holds.
+
+    The figure the feasibility claim rests on, and the one quantity no other
+    plot in this paper shows. Reliability here is bought with retransmissions,
+    retransmissions are drawn from a pool of ``pool`` resources per generation
+    period, and every vehicle draws from the same one -- so ``n * N <= pool`` is
+    a supply constraint, not a performance one. Above the line there is no
+    assignment of contenders to resources that gives each what it asked for, and
+    the collision model cannot see it: it prices where one selection lands, not
+    whether every selection can be honoured.
+
+    Each density's marker sits at the attempt count that density needs to reach
+    the budget. A marker above the line is the whole result -- the radio needs
+    more of the pool than exists, and no amount of margin elsewhere changes
+    that, because the deadline buys time and this is not a shortage of time.
+    """
+
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.5))
+    counts = np.arange(1, max_attempts + 1)
+    shades = {10: 0.42, 20: 0.68, 30: 1.0}
+
+    for rho in sorted(contenders):
+        demand = contenders[rho] * counts / pool
+        ax.plot(counts, demand, color=RF, alpha=shades[rho], lw=1.3)
+        # Labelled on the line rather than in a legend: three lines in a
+        # single-column figure spend more on a legend box than the labels are
+        # worth, and the box lands on the steepest line.
+        edge = int(np.searchsorted(demand, 1.9))
+        edge = max_attempts if edge == 0 else min(edge, max_attempts)
+        ax.annotate(rf"$\rho{{=}}{rho}$", (edge, demand[edge - 1]),
+                    textcoords="offset points", xytext=(4, 0), fontsize=6.5,
+                    color=RF, alpha=shades[rho], va="center")
+        need = attempts_needed[rho]
+        at = contenders[rho] * need / pool
+        ax.plot(need, at, marker="o" if at <= 1.0 else "X", ms=5.5,
+                color=BOUND if at <= 1.0 else BUDGET, zorder=5,
+                markeredgecolor="white", markeredgewidth=0.7)
+
+    ax.axhline(1.0, color=BUDGET, lw=0.9, ls="--")
+    ax.text(0.95, 1.04, "pool exhausted", color=BUDGET, fontsize=6.5,
+            ha="left", va="bottom")
+    ax.set_xlabel("RF attempts per packet")
+    ax.set_ylabel("pool claim  $nN/M$")
+    ax.set_xlim(0.9, max_attempts + 0.45)
+    ax.set_ylim(0, 2.0)
+    ax.set_xticks(counts)
+    style.save(fig, out)
+
+
+# --------------------------------------------------------------------------
+# Figure: what each medium reaches once the pool is enforced
+# --------------------------------------------------------------------------
+
+def feasibility_boundary(out: Path, *, achieved: dict[int, dict[str, float]],
+                         attempts: dict[int, int], budget: float) -> None:
+    """The best each strategy reaches using every attempt the pool affords.
+
+    The companion to :func:`pool_ceiling`, and the reason that figure matters.
+    Reliability is bought with retransmissions until the pool runs out, so each
+    density is evaluated at *its own* ceiling rather than at a common attempt
+    count -- ``rho = 10`` gets eight attempts, ``rho = 30`` gets two, and that
+    asymmetry is the finding rather than an inconsistency in the experiment.
+
+    Read across the budget line: the radio alone clears it by five orders where
+    the pool is empty enough, and nothing clears it at either denser condition.
+    Duplication does not rescue them, because a duplicated packet still spends
+    the radio resources that were the binding constraint, and the optical leg
+    carries a static outage no transmit power reaches.
+    """
+
+    import matplotlib.pyplot as plt
+
+    order = ["RF", "VLC", "hybrid"]
+    colour = {"RF": RF, "VLC": VLC, "hybrid": DUP}
+    label = {"RF": "radio alone", "VLC": "light alone", "hybrid": "both"}
+    rhos = sorted(achieved)
+
+    fig, ax = plt.subplots(figsize=(style.COLUMN_W, 2.5))
+    width = 0.26
+    for offset, key in zip((-width, 0.0, width), order):
+        ax.bar([i + offset for i in range(len(rhos))],
+               [achieved[r][key] for r in rhos], width,
+               color=colour[key], label=label[key], zorder=3)
+
+    ax.axhline(budget, color=BUDGET, lw=1.0, ls="--", zorder=4)
+    exponent = int(round(math.log10(budget)))
+    ax.text(-0.45, budget * 1.5, rf"budget $10^{{{exponent}}}$", color=BUDGET,
+            fontsize=6.5, ha="left", va="bottom")
+    ax.set_yscale("log")
+    ax.set_xticks(range(len(rhos)))
+    ax.set_xticklabels([rf"$\rho{{=}}{r}$" + "\n" + f"{attempts[r]} attempts" for r in rhos])
+    ax.set_ylabel("miss rate")
+    ax.set_ylim(1e-11, 5.0)
+    ax.legend(loc="upper left", fontsize=6.0, ncol=3, columnspacing=0.8,
+              handlelength=1.2)
+    style.save(fig, out)
+
+
+# --------------------------------------------------------------------------
 # Figure: the coupling the whole contribution rests on
 # --------------------------------------------------------------------------
 
@@ -415,6 +521,8 @@ __all__ = [
     "density_coupling",
     "headlamp_pattern",
     "optical_cliff",
+    "feasibility_boundary",
+    "pool_ceiling",
     "reliability_cost_frontier",
     "rf_failure_decomposition",
 ]
