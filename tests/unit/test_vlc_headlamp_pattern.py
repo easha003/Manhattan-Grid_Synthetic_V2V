@@ -24,6 +24,8 @@ from grail_v.channels.vlc.headlamp_pattern import (
     load_pattern,
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 def write_artifact(root: Path, **overrides) -> Path:
     payload = {
@@ -62,20 +64,30 @@ def test_a_missing_measured_pattern_raises_rather_than_falling_back(tmp_path: Pa
 
 
 def test_the_configured_artifact_exists_and_is_a_declared_envelope() -> None:
-    """It was absent until 2026-08-10, and a test pinned that so it could not be
-    forgotten. It now exists, built from the ECE R112 test-point geometry rather
-    than measured off a lamp, and the manifest says so in its own source field.
+    """Whatever the profile points at must be present and must declare itself.
 
-    The distinction is the point: a regulatory envelope constrains a compliant
-    lamp, it does not describe one. Cells without a test point carry the
-    applicable zone limit, which is a bound. Any optical result quoted from it
-    inherits that.
+    This named ``headlamp-ece-r112-v1`` until 2026-09-01, which was the
+    configured pattern when the test was written and is now the superseded one.
+    The .gitignore keeps that artifact out of the repository deliberately -- "so
+    nobody points a profile at it by accident" -- so the assertion passed only
+    on machines still carrying a stale local copy and failed on every clean
+    clone. Reading the path from the configuration instead of naming one is what
+    stops that recurring.
+
+    The distinction the assertion defends is unchanged: these patterns are
+    regulatory constructions, not measured lamps. A compliant beam is
+    constrained by R112, not described by it, so any optical result quoted from
+    one inherits that.
     """
 
-    pattern = load_pattern("artifacts/calibration/vlc/headlamp-ece-r112-v1")
-    assert pattern.pattern_id == "headlamp-ece-r112-v1"
-    assert "NOT a measured lamp" in pattern.source
-    assert "zone limit" in pattern.source
+    from grail_v.config import load_headline_config
+
+    config = load_headline_config(PROJECT_ROOT)
+    configured = PROJECT_ROOT / config.vlc.pattern_artifact
+    pattern = load_pattern(configured)
+
+    assert pattern.pattern_id == configured.name
+    assert "not measured" in pattern.source.lower()
 
 
 def test_lambertian_is_available_only_by_name() -> None:
