@@ -41,8 +41,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grail_v.agents.cache import TransitionCache
 from grail_v.config import headline_config_layers, load_config
+from grail_v.env.cache import TransitionCache
 from grail_v.observation.builder import ObservationSchema
 
 

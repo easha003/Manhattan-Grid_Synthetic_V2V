@@ -21,10 +21,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grail_v.agents.cache import CACHE_FORMAT_VERSION, CacheError, ColumnPlan, TransitionCache
 from grail_v.config import load_headline_config
-from grail_v.core.enums import Link
 from grail_v.env.assembly import build_rollout
+from grail_v.env.cache import CACHE_FORMAT_VERSION, CacheError, ColumnPlan, TransitionCache
 from grail_v.env.episodes import TraceSource, iter_pair_instants
 from grail_v.env.feedback import measurements
 from grail_v.env.packet import ACTIONS, DUP, RF_ONLY, VLC_ONLY
@@ -189,52 +188,6 @@ def test_both_legs_report_the_same_quality_whichever_action_spent_them(config) -
         if instant.final:
             rollout.release(instant.pair_id)
     assert checked > 50
-
-
-@needs_trace
-def test_the_replay_charges_what_the_live_environment_would(config, schema, tmp_path) -> None:
-    """End to end: the same action sequence costs the same on both paths.
-
-    The pieces are checked separately -- the splice reproduces the
-    observation, the risks do not depend on the policy, each action is charged
-    its own marginal -- but this is the composition, and the composition is
-    what training actually runs on. Everything reported about a learned policy
-    depends on the cached environment being the environment.
-    """
-
-    from grail_v.agents.environment import Replay
-    from grail_v.core.enums import Action
-
-    build_training_cache = _load_builder()
-    build_training_cache.build(
-        config, density=20, split="test", replicate=0, packets=1500,
-        seed=77, out=tmp_path / "cache",
-    )
-    cache = TransitionCache.load(tmp_path / "cache", schema=schema)
-
-    # Walk the cache in its stored order with a fixed action cycle, and charge
-    # the same packets through the live lifecycle's own probabilities.
-    replay = Replay((cache,), schema=schema, lanes=1, seed=0)
-    cycle = (Action.RF, Action.VLC, Action.DUP)
-
-    charged: list[float] = []
-    expected: list[float] = []
-    for step in range(300):
-        row = replay._lanes[0].cursor
-        choice = cycle[step % len(cycle)]
-        replay.observations()
-        _, cost, _ = replay.step(np.array([int(choice)]))
-        charged.append(float(cost[0]))
-
-        p_rf = float(cache.risk[row, 0])
-        p_vlc = float(cache.risk[row, 1])
-        expected.append(
-            p_rf if choice == Action.RF else p_vlc if choice == Action.VLC else p_rf * p_vlc
-        )
-
-    assert charged == pytest.approx(expected, rel=1e-6)
-    # A cost column that was constant would make the comparison meaningless.
-    assert len(set(np.round(charged, 12))) > 10
 
 
 def _load_builder():

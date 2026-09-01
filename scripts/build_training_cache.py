@@ -5,7 +5,7 @@ Run as::
     python scripts/build_training_cache.py --split train --densities 10 20 30
 
 Writes ``artifacts/caches/<split>-d<density>-<replicate>/`` for each density.
-See :mod:`grail_v.agents.cache` for why this is sound: every draw a packet
+See :mod:`grail_v.env.cache` for why this is sound: every draw a packet
 consumes is seeded from the packet's identity, so the risks, the outcomes and
 the reported qualities are functions of the trace and not of the policy. Only
 the link history depends on what was chosen, and the replay rebuilds that.
@@ -28,10 +28,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grail_v.agents.cache import ColumnPlan, TransitionCache
 from grail_v.config import headline_config_layers, load_config
 from grail_v.core.enums import Link
 from grail_v.env.assembly import build_rollout
+from grail_v.env.cache import ColumnPlan, TransitionCache
 from grail_v.env.episodes import TraceSource, iter_pair_instants
 from grail_v.env.feedback import measurements
 from grail_v.env.packet import ACTIONS, DUP
