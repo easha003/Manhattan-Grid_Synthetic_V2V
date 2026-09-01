@@ -51,6 +51,8 @@ def main() -> int:
                     help="campaign artifact the result figures are drawn from")
     ap.add_argument("--narrow", type=Path, default=None,
                     help="optional second campaign, for the beam-width band")
+    ap.add_argument("--realizability-density", type=int, default=30,
+                    help="density the realizability figure is drawn for")
     ap.add_argument("--pool", type=int, default=400,
                     help="mode-2 resources per generation period")
     args = ap.parse_args()
@@ -94,6 +96,12 @@ def main() -> int:
             args.out / "fig_feasibility_boundary.pdf", campaign=campaign,
             budget=args.budget)
         built.append("fig_feasibility_boundary.pdf")
+        paper_figures.realizability(
+            args.out / "fig_realizability.pdf", campaign=campaign,
+            density=args.realizability_density,
+            contenders=measured_neighbours(distributions)[args.realizability_density],
+            pool=args.pool, budget=args.budget)
+        built.append("fig_realizability.pdf")
         paper_figures.reliability_cost_frontier(
             args.out / "fig_frontier.pdf", wide=campaign, budget=args.budget,
             narrow=args.narrow if args.narrow and args.narrow.exists() else None)

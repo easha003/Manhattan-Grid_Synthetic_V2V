@@ -1,0 +1,122 @@
+\section{Allocation as a Fixed Point}
+\label{sec:allocation}
+
+Suppose some packets are carried optically and never reach the radio. The pool
+claim of \eqref{eq:demand} falls, because fewer vehicles contend; the
+per-attempt failure probability $q$ falls with it; and $p_{\mathrm{RF}}$
+improves for every packet that remains. But whether a packet is worth carrying
+optically depends on $p_{\mathrm{RF}}$, which is what just changed. The
+allocation and the channel it runs on determine each other, and neither can be
+evaluated first.
+
+This section states that circularity as a fixed point and solves it. The
+resulting allocation is what Section~\ref{sec:results} evaluates against the
+single-medium baselines.
+
+\subsection{Coupling}
+
+Let $f \in [0,1]$ denote the \emph{radio usage fraction}: the share of offered
+packets that place a copy on the sidelink. A packet carried optically alone
+returns its share of the pool, so three quantities fall together with $f$---the
+number of contenders a transmitter competes with, the fraction of the period a
+receiver spends transmitting rather than listening, and the pool claim. They are
+one behaviour observed three ways and scale from one parameter. The per-attempt
+failure probability is written $q(f)$ and the resulting per-packet radio risk
+\begin{equation}
+  p_{\mathrm{RF}}(f) = q(f)^{N} .
+  \label{eq:rf_of_f}
+\end{equation}
+
+Half-duplex is why this coupling cannot be approximated away. At the attempt
+counts of Table~\ref{tab:params} the half-duplex term is the same order as
+collision, so charging a full duty cycle to a receiver that spent the period on
+optics overstates radio failure by roughly $1/f$.
+
+\subsection{Per-Packet Allocation}
+
+Given the two risks, the allocation for a population of $K$ packets is the
+cheapest assignment of media that meets the budget $\varepsilon$. Each packet
+$k$ has a radio risk $p_{\mathrm{RF},k}$ and an optical risk
+$p_{\mathrm{VLC},k}$, and may be assigned to the radio alone, the light alone,
+or both. Activation costs are $1$, $1$ and $2$ respectively, so the cheapest
+single-medium choice is whichever leg is less likely to fail,
+\begin{equation}
+  \pi_k = \min\!\left(p_{\mathrm{RF},k},\; p_{\mathrm{VLC},k}\right),
+  \label{eq:single}
+\end{equation}
+and duplication is an upgrade that costs one further activation and, assuming
+independence across media, reduces the packet's risk to
+$p_{\mathrm{RF},k}\,p_{\mathrm{VLC},k}$.
+
+Minimising mean cost subject to
+$K^{-1}\sum_k \pi_k \le \varepsilon$ is then a linear relaxation whose solution
+is greedy: baseline every packet on its cheaper leg, and upgrade packets to
+duplication in decreasing order of the risk each upgrade removes,
+\begin{equation}
+  \Delta_k = \pi_k - p_{\mathrm{RF},k}\,p_{\mathrm{VLC},k},
+  \label{eq:reduction}
+\end{equation}
+stopping as soon as the budget is met. Two properties of this rule matter
+later. It can \emph{substitute}, not only duplicate---a packet whose optical
+path is clean is routed to the light and off the radio entirely, which is what
+relieves the pool---and it returns a mean activation cost, so the price of
+meeting the budget is reported rather than assumed.
+
+Independence across media is assumed in the $p_{\mathrm{RF}}p_{\mathrm{VLC}}$
+term. The campaign measures the realised joint failure at a dependence ratio of
+$1.18$ at $\rho = 30$, so the true joint outcome is slightly worse than
+independence predicts and the duplication branch is correspondingly optimistic.
+The allocation branch, which is the one that carries the result, does not use
+that term.
+
+\subsection{Solution}
+
+Writing $\mathcal{A}$ for the allocation of \eqref{eq:single}--\eqref{eq:reduction}
+and $f = \mathcal{A}\!\left(p_{\mathrm{RF}}(f), p_{\mathrm{VLC}}\right)$ for the
+radio usage it induces, an operating point is a solution of
+\begin{equation}
+  f^{\star} = \mathcal{A}\!\left(p_{\mathrm{RF}}(f^{\star}),\, p_{\mathrm{VLC}}\right).
+  \label{eq:fixedpoint}
+\end{equation}
+We solve \eqref{eq:fixedpoint} by damped iteration,
+$f_{i+1} = (1-\lambda) f_i + \lambda \, \mathcal{A}(p_{\mathrm{RF}}(f_i), p_{\mathrm{VLC}})$,
+with $\lambda = 0.25$.
+
+Damping is not cosmetic. Undamped, the iteration oscillates at the higher
+attempt counts: offloading improves the radio, which makes offloading
+unattractive, which congests it again. That oscillation is an artefact of
+updating every vehicle simultaneously---a real fleet decides asynchronously,
+and $\lambda$ is what represents that.
+
+Two properties of \eqref{eq:fixedpoint} require care.
+
+\emph{The map has more than one fixed point.} Started from full radio use, a
+congested pool makes duplication look necessary and duplicating keeps it
+congested; the iteration settles there, self-consistently, at cost $2.0$ and a
+miss rate that fails the budget. Started lower, the same inputs settle on most
+packets going by light, the offered load collapsing, and the radio comfortably
+carrying the remainder at cost $1.0$. Both are equilibria of the same system,
+and at $\rho = 30$ on the pessimistic band they differ by a factor of $325$. We
+therefore sweep several starting loads and report the cheapest feasible
+equilibrium found, together with how many distinct equilibria were reached.
+Bistability here is a property of the system rather than of the solver: a fleet
+that begins congested stays congested absent something to coordinate the move
+to light.
+
+\emph{An exact fixed point need not exist.} The allocation is a discrete
+ordering over a finite packet population, so $\mathcal{A}$ is a step function
+and $\mathcal{A}(f) = f$ may have no solution. What exists is a small invariant
+band. We therefore declare convergence on the reported quantities---the miss
+rate and the mean cost---rather than on $f$ itself, which is what a published
+number requires and what a stationarity test on a step function never delivers.
+
+\subsection{Relation to Prior Fixed-Point Analyses}
+
+Fixed-point analysis of C-V2X contention is established: Wang \emph{et al.}
+solve one for semi-persistent scheduling, in which collision probability
+depends on the idle resources a vehicle can sense, which in turn depend on the
+collision probability~\cite{wang2018fixedpoint}. That fixed point is in the
+collision probability \emph{at a fixed offered load}. The fixed point of
+\eqref{eq:fixedpoint} is in the \emph{allocation}---in how much load leaves the
+radio altogether---and it is the pool constraint \eqref{eq:demand}, absent from
+single-medium analyses, that gives that departure its value.

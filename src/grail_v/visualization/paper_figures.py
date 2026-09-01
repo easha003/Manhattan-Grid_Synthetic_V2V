@@ -322,6 +322,167 @@ def reliability_cost_frontier(out: Path, *, wide: Path, budget: float,
 
 
 
+def _selector_points(density: int) -> tuple[list[tuple[float, float]],
+                                            tuple[float, float] | None]:
+    """Coverage and error for observable threshold rules, from the caches.
+
+    Returns the rules a vehicle could actually apply -- thresholds on the noisy
+    tracked separation and the field-of-view margin -- and, separately, the
+    point a selector reaches if it simply knows which packets the light can
+    carry. Both are measured on the held-out split; the caches are absent from
+    a fresh checkout, so a caller must tolerate ``None``.
+    """
+
+    from grail_v.config import load_headline_config
+    from grail_v.env.allocation import occlusion_in_flight_risk
+
+    root = Path.cwd()
+    trace = root / "artifacts" / "caches" / f"test-d{density}-000" / "trace.npy"
+    risk = root / "artifacts" / "caches" / f"test-d{density}-000" / "risk.npy"
+    if not (trace.exists() and risk.exists()):
+        return [], None
+
+    config = load_headline_config(root)
+    columns = np.load(trace)
+    separation, margin = columns[:, 2], columns[:, 6]
+    optical = np.load(risk)[:, 1].astype(np.float64)
+    optical = 1.0 - (1.0 - optical) * (
+        1.0 - occlusion_in_flight_risk(
+            separation, airtime_s=config.vlc.timing.airtime_s,
+            density=float(density))
+    )
+
+    rules = []
+    for reach, floor in ((8.0, 0.95), (9.5, 0.90), (11.0, 0.90), (13.0, 0.80),
+                         (16.0, 0.80), (25.0, 0.60), (1e9, 0.0)):
+        picked = (separation < reach) & (margin > floor)
+        if picked.mean() < 0.05:
+            continue
+        rules.append((float(picked.mean()), float(optical[picked].mean())))
+
+    carriable = optical <= 1e-5
+    ideal = ((float(carriable.mean()), float(optical[carriable].mean()))
+             if carriable.any() else None)
+    return rules, ideal
+
+
+# --------------------------------------------------------------------------
+# Figure: why the allocation is a bound at the densest condition
+# --------------------------------------------------------------------------
+
+def realizability(out: Path, *, campaign: Path, density: int, contenders: int,
+                  pool: int, budget: float) -> None:
+    """What stops a deployable selector from reaching the allocation bound.
+
+    Two questions this answers, both of which have an intuitive wrong answer.
+
+    **(a) Is the optical link limited by blockage?** No. Occlusion is the
+    smallest of its three failure causes at every density -- 17% of optical
+    failures at the densest condition against 51% for insufficient received
+    power. Optical failure also *falls* as traffic thickens, because following
+    pairs close up, so the densest condition is where the light works best and
+    still where the hybrid cannot be realized.
+
+    **(b) Then why can it not be realized?** Panel (b) is the reason. Packets
+    with no usable optical path must be carried by the radio alone, and at this
+    density the pool funds a mean of only ``pool/contenders`` attempts. Meeting
+    the budget therefore demands both high offload coverage *and* high selector
+    precision at once. The shaded region is where the pair suffices; the
+    markers are threshold rules on the observables a vehicle actually has.
+    Every rule lands outside it -- widening coverage costs precision faster
+    than it gains reach -- while a selector that simply knew which packets the
+    light can carry sits inside with room to spare.
+
+    The gap between those two is not a modelling artefact. It says the offload
+    decision needs the optical link *measured* rather than inferred from pose.
+    """
+
+    import json
+    from dataclasses import replace
+
+    import matplotlib.pyplot as plt
+
+    from grail_v.channels.rf.collision import (
+        failure_probability,
+        headline_parameters,
+        resource_demand,
+    )
+
+    measured = json.loads(campaign.read_text())
+
+    fig, (ax, bx) = plt.subplots(2, 1, figsize=(style.COLUMN_W, 4.6))
+    fig.subplots_adjust(hspace=0.52)
+
+    # -- (a) what actually breaks the optical link ---------------------------
+    causes = [("VLC_CHANNEL", "too weak (range)", VLC),
+              ("VLC_ALIGNMENT", "outside field of view", BOUND),
+              ("VLC_OCCLUSION", "blocked by a vehicle", RF)]
+    rhos = sorted(int(b["density_veh_per_lane_km"]) for b in measured["densities"])
+    bottom = np.zeros(len(rhos))
+    for key, label, colour in causes:
+        share = []
+        for rho in rhos:
+            b = next(x for x in measured["densities"]
+                     if int(x["density_veh_per_lane_km"]) == rho)
+            share.append(100.0 * b["policies"]["VLC"]["failure_causes"].get(key, 0)
+                         / b["packets"])
+        ax.bar(range(len(rhos)), share, 0.55, bottom=bottom, color=colour,
+               label=label, zorder=3)
+        bottom += np.asarray(share)
+    for i, total in enumerate(bottom):
+        ax.text(i, total + 1.2, f"{total:.0f}%", ha="center", fontsize=6.2)
+    ax.set_xticks(range(len(rhos)))
+    ax.set_xticklabels([rf"$\rho{{=}}{r}$" for r in rhos])
+    ax.set_ylabel("optical failures (% of packets)")
+    ax.set_ylim(0, max(bottom) * 1.25)
+    ax.legend(loc="upper right", fontsize=5.8, handlelength=1.1)
+    ax.set_title("(a) occlusion is the smallest cause, and falls with density",
+                 fontsize=6.6, pad=4)
+
+    # -- (b) where a selector would have to sit ------------------------------
+    template = headline_parameters()
+    slot = template.airtime_s / 3.0     # per-attempt slot from the 3-attempt profile
+
+    def feasible(coverage: float, error: float) -> bool:
+        for k in (0, 1, 2, 3):
+            for attempts in (2, 3, 4, 5, 6):
+                mean = coverage * k + (1.0 - coverage) * attempts
+                trial = replace(template, airtime_s=mean * slot,
+                                rf_usage_fraction=1.0)
+                if resource_demand(contenders, trial) > 1.0:
+                    continue
+                q = failure_probability(contenders, trial)
+                miss = (coverage * error * (q ** k if k else 1.0)
+                        + (1.0 - coverage) * q ** attempts)
+                if miss <= budget:
+                    return True
+        return False
+
+    cov = np.linspace(0.05, 0.98, 90)
+    err = np.logspace(-7, -1, 70)
+    grid = np.array([[feasible(c, e) for c in cov] for e in err], dtype=float)
+    bx.contourf(cov * 100.0, err, grid, levels=[0.5, 1.5], colors=[BOUND],
+                alpha=0.16)
+    bx.contour(cov * 100.0, err, grid, levels=[0.5], colors=[BOUND],
+               linewidths=0.9)
+    rules, ideal = _selector_points(density)
+    bx.plot([c * 100.0 for c, _ in rules], [e for _, e in rules], marker="o",
+            ms=3.0, lw=0.8, color=BUDGET, zorder=5,
+            label="threshold rules on separation and FOV")
+    if ideal is not None:
+        bx.plot(ideal[0] * 100.0, ideal[1], marker="*", ms=8.0, color=BOUND,
+                markeredgecolor="white", markeredgewidth=0.6, zorder=6,
+                label="selector that knows which packets light can carry")
+    bx.legend(loc="upper left", fontsize=5.6, handlelength=1.2,
+              framealpha=0.92, borderpad=0.35)
+    bx.set_yscale("log")
+    bx.set_xlabel("offload coverage (% of packets routed to light)")
+    bx.set_ylabel("selector error")
+    bx.set_title(rf"(b) $\rho{{=}}{density}$: no threshold rule reaches the "
+                 "feasible region", fontsize=6.6, pad=3)
+    style.save(fig, out)
+
+
 # --------------------------------------------------------------------------
 # Figure: the ceiling the radio cannot buy its way past
 # --------------------------------------------------------------------------
@@ -620,6 +781,7 @@ __all__ = [
     "optical_cliff",
     "feasibility_boundary",
     "pool_ceiling",
+    "realizability",
     "reliability_cost_frontier",
     "rf_failure_decomposition",
 ]

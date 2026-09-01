@@ -81,3 +81,12 @@ docs/report/*.log
 docs/report/*.out
 docs/report/*.toc
 artifacts/logs/
+
+# LaTeX build products; the sources under paper/ are tracked.
+paper/**/*.aux
+paper/**/*.log
+paper/**/*.out
+paper/**/*.bbl
+paper/**/*.blg
+paper/**/*.pdf
+!paper/**/figures/*.pdf

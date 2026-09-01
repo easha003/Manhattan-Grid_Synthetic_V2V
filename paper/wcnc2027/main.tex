@@ -1,0 +1,56 @@
+% IEEE WCNC 2027 submission.
+% HARD LIMIT: six (6) printed pages including references. Initial submissions
+% longer than six pages are rejected without review. Final versions may run to
+% eight, at US$100 per page for pages 7-8.
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{rotating}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+
+\sisetup{detect-all, per-mode=symbol}
+
+\begin{document}
+
+\title{The Sidelink Resource Pool, Not the Link Budget,\\
+       Limits Hybrid RF/VLC Reliability in Urban V2V}
+
+\author{\IEEEauthorblockN{Eashraque}
+\IEEEauthorblockA{\textit{Affiliation} \\
+\textit{Institution}\\
+City, Country \\
+easha003eee@gmail.com}}
+
+\maketitle
+
+\begin{abstract}
+% TODO. Write last, once Section V is settled. Roughly 150-200 words.
+% Must land: (i) the eV2X 1e-5 row is pool-limited, not link-budget-limited;
+% (ii) neither medium alone meets it above rho ~ 17-18; (iii) the optical link
+% earns its place by relieving the pool, not by adding diversity -- duplication
+% costs twice as much and is eight times worse; (iv) measured over 20.9M
+% packets with bootstrap bounds.
+\end{abstract}
+
+\begin{IEEEkeywords}
+V2V, NR sidelink, visible light communication, resource allocation,
+ultra-reliable low-latency communication.
+\end{IEEEkeywords}
+
+% ---------------------------------------------------------------------------
+\input{sections/01_introduction}
+\input{sections/02_system_model}
+\input{sections/03_allocation}
+\input{sections/04_results}
+\input{sections/05_conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}
